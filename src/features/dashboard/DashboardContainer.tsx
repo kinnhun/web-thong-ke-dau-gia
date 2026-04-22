@@ -70,7 +70,7 @@ export function DashboardContainer() {
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Tổng quan</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Cập nhật {formatRelativeDays(new Date().toISOString()).toLowerCase()} · Dữ liệu từ nguồn công khai
+            Cập nhật hôm nay · Dữ liệu từ nguồn công khai
           </p>
         </div>
         <div className="flex gap-2">

@@ -31,17 +31,17 @@ export function AlertsContainer() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="container mx-auto max-w-[1200px] px-6 py-8 space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="container mx-auto max-w-[1200px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Bell className="h-6 w-6 text-watch-badge" />
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-watch-badge" />
             Thông Báo & bộ lọc đã lưu
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Tự động theo dõi và nhận thông báo khi có tài sản phù hợp</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Tự động theo dõi và nhận thông báo khi có tài sản phù hợp</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4" />Tạo Thông Báo</Button></DialogTrigger>
+          <DialogTrigger asChild><Button size="sm" className="w-full sm:w-auto"><Plus className="h-4 w-4" />Tạo Thông Báo</Button></DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Tạo Thông Báo mới</DialogTitle>
@@ -93,31 +93,36 @@ export function AlertsContainer() {
 
         <TabsContent value="alerts" className="space-y-3">
           {alerts.map((a) => (
-            <div key={a.name} className="rounded-xl border bg-card p-4 flex items-center gap-4">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${a.on ? "bg-watch-badge-soft text-watch-badge" : "bg-secondary text-muted-foreground"}`}>
-                <Bell className="h-5 w-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium">{a.name}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{a.condition}</div>
-                <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                  <span>Gửi gần nhất: {a.lastSent}</span><span>·</span>
-                  <div className="flex items-center gap-1.5">
-                    {a.channel.map((c) => {
-                      const Icon = channelIcon[c as keyof typeof channelIcon];
-                      return (
-                        <span key={c} className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5">
-                          <Icon className="h-3 w-3" />{channelLabel[c as keyof typeof channelLabel]}
-                        </span>
-                      );
-                    })}
+            <div key={a.name} className="rounded-xl border bg-card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto flex-1">
+                <div className={`flex shrink-0 h-10 w-10 items-center justify-center rounded-lg ${a.on ? "bg-watch-badge-soft text-watch-badge" : "bg-secondary text-muted-foreground"}`}>
+                  <Bell className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm sm:text-base">{a.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{a.condition}</div>
+                  <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px] sm:text-xs text-muted-foreground">
+                    <span>Gửi gần nhất: {a.lastSent}</span><span className="hidden sm:inline">·</span>
+                    <div className="flex items-center gap-1.5">
+                      {a.channel.map((c) => {
+                        const Icon = channelIcon[c as keyof typeof channelIcon];
+                        return (
+                          <span key={c} className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5">
+                            <Icon className="h-3 w-3" />{channelLabel[c as keyof typeof channelLabel]}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch defaultChecked={a.on} />
-                <Button variant="ghost" size="icon" className="h-8 w-8"><Pencil className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button>
+              <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 w-full sm:w-auto">
+                <div className="flex items-center gap-2 sm:hidden text-xs text-muted-foreground font-medium">Trạng thái:</div>
+                <div className="flex items-center gap-2">
+                  <Switch defaultChecked={a.on} className="mr-2 sm:mr-0" />
+                  <Button variant="ghost" size="icon" className="h-8 w-8"><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                </div>
               </div>
             </div>
           ))}
@@ -125,15 +130,17 @@ export function AlertsContainer() {
 
         <TabsContent value="filters" className="space-y-3">
           {savedFilters.map((f) => (
-            <div key={f.name} className="rounded-xl border bg-card p-4 flex items-center gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary"><Bookmark className="h-5 w-5 text-muted-foreground" /></div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium">{f.name}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{f.condition}</div>
-                <div className="text-xs text-muted-foreground mt-1">Tạo {f.created} · <span className="text-foreground font-medium num">{f.matches}</span> tài sản đang khớp</div>
+            <div key={f.name} className="rounded-xl border bg-card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto flex-1">
+                <div className="flex shrink-0 h-10 w-10 items-center justify-center rounded-lg bg-secondary"><Bookmark className="h-5 w-5 text-muted-foreground" /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm sm:text-base">{f.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{f.condition}</div>
+                  <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Tạo {f.created} · <span className="text-foreground font-medium num">{f.matches}</span> tài sản đang khớp</div>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <Button variant="outline" size="sm"><Play className="h-3.5 w-3.5" />Chạy</Button>
+              <div className="flex items-center justify-end gap-1 border-t sm:border-t-0 pt-3 sm:pt-0 w-full sm:w-auto">
+                <Button variant="outline" size="sm" className="mr-auto sm:mr-0 text-xs"><Play className="h-3.5 w-3.5" /><span className="hidden sm:inline">Chạy</span></Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8"><Pencil className="h-4 w-4" /></Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8"><Copy className="h-4 w-4" /></Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button>

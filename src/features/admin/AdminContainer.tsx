@@ -35,17 +35,17 @@ const levelColor = { error: "text-destructive", warning: "text-watch-badge", inf
 
 export function AdminContainer() {
   return (
-    <div className="container mx-auto max-w-[1400px] px-6 py-8 space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="container mx-auto max-w-[1400px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Database className="h-6 w-6 text-primary" />Quản trị dữ liệu
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <Database className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />Quản trị dữ liệu
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Crawler, chuẩn hóa, ghép tài sản và xử lý lỗi</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Crawler, chuẩn hóa, ghép tài sản và xử lý lỗi</p>
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         {[
           { icon: RefreshCw, title: "Crawl ngay", desc: "Thu thập tin mới" },
           { icon: Database, title: "Đồng bộ dữ liệu", desc: "Sync từ nguồn" },
@@ -53,10 +53,10 @@ export function AdminContainer() {
           { icon: GitMerge, title: "Tính lại thống kê", desc: "Recalc KPI" },
           { icon: Eye, title: "Tạo lại chỉ mục", desc: "Search index" },
         ].map((item) => (
-          <button key={item.title} className="rounded-xl border bg-card p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer">
-            <item.icon className="h-5 w-5 text-primary mb-2" />
-            <div className="font-medium text-sm">{item.title}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{item.desc}</div>
+          <button key={item.title} className="rounded-xl border bg-card p-3 sm:p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer">
+            <item.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2" />
+            <div className="font-medium text-[13px] sm:text-sm">{item.title}</div>
+            <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{item.desc}</div>
           </button>
         ))}
       </section>
@@ -70,7 +70,7 @@ export function AdminContainer() {
 
         <TabsContent value="raw">
           <div className="rounded-xl border bg-card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[700px]">
               <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium">ID nguồn</th>
@@ -104,7 +104,7 @@ export function AdminContainer() {
 
         <TabsContent value="groups">
           <div className="rounded-xl border bg-card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[700px]">
               <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium">Group ID</th>
@@ -141,25 +141,25 @@ export function AdminContainer() {
 
         <TabsContent value="logs">
           <div className="rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-3">
+            <div className="flex items-center justify-between border-b px-3 sm:px-5 py-3">
               <h3 className="font-semibold text-sm">Nhật ký gần đây</h3>
-              <Button variant="outline" size="sm"><Download className="h-3.5 w-3.5" />Xuất log</Button>
+              <Button variant="outline" size="sm" className="text-xs h-7 sm:h-9"><Download className="h-3.5 w-3.5" /><span className="hidden sm:inline">Xuất log</span></Button>
             </div>
             <div className="divide-y">
               {logs.map((l, i) => {
                 const Icon = levelIcon[l.level as keyof typeof levelIcon];
                 return (
-                  <div key={i} className="flex items-start gap-3 px-5 py-3">
-                    <Icon className={`h-4 w-4 mt-0.5 ${levelColor[l.level as keyof typeof levelColor]}`} />
+                  <div key={i} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-5 py-3">
+                    <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${levelColor[l.level as keyof typeof levelColor]}`} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
                         <span className="font-mono">{l.time}</span>
                         <span className="rounded bg-secondary px-1.5 py-0.5">{l.module}</span>
                         {l.handled && <span className="text-new-badge">đã xử lý</span>}
                       </div>
-                      <div className="text-sm mt-0.5">{l.message}</div>
+                      <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">{l.message}</div>
                     </div>
-                    {!l.handled && <Button variant="outline" size="sm">Đánh dấu</Button>}
+                    {!l.handled && <Button variant="outline" size="sm" className="text-xs h-7 sm:h-9 shrink-0">Đánh dấu</Button>}
                   </div>
                 );
               })}

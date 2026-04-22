@@ -9,7 +9,7 @@ export default function Document() {
           rel="stylesheet"
         />
       </Head>
-      <body className="antialiased">
+      <body className="antialiased overflow-x-hidden">
         <Main />
         <NextScript />
       </body>
