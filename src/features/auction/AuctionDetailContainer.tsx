@@ -59,7 +59,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   );
 
   return (
-    <div className="container mx-auto max-w-[1300px] px-6 py-8">
+    <div className="container mx-auto max-w-[1300px] px-3 sm:px-6 py-5 sm:py-8">
       <div className="mb-4">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/discounts"><ArrowLeft className="h-4 w-4" />Quay lại danh sách</Link>
@@ -86,7 +86,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
               </span>
             )}
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{auction.name}</h1>
+          <h1 className="text-lg sm:text-2xl font-semibold tracking-tight">{auction.name}</h1>
           <p className="text-sm text-muted-foreground mt-1">{auction.shortDescription}</p>
           <p className="text-xs text-muted-foreground mt-2 num">Mã nhóm: {auction.groupId}</p>
         </div>
@@ -104,26 +104,26 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
       </div>
 
       {/* Price analysis */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4 mb-6">
-        <div className="rounded-xl border bg-card p-5">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Giá lần đầu</p>
-          <p className="text-xl font-semibold num mt-1.5 text-muted-foreground line-through">{formatVND(auction.initialPrice)}</p>
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 mb-4 sm:mb-6">
+        <div className="rounded-xl border bg-card p-3 sm:p-5">
+          <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide font-medium">Giá lần đầu</p>
+          <p className="text-base sm:text-xl font-semibold num mt-1 sm:mt-1.5 text-muted-foreground line-through">{formatVND(auction.initialPrice)}</p>
         </div>
-        <div className="rounded-xl border bg-card p-5">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Giá hiện tại</p>
-          <p className="text-xl font-semibold num mt-1.5">{formatVND(auction.currentPrice)}</p>
+        <div className="rounded-xl border bg-card p-3 sm:p-5">
+          <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide font-medium">Giá hiện tại</p>
+          <p className="text-base sm:text-xl font-semibold num mt-1 sm:mt-1.5">{formatVND(auction.currentPrice)}</p>
         </div>
-        <div className="rounded-xl border bg-discount-deep-soft p-5">
-          <p className="text-xs text-discount-deep uppercase tracking-wide font-medium">Mức giảm tuyệt đối</p>
-          <p className="text-xl font-semibold num mt-1.5 text-discount-deep">−{formatVND(amt)}</p>
+        <div className="rounded-xl border bg-discount-deep-soft p-3 sm:p-5">
+          <p className="text-[10px] sm:text-xs text-discount-deep uppercase tracking-wide font-medium">Mức giảm tuyệt đối</p>
+          <p className="text-base sm:text-xl font-semibold num mt-1 sm:mt-1.5 text-discount-deep">−{formatVND(amt)}</p>
         </div>
-        <div className="rounded-xl border bg-discount-deep-soft p-5">
-          <p className="text-xs text-discount-deep uppercase tracking-wide font-medium">Tỷ lệ giảm</p>
-          <p className="text-xl font-semibold num mt-1.5 text-discount-deep">−{pct.toFixed(1)}%</p>
+        <div className="rounded-xl border bg-discount-deep-soft p-3 sm:p-5">
+          <p className="text-[10px] sm:text-xs text-discount-deep uppercase tracking-wide font-medium">Tỷ lệ giảm</p>
+          <p className="text-base sm:text-xl font-semibold num mt-1 sm:mt-1.5 text-discount-deep">−{pct.toFixed(1)}%</p>
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 mb-6">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 mb-4 sm:mb-6">
         <div className="rounded-xl border bg-card p-4">
           <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Số lần đấu giá</p><History className="h-4 w-4 text-muted-foreground" /></div>
           <p className="text-lg font-semibold num mt-1">{auction.rounds} lần</p>
@@ -139,8 +139,8 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
       </section>
 
       {/* Two column */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-xl border bg-card p-6">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-xl border bg-card p-4 sm:p-6">
           <h2 className="font-semibold mb-4">Thông tin tài sản</h2>
           <InfoRow icon={MapPin} label="Địa chỉ tài sản" value={auction.address} />
           <InfoRow icon={User} label="Người có tài sản" value={auction.owner} />

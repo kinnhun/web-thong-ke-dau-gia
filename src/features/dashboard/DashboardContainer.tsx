@@ -65,20 +65,21 @@ export function DashboardContainer() {
   ).length;
 
   return (
-    <div className="container mx-auto max-w-[1400px] space-y-8 px-6 py-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="container mx-auto max-w-[1400px] space-y-6 sm:space-y-8 px-4 sm:px-6 py-5 sm:py-8">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Tổng quan</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Tổng quan</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             Cập nhật {formatRelativeDays(new Date().toISOString()).toLowerCase()} · Dữ liệu từ nguồn công khai
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className="text-xs sm:text-sm">
             <FileBarChart className="h-4 w-4" />
-            Xuất báo cáo
+            <span className="hidden sm:inline">Xuất báo cáo</span>
+            <span className="sm:hidden">Xuất</span>
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" asChild className="text-xs sm:text-sm">
             <Link href="/discounts">
               Xem giảm sâu <ArrowRight className="h-4 w-4" />
             </Link>
@@ -87,7 +88,7 @@ export function DashboardContainer() {
       </header>
 
       {/* KPIs */}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <KpiCard
           label="Tài sản đang theo dõi"
           value={auctions.length.toString()}
@@ -121,21 +122,21 @@ export function DashboardContainer() {
 
       {/* Charts */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-xl border bg-card p-5">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-2 rounded-xl border bg-card p-3 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
-              <h2 className="font-semibold">Xu hướng giảm giá</h2>
+              <h2 className="font-semibold text-sm sm:text-base">Xu hướng giảm giá</h2>
               <p className="text-xs text-muted-foreground">Số tài sản & mức giảm trung bình theo ngày</p>
             </div>
             <Tabs defaultValue="14d">
-              <TabsList className="h-8">
-                <TabsTrigger value="7d" className="text-xs h-6">7 ngày</TabsTrigger>
-                <TabsTrigger value="14d" className="text-xs h-6">14 ngày</TabsTrigger>
-                <TabsTrigger value="30d" className="text-xs h-6">30 ngày</TabsTrigger>
+              <TabsList className="h-7 sm:h-8">
+                <TabsTrigger value="7d" className="text-[10px] sm:text-xs h-5 sm:h-6 px-2">7 ngày</TabsTrigger>
+                <TabsTrigger value="14d" className="text-[10px] sm:text-xs h-5 sm:h-6 px-2">14 ngày</TabsTrigger>
+                <TabsTrigger value="30d" className="text-[10px] sm:text-xs h-5 sm:h-6 px-2">30 ngày</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
-          <div className="h-64">
+          <div className="h-48 sm:h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trendData} margin={{ left: -10, right: 5, top: 5, bottom: 0 }}>
                 <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
@@ -196,7 +197,7 @@ export function DashboardContainer() {
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[800px]">
             <thead className="text-xs text-muted-foreground border-b">
               <tr>
                 <th className="px-5 py-2.5 text-left font-medium w-10">#</th>
@@ -247,7 +248,7 @@ export function DashboardContainer() {
             <h2 className="font-semibold">Tài sản mới giảm giá</h2>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {newest.map((a) => (
             <Link
               key={a.id}

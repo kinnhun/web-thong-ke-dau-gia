@@ -79,15 +79,15 @@ export function ReportsContainer() {
   const topByAmt = [...discounted].sort((a, b) => getDiscountAmount(b) - getDiscountAmount(a)).slice(0, 5);
 
   return (
-    <div className="container mx-auto max-w-[1400px] px-6 py-8 space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="container mx-auto max-w-[1400px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Báo cáo thị trường</h1>
-          <p className="text-sm text-muted-foreground mt-1">Phân tích xu hướng đấu giá theo khu vực, loại tài sản và thời gian</p>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Báo cáo thị trường</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Phân tích xu hướng đấu giá theo khu vực, loại tài sản và thời gian</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Select defaultValue="30d">
-            <SelectTrigger className="w-[150px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[120px] sm:w-[150px] h-9 text-xs sm:text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7d">7 ngày</SelectItem>
               <SelectItem value="30d">30 ngày</SelectItem>
@@ -95,15 +95,15 @@ export function ReportsContainer() {
               <SelectItem value="1y">1 năm</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm"><FileText className="h-4 w-4" />Xuất PDF</Button>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4" />Xuất Excel</Button>
+          <Button variant="outline" size="sm" className="text-xs"><FileText className="h-4 w-4" /><span className="hidden sm:inline">Xuất PDF</span></Button>
+          <Button variant="outline" size="sm" className="text-xs"><Download className="h-4 w-4" /><span className="hidden sm:inline">Xuất Excel</span></Button>
         </div>
       </header>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-center gap-2 mb-4"><MapPin className="h-4 w-4 text-primary" /><h2 className="font-semibold">Top tỉnh có nhiều tài sản giảm giá</h2></div>
-          <div className="h-72">
+        <div className="rounded-xl border bg-card p-3 sm:p-5">
+          <div className="flex items-center gap-2 mb-4"><MapPin className="h-4 w-4 text-primary" /><h2 className="font-semibold text-sm sm:text-base">Top tỉnh có nhiều tài sản giảm giá</h2></div>
+          <div className="h-56 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byProvince} layout="vertical" margin={{ left: 80 }}>
                 <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" horizontal={false} />
@@ -116,9 +116,9 @@ export function ReportsContainer() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-center gap-2 mb-4"><Package className="h-4 w-4 text-discount-deep" /><h2 className="font-semibold">Tỷ trọng theo loại tài sản</h2></div>
-          <div className="h-72">
+        <div className="rounded-xl border bg-card p-3 sm:p-5">
+          <div className="flex items-center gap-2 mb-4"><Package className="h-4 w-4 text-discount-deep" /><h2 className="font-semibold text-sm sm:text-base">Tỷ trọng theo loại tài sản</h2></div>
+          <div className="h-56 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={byType} dataKey="count" nameKey="type" outerRadius={90} label={{ fontSize: 11 }}>
@@ -132,9 +132,9 @@ export function ReportsContainer() {
         </div>
       </section>
 
-      <div className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold mb-4">Xu hướng theo tháng</h2>
-        <div className="h-72">
+      <div className="rounded-xl border bg-card p-3 sm:p-5">
+        <h2 className="font-semibold text-sm sm:text-base mb-4">Xu hướng theo tháng</h2>
+        <div className="h-56 sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={monthly} margin={{ left: -10, right: 10 }}>
               <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
@@ -151,9 +151,9 @@ export function ReportsContainer() {
       </div>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border bg-card">
-          <div className="border-b px-5 py-4"><h2 className="font-semibold">Top theo % giảm</h2></div>
-          <table className="w-full text-sm">
+        <div className="rounded-xl border bg-card overflow-x-auto">
+          <div className="border-b px-4 sm:px-5 py-3 sm:py-4"><h2 className="font-semibold text-sm sm:text-base">Top theo % giảm</h2></div>
+          <table className="w-full text-sm min-w-[400px]">
             <tbody>
               {topByPct.map((a, i) => (
                 <tr key={a.id} className="border-b last:border-0">
@@ -165,9 +165,9 @@ export function ReportsContainer() {
             </tbody>
           </table>
         </div>
-        <div className="rounded-xl border bg-card">
-          <div className="border-b px-5 py-4"><h2 className="font-semibold">Top theo số tiền giảm</h2></div>
-          <table className="w-full text-sm">
+        <div className="rounded-xl border bg-card overflow-x-auto">
+          <div className="border-b px-4 sm:px-5 py-3 sm:py-4"><h2 className="font-semibold text-sm sm:text-base">Top theo số tiền giảm</h2></div>
+          <table className="w-full text-sm min-w-[400px]">
             <tbody>
               {topByAmt.map((a, i) => (
                 <tr key={a.id} className="border-b last:border-0">

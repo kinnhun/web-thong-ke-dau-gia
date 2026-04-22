@@ -115,28 +115,28 @@ export function DiscountsContainer() {
   };
 
   return (
-    <div className="container mx-auto max-w-[1500px] space-y-6 px-6 py-8">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="container mx-auto max-w-[1500px] space-y-4 sm:space-y-6 px-3 sm:px-6 py-5 sm:py-8">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <TrendingDown className="h-6 w-6 text-discount-deep" />
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <TrendingDown className="h-5 w-5 sm:h-6 sm:w-6 text-discount-deep" />
             Tài sản giảm giá
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             Xếp hạng theo tỷ lệ giảm từ dữ liệu lịch sử đấu giá · {filtered.length.toLocaleString("vi-VN")} tài sản
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm"><Bookmark className="h-4 w-4" />Lưu bộ lọc</Button>
-          <Button variant="outline" size="sm"><Bell className="h-4 w-4" />Tạo Thông Báo</Button>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4" />Xuất Excel</Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" className="text-xs"><Bookmark className="h-4 w-4" /><span className="hidden sm:inline">Lưu bộ lọc</span></Button>
+          <Button variant="outline" size="sm" className="text-xs"><Bell className="h-4 w-4" /><span className="hidden sm:inline">Tạo Thông Báo</span></Button>
+          <Button variant="outline" size="sm" className="text-xs"><Download className="h-4 w-4" /><span className="hidden sm:inline">Xuất Excel</span></Button>
         </div>
       </header>
 
       {/* Filters */}
-      <div className="rounded-xl border bg-card p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <div className="lg:col-span-2 xl:col-span-2 space-y-1.5">
+      <div className="rounded-xl border bg-card p-3 sm:p-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="col-span-2 space-y-1.5">
             <Label className="text-xs">Từ khóa</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -212,7 +212,7 @@ export function DiscountsContainer() {
             </Select>
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between border-t pt-3">
+        <div className="mt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-t pt-3">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Filter className="h-3.5 w-3.5" />Lọc nâng cao có thể được lưu để sử dụng lại
           </div>
@@ -241,7 +241,7 @@ export function DiscountsContainer() {
       {/* Results */}
       {view === "table" ? (
         <div className="rounded-xl border bg-card overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[900px]">
             <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
               <tr>
                 <th className="px-4 py-2.5 w-8"><Checkbox /></th>
@@ -301,7 +301,7 @@ export function DiscountsContainer() {
           </table>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {paged.map((a) => (
             <Link key={a.id} href={`/auction/${a.id}`} className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20">
               <div className="flex items-start justify-between mb-3">

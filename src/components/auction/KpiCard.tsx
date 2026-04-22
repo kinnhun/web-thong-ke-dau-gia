@@ -26,15 +26,15 @@ const iconStyles = {
 
 export const KpiCard = ({ label, value, hint, trend, icon: Icon, accent = "default" }: KpiCardProps) => (
   <div className={cn(
-    "rounded-xl border bg-card p-5 transition-colors hover:border-foreground/20",
+    "rounded-xl border bg-card p-3 sm:p-5 transition-colors hover:border-foreground/20",
     accentStyles[accent]
   )}>
     <div className="flex items-start justify-between">
       <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
           {label}
         </p>
-        <p className="text-2xl font-semibold num text-foreground">{value}</p>
+        <p className="text-lg sm:text-2xl font-semibold num text-foreground">{value}</p>
       </div>
       {Icon && (
         <div className={cn("rounded-lg p-2", iconStyles[accent])}>
@@ -43,7 +43,7 @@ export const KpiCard = ({ label, value, hint, trend, icon: Icon, accent = "defau
       )}
     </div>
     {(hint || trend) && (
-      <div className="mt-3 flex items-center gap-2 text-xs">
+      <div className="mt-2 sm:mt-3 flex items-center gap-2 text-[10px] sm:text-xs">
         {trend && (
           <span className={cn(
             "inline-flex items-center gap-0.5 font-medium num",
