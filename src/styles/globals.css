@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+/*
+ * Design System – AuctionWatch
+ * All colors are HSL, mapped to CSS custom properties.
+ * Tailwind v4: use @theme for token registration, @layer base for defaults.
+ */
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Auction semantic colors */
+  --color-discount-deep: hsl(var(--discount-deep));
+  --color-discount-deep-foreground: hsl(var(--discount-deep-foreground));
+  --color-discount-deep-soft: hsl(var(--discount-deep-soft));
+  --color-discount-mid: hsl(var(--discount-mid));
+  --color-discount-mid-foreground: hsl(var(--discount-mid-foreground));
+  --color-discount-mid-soft: hsl(var(--discount-mid-soft));
+  --color-discount-light: hsl(var(--discount-light));
+  --color-discount-light-foreground: hsl(var(--discount-light-foreground));
+  --color-discount-light-soft: hsl(var(--discount-light-soft));
+  --color-new-badge: hsl(var(--new-badge));
+  --color-new-badge-soft: hsl(var(--new-badge-soft));
+  --color-watch-badge: hsl(var(--watch-badge));
+  --color-watch-badge-soft: hsl(var(--watch-badge-soft));
+  --color-neutral-badge: hsl(var(--neutral-badge));
+  --color-neutral-badge-soft: hsl(var(--neutral-badge-soft));
+
+  /* Sidebar */
+  --color-sidebar-background: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  /* Sidebar as component token (for sidebar.tsx) */
+  --color-sidebar: hsl(var(--sidebar-background));
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ─── Light mode (default) ─── */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 25% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 25% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 25% 12%;
+
+  --primary: 222 47% 18%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 222 25% 12%;
+
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+
+  --accent: 220 14% 96%;
+  --accent-foreground: 222 25% 12%;
+
+  /* Auction semantic */
+  --discount-deep: 0 78% 52%;
+  --discount-deep-foreground: 0 0% 100%;
+  --discount-deep-soft: 0 90% 96%;
+
+  --discount-mid: 25 95% 53%;
+  --discount-mid-foreground: 0 0% 100%;
+  --discount-mid-soft: 30 100% 95%;
+
+  --discount-light: 45 93% 47%;
+  --discount-light-foreground: 30 25% 15%;
+  --discount-light-soft: 48 100% 94%;
+
+  --new-badge: 142 71% 38%;
+  --new-badge-soft: 142 60% 94%;
+
+  --watch-badge: 262 60% 52%;
+  --watch-badge-soft: 262 70% 96%;
+
+  --neutral-badge: 220 9% 46%;
+  --neutral-badge-soft: 220 14% 94%;
+
+  --destructive: 0 78% 52%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 222 47% 18%;
+
+  --radius: 0.625rem;
+
+  /* Sidebar */
+  --sidebar-background: 220 20% 98%;
+  --sidebar-foreground: 222 20% 25%;
+  --sidebar-primary: 222 47% 18%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 14% 94%;
+  --sidebar-accent-foreground: 222 25% 12%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 222 47% 18%;
+}
+
+/* ─── Dark mode ─── */
+.dark {
+  --background: 222 30% 8%;
+  --foreground: 210 20% 96%;
+  --card: 222 28% 11%;
+  --card-foreground: 210 20% 96%;
+  --popover: 222 28% 11%;
+  --popover-foreground: 210 20% 96%;
+  --primary: 210 20% 96%;
+  --primary-foreground: 222 47% 18%;
+  --secondary: 222 22% 16%;
+  --secondary-foreground: 210 20% 96%;
+  --muted: 222 22% 16%;
+  --muted-foreground: 220 9% 65%;
+  --accent: 222 22% 16%;
+  --accent-foreground: 210 20% 96%;
+  --discount-deep-soft: 0 50% 18%;
+  --discount-mid-soft: 25 50% 18%;
+  --discount-light-soft: 45 50% 18%;
+  --new-badge-soft: 142 40% 16%;
+  --watch-badge-soft: 262 40% 20%;
+  --neutral-badge-soft: 222 22% 18%;
+  --destructive: 0 70% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 222 22% 18%;
+  --input: 222 22% 18%;
+  --ring: 210 20% 96%;
+  --sidebar-background: 222 30% 8%;
+  --sidebar-foreground: 210 20% 90%;
+  --sidebar-primary: 210 20% 96%;
+  --sidebar-primary-foreground: 222 47% 18%;
+  --sidebar-accent: 222 22% 14%;
+  --sidebar-accent-foreground: 210 20% 96%;
+  --sidebar-border: 222 22% 16%;
+  --sidebar-ring: 210 20% 96%;
+}
+
+/* ─── Base resets ─── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
+  }
+}
+
+/* ─── Utility: tabular nums ─── */
+@utility num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ─── Animations for Radix UI ─── */
+@theme inline {
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+}
