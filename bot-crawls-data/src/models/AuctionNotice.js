@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 
 /**
  * Schema lưu thông báo đấu giá (Thông báo công khai việc đấu giá)
- * Map với Auction interface trong mockAuctions.ts
  */
 const priceHistorySchema = new mongoose.Schema({
   round: Number,
@@ -21,9 +20,9 @@ const auctionNoticeSchema = new mongoose.Schema({
   slug: String,
 
   // Map với Auction interface
-  name: { type: String, index: true },             // propertyName
-  shortDescription: String,                         // subPropertyName
-  type: {                                           // AssetType
+  name: { type: String, index: true },
+  shortDescription: String,
+  type: {
     type: String,
     enum: ['land', 'house', 'car', 'machinery', 'enforcement', 'public', 'other'],
     default: 'other',
@@ -72,7 +71,6 @@ const auctionNoticeSchema = new mongoose.Schema({
     default: 'unknown',
     index: true,
   },
-  isDuplicateSuspect: { type: Boolean, default: false },
 
   // Attached files
   files: [{
@@ -80,8 +78,11 @@ const auctionNoticeSchema = new mongoose.Schema({
     url: String
   }],
 
-  // Sample ID to group identical names
-  sampleId: { type: mongoose.Schema.Types.ObjectId, ref: 'AuctionSample', index: true },
+  // Publish round info (từ API pageAuctionInfoPublish2)
+  publishRound: { type: Number, default: 1 },    // Đăng lần thứ mấy
+  publishRoundLabel: String,                       // "Thông báo công khai lần 1"
+  rootId: Number,                                  // ID gốc (rootID từ API)
+  relatedIds: [Number],                            // Tất cả IDs liên quan (các lần đăng)
 
   // Crawl tracking
   detailScraped: { type: Boolean, default: false },

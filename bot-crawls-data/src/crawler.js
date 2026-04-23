@@ -1,18 +1,18 @@
 /**
- * Bot cào dữ liệu đấu giá từ dgts.moj.gov.vn
+ * Bot cào dữ liệu đấu giá từ dgts.moj.gov.vn (v2)
  *
  * Sử dụng:
- *   node src/crawler.js                    # Cào tất cả
+ *   node src/crawler.js                    # Cào tất cả (list + detail + sample)
  *   node src/crawler.js --type=auction     # Chỉ cào thông báo đấu giá
  *   node src/crawler.js --type=org         # Chỉ cào lựa chọn tổ chức
- *   node src/crawler.js --type=detail      # Chỉ cào chi tiết
+ *   node src/crawler.js --type=redetail    # Re-crawl detail cho items chưa có
  *   node src/crawler.js --maxPages=5       # Giới hạn số trang
  */
 const { connectDB } = require('./db');
 const { closeBrowser } = require('./browser');
 const { crawlAuctionNotices } = require('./scrapers/auctionNotice.scraper');
 const { crawlOrgSelections } = require('./scrapers/orgSelection.scraper');
-const { crawlDetails } = require('./scrapers/detail.scraper');
+const { crawlDetails, crawlOrgDetails } = require('./scrapers/detail.scraper');
 
 function parseArgs() {
   const args = {};
@@ -32,8 +32,8 @@ async function main() {
   const maxItems = args.maxItems ? parseInt(args.maxItems) : 100;
 
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║   🤖 BOT CÀO DỮ LIỆU ĐẤU GIÁ          ║');
-  console.log('║   Nguồn: dgts.moj.gov.vn                ║');
+  console.log('║   🤖 BOT CÀO DỮ LIỆU ĐẤU GIÁ v2       ║');
+  console.log('║   Mode: List + Detail + Sample           ║');
   console.log('╚══════════════════════════════════════════╝');
   console.log(`\n⚙️  Type: ${type} | MaxPages: ${maxPages || 'unlimited'} | StartPage: ${startPage}`);
 
@@ -44,23 +44,24 @@ async function main() {
   try {
     if (type === 'all' || type === 'auction') {
       console.log('\n' + '═'.repeat(50));
-      console.log('📋 PHẦN 1: Thông báo công khai việc đấu giá');
+      console.log('📋 Thông báo công khai việc đấu giá (list + detail + sample)');
       console.log('═'.repeat(50));
       await crawlAuctionNotices({ maxPages, startPage, pageSize });
     }
 
     if (type === 'all' || type === 'org') {
       console.log('\n' + '═'.repeat(50));
-      console.log('🏢 PHẦN 2: Thông báo lựa chọn tổ chức đấu giá');
+      console.log('🏢 Lựa chọn tổ chức đấu giá (list + detail + sample)');
       console.log('═'.repeat(50));
       await crawlOrgSelections({ maxPages, startPage, pageSize });
     }
 
-    if (type === 'all' || type === 'detail') {
+    if (type === 'redetail') {
       console.log('\n' + '═'.repeat(50));
-      console.log('🔍 PHẦN 3: Cào chi tiết từng thông báo');
+      console.log('🔍 Re-crawl detail cho items chưa có');
       console.log('═'.repeat(50));
       await crawlDetails({ maxItems });
+      await crawlOrgDetails({ maxItems });
     }
   } catch (err) {
     console.error('\n💥 Lỗi nghiêm trọng:', err.message);

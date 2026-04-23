@@ -1,63 +1,49 @@
+/**
+ * Scraper: Thông báo lựa chọn tổ chức đấu giá
+ * List + Detail (all-in-one)
+ */
 const config = require('../config');
 const { fetchAPI } = require('../browser');
 const OrgSelection = require('../models/OrgSelection');
-const AuctionSample = require('../models/AuctionSample');
 const CrawlLog = require('../models/CrawlLog');
+const { fetchOrgItemDetail } = require('./detail.scraper');
 const { slugify, parseDate, extractProvince, delay } = require('../utils/helpers');
 
 const BASE = config.baseUrl;
 const API = config.endpoints.orgSelectionList;
 const SKIP_THRESHOLD = config.crawl.skipThreshold;
 
-/**
- * Cào danh sách thông báo lựa chọn tổ chức đấu giá
- * 
- * Logic early-stop: dừng khi gặp 20 bản cũ liên tiếp
- */
 async function crawlOrgSelections(options = {}) {
   const pageSize = options.pageSize || config.crawl.pageSize;
   const startPage = options.startPage || 1;
   const maxPages = options.maxPages || config.crawl.maxPages;
+  const isAuto = options.isAuto || false;
 
   const log = await CrawlLog.create({
-    type: 'org_selection',
-    startedAt: new Date(),
-    itemsInserted: 0,
-    itemsUpdated: 0,
-    itemsSkipped: 0,
-    pagesProcessed: 0,
-    errorMessages: [],
+    type: 'org_selection', startedAt: new Date(),
+    itemsInserted: 0, itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
   });
 
   let currentPage = startPage;
   let totalPages = 1;
-  let stats = { inserted: 0, updated: 0, skipped: 0, errors: 0 };
+  let stats = { inserted: 0, updated: 0, skipped: 0, errors: 0, detailOk: 0 };
   let consecutiveOld = 0;
   let earlyStop = false;
 
-  console.log(`\n🚀 Bắt đầu cào Thông báo lựa chọn tổ chức từ trang ${startPage}...`);
-  console.log(`   ⚡ Early-stop: dừng khi gặp ${SKIP_THRESHOLD} bản cũ liên tiếp`);
+  console.log(`\n🚀 Cào Lựa Chọn Tổ Chức ĐG từ trang ${startPage}...`);
 
   try {
     const firstRes = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize });
-    if (!firstRes || !firstRes.items) throw new Error('Không thể fetch trang đầu tiên');
+    if (!firstRes || !firstRes.items) throw new Error('Không thể fetch trang đầu');
 
     totalPages = firstRes.pageCount || 1;
-    const totalItems = firstRes.rowCount || 0;
     if (maxPages > 0) totalPages = Math.min(totalPages, maxPages + startPage - 1);
+    console.log(`📊 Server: ${firstRes.rowCount} items, ${totalPages} pages`);
 
-    console.log(`📊 Tổng trên server: ${totalItems} items, ${totalPages} pages`);
-    log.totalPages = totalPages;
-
-    const firstResult = await processItems(firstRes.items, stats);
-    consecutiveOld = firstResult.consecutiveOld;
+    const r = await processItems(firstRes.items, stats, { isAuto, consecutiveOld });
+    consecutiveOld = r.consecutiveOld;
+    if (isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
     log.pagesProcessed = 1;
-
-    if (consecutiveOld >= SKIP_THRESHOLD) {
-      earlyStop = true;
-      console.log(`\n⏹️  Early-stop! Gặp ${consecutiveOld} bản cũ liên tiếp → không có data mới`);
-    }
-
     currentPage++;
 
     while (currentPage <= totalPages && !earlyStop) {
@@ -65,37 +51,27 @@ async function crawlOrgSelections(options = {}) {
       try {
         const res = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize });
         if (res && res.items) {
-          const pageResult = await processItems(res.items, stats, consecutiveOld);
-          consecutiveOld = pageResult.consecutiveOld;
-
-          if (consecutiveOld >= SKIP_THRESHOLD) {
-            earlyStop = true;
-            console.log(`\n⏹️  Early-stop tại trang ${currentPage}! Gặp ${consecutiveOld} bản cũ liên tiếp`);
-          }
+          const r2 = await processItems(res.items, stats, { isAuto, prevOld: consecutiveOld });
+          consecutiveOld = r2.consecutiveOld;
+          if (isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
         }
       } catch (err) {
-        console.error(`  ❌ Lỗi trang ${currentPage}: ${err.message}`);
-        log.errorMessages.push(`Page ${currentPage}: ${err.message}`);
         stats.errors++;
+        log.errorMessages.push(`P${currentPage}: ${err.message}`);
       }
-
       log.pagesProcessed = currentPage - startPage + 1;
-      log.lastPage = currentPage;
-
-      if (currentPage % 5 === 0 || currentPage === totalPages || earlyStop) {
-        console.log(`  📄 Trang ${currentPage}/${totalPages} | +${stats.inserted} mới | ~${stats.updated} cũ | streak=${consecutiveOld}`);
-        await log.save();
+      if (currentPage % 5 === 0) {
+        console.log(`  📄 P${currentPage}/${totalPages} | +${stats.inserted} | detail=${stats.detailOk}`);
       }
       currentPage++;
     }
 
     log.status = earlyStop ? 'early_stopped' : 'completed';
-    const reason = earlyStop ? '(early-stop: hết data mới)' : '';
-    console.log(`\n✅ Hoàn thành ${reason}! Inserted: ${stats.inserted} | Updated: ${stats.updated} | Skipped: ${stats.skipped}`);
+    console.log(`✅ OrgSelection ${earlyStop ? '(early-stop)' : ''} | +${stats.inserted} | detail=${stats.detailOk}`);
   } catch (err) {
     log.status = 'failed';
     log.errorMessages.push(err.message);
-    console.error(`\n❌ Crawl thất bại: ${err.message}`);
+    console.error(`❌ Crawl thất bại: ${err.message}`);
   }
 
   log.finishedAt = new Date();
@@ -103,57 +79,58 @@ async function crawlOrgSelections(options = {}) {
   log.itemsUpdated = stats.updated;
   log.itemsSkipped = stats.skipped;
   await log.save();
-
   return stats;
 }
 
-async function processItems(items, stats, prevConsecutiveOld = 0) {
-  let consecutiveOld = prevConsecutiveOld;
+async function processItems(items, stats, options = {}) {
+  const isAuto = options.isAuto || false;
+  let consecutiveOld = options.prevOld || 0;
 
   for (const item of items) {
     try {
       const sourceId = item.id;
       if (!sourceId) { stats.skipped++; continue; }
 
-      const existing = await OrgSelection.findOne({ sourceId });
-
+      const existing = await OrgSelection.findOne({ sourceId }).select('_id');
       if (existing) {
-        consecutiveOld++;
-        stats.updated++;
-        if (consecutiveOld >= SKIP_THRESHOLD) {
-          return { consecutiveOld };
+        stats.skipped++;
+        if (isAuto) {
+          consecutiveOld++;
+          if (consecutiveOld >= SKIP_THRESHOLD) return { consecutiveOld };
         }
+        continue;
       } else {
+        if (isAuto) consecutiveOld = 0;
         const data = buildOrgData(item);
         data.sourceId = sourceId;
         data.lastCrawledAt = new Date();
 
-        // Find or create sample based on name
-        if (data.name) {
-          const sample = await AuctionSample.findOneAndUpdate(
-            { name: data.name },
-            { $setOnInsert: { name: data.name } },
-            { upsert: true, new: true }
-          );
-          data.sampleId = sample._id;
+        // Detail inline
+        try {
+          await delay(300);
+          const { updates, files } = await fetchOrgItemDetail(sourceId);
+          Object.assign(data, updates);
+          if (files.length > 0) data.files = files;
+          data.detailScraped = true;
+          stats.detailOk++;
+        } catch (e) {
+          data.detailScraped = false;
         }
 
         await OrgSelection.create(data);
         stats.inserted++;
-        consecutiveOld = 0;
       }
     } catch (err) {
-      if (err.code === 11000) {
-        consecutiveOld++;
-        stats.skipped++;
-      } else {
-        stats.errors++;
-        consecutiveOld = 0;
-        console.error(`  ⚠️ Lỗi item ${item.id}: ${err.message}`);
+      if (err.code === 11000) { 
+        stats.skipped++; 
+        if (isAuto) consecutiveOld++;
+      }
+      else { 
+        stats.errors++; 
+        if (isAuto) consecutiveOld = 0;
       }
     }
   }
-
   return { consecutiveOld };
 }
 
@@ -164,9 +141,7 @@ function buildOrgData(item) {
   const province = extractProvince(name + ' ' + shortDescription);
 
   return {
-    name,
-    shortDescription,
-    slug,
+    name, shortDescription, slug,
     owner: item.fullname || '',
     publishedAt: parseDate(item.lastUpdated),
     lastUpdated: parseDate(item.lastUpdated),

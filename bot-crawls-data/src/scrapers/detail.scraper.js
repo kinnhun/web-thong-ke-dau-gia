@@ -1,362 +1,366 @@
+/**
+ * Detail helpers: lấy chi tiết + lịch sử đăng + tạo Duplicate
+ */
 const config = require('../config');
-const { fetchDetailHTML, fetchAPI } = require('../browser');
+const { fetchAPI } = require('../browser');
 const AuctionNotice = require('../models/AuctionNotice');
-const CrawlLog = require('../models/CrawlLog');
-const { parsePrice, extractProvince, delay } = require('../utils/helpers');
-
-/**
- * Cào chi tiết từng thông báo đấu giá
- * Lấy thêm thông tin: giá, địa chỉ, tiền đặt trước, điều kiện...
- */
-async function crawlDetails(options = {}) {
-  const maxItems = options.maxItems || 100;
-
-  const log = await CrawlLog.create({
-    type: 'detail',
-    startedAt: new Date(),
-    itemsUpdated: 0,
-    itemsSkipped: 0,
-    pagesProcessed: 0,
-    errorMessages: [],
-  });
-
-  let stats = { updated: 0, skipped: 0, errors: 0 };
-  let processed = 0;
-
-  console.log(`\n🔍 Bắt đầu cào chi tiết (tối đa ${maxItems} items)...`);
-
-  try {
-    const totalPending = await AuctionNotice.countDocuments({ detailScraped: { $ne: true } });
-    const limit = Math.min(maxItems, totalPending);
-    console.log(`📊 Cần cào: ${limit}/${totalPending} items`);
-
-    const items = await AuctionNotice.find({ detailScraped: { $ne: true } })
-      .sort({ publishedAt: -1 })
-      .limit(limit);
-
-    for (const item of items) {
-      try {
-        await delay(config.crawl.delayMs);
-        
-        // 1. Fetch JSON API for exact properties
-        let apiData = null;
-        let viewDetailData = null;
-        try {
-          const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: item.sourceId });
-          if (json && json.items && json.items.length > 0) {
-            // Có thể có nhiều tài sản trong 1 thông báo, lấy cái đầu tiên làm đại diện hoặc gộp
-            apiData = json.items[0]; 
-          }
-          const viewDetail = await fetchAPI('/portal/viewDetailAuctionInfo', { auctionInfoId: item.sourceId });
-          if (viewDetail) {
-            viewDetailData = viewDetail;
-          }
-        } catch (e) {
-          // Fallback if API fails
-        }
-
-        // 2. Fetch HTML for rich text conditions/descriptions
-        const html = await fetchDetailHTML(item.sourceUrl);
-
-        if (html || apiData) {
-          const detail = html ? parseDetailHTML(html) : {};
-          const updates = { detailScraped: true, lastCrawledAt: new Date() };
-
-          // Áp dụng dữ liệu từ JSON API (Độ chính xác tuyệt đối)
-          if (apiData) {
-            if (apiData.propertyPlace) updates.address = apiData.propertyPlace;
-            if (apiData.propertyStartPrice) {
-              updates.initialPrice = apiData.propertyStartPrice;
-              updates.currentPrice = apiData.propertyStartPrice;
-            }
-            if (apiData.deposit) updates.deposit = apiData.deposit;
-            if (apiData.fileCost) updates.applicationFee = apiData.fileCost;
-            if (apiData.propertyAmount) updates.propertyAmount = apiData.propertyAmount;
-            if (apiData.propertyQuality) updates.quality = apiData.propertyQuality;
-          }
-
-          // Fallback dữ liệu từ parse HTML (nếu JSON API không có)
-          if (!updates.address && detail.address) updates.address = detail.address;
-          if (detail.district) updates.district = detail.district;
-          if (detail.province) updates.province = detail.province || item.province;
-          if (!updates.initialPrice && detail.initialPrice) updates.initialPrice = detail.initialPrice;
-          if (!updates.currentPrice && detail.currentPrice) updates.currentPrice = detail.currentPrice;
-          if (!updates.deposit && detail.deposit) updates.deposit = detail.deposit;
-          if (!updates.depositPercent && detail.depositPercent) updates.depositPercent = detail.depositPercent;
-          if (!updates.propertyAmount && detail.propertyAmount) updates.propertyAmount = detail.propertyAmount;
-          if (!updates.quality && detail.quality) updates.quality = detail.quality;
-          if (detail.conditions) updates.conditions = detail.conditions;
-
-          // Lấy danh sách file đính kèm
-          if (viewDetailData && Array.isArray(viewDetailData.listFile) && viewDetailData.listFile.length > 0) {
-            updates.files = viewDetailData.listFile.map(f => ({
-              name: f.fileName,
-              url: f.linkFile ? `https://dgts.moj.gov.vn/portal/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}` : ''
-            })).filter(f => f.url);
-          }
-
-          await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
-          stats.updated++;
-        } else {
-          await AuctionNotice.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
-          stats.skipped++;
-        }
-      } catch (err) {
-        stats.errors++;
-        // Mark as scraped to not retry
-        await AuctionNotice.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
-        if (stats.errors <= 5) console.error(`  ⚠️ ${item.sourceId}: ${err.message}`);
-      }
-
-      processed++;
-      if (processed % 10 === 0) {
-        console.log(`  🔎 ${processed}/${limit} | ✅ ${stats.updated} | ❌ ${stats.errors}`);
-      }
-    }
-
-    log.status = 'completed';
-    console.log(`\n✅ Detail hoàn thành! Updated: ${stats.updated} | Skipped: ${stats.skipped} | Errors: ${stats.errors}`);
-  } catch (err) {
-    log.status = 'failed';
-    log.errorMessages.push(err.message);
-    console.error(`\n❌ Detail crawl thất bại: ${err.message}`);
-  }
-
-  log.finishedAt = new Date();
-  log.itemsUpdated = stats.updated;
-  log.itemsSkipped = stats.skipped;
-  log.pagesProcessed = processed;
-  await log.save();
-
-  return stats;
-}
-
 const OrgSelection = require('../models/OrgSelection');
+const Duplicate = require('../models/Duplicate');
+const CrawlLog = require('../models/CrawlLog');
+const { delay } = require('../utils/helpers');
+
+// ═══════════════════════════════════════════════════════
+// HELPER: Lịch sử đăng (đăng lần mấy?)
+// API: /portal/pageAuctionInfoPublish2?auctionInfoId=X&p=0
+// ═══════════════════════════════════════════════════════
 
 /**
- * Cào chi tiết Lựa chọn tổ chức đấu giá
+ * Gọi API pageAuctionInfoPublish2 để biết item đăng lần thứ mấy.
+ * Response trả về mảng các lần đăng.
+ * 
+ * @param {number} sourceId
+ * @returns {{ publishRound, publishRoundLabel, rootId, relatedIds }}
  */
-async function crawlOrgDetails(options = {}) {
-  const maxItems = options.maxItems || 50;
-
-  const log = await CrawlLog.create({
-    type: 'org_detail',
-    startedAt: new Date(),
-    itemsUpdated: 0,
-    itemsSkipped: 0,
-    pagesProcessed: 0,
-    errorMessages: [],
-  });
-
-  let stats = { updated: 0, skipped: 0, errors: 0 };
-  let processed = 0;
-
-  console.log(`\n🔍 Bắt đầu cào chi tiết Tổ chức Đấu Giá (tối đa ${maxItems} items)...`);
+async function fetchPublishHistory(sourceId) {
+  const result = {
+    publishRound: 1,
+    publishRoundLabel: 'Thông báo công khai lần 1',
+    rootId: null,
+    relatedIds: [],
+  };
 
   try {
-    const totalPending = await OrgSelection.countDocuments({ detailScraped: { $ne: true } });
-    const limit = Math.min(maxItems, totalPending);
-    console.log(`📊 Cần cào: ${limit}/${totalPending} items`);
+    const data = await fetchAPI('/portal/pageAuctionInfoPublish2', {
+      auctionInfoId: sourceId,
+      p: 0,
+    });
 
-    const items = await OrgSelection.find({ detailScraped: { $ne: true } })
-      .sort({ publishedAt: -1 })
-      .limit(limit);
+    const items = data && Array.isArray(data.items) ? data.items : [];
 
-    for (const item of items) {
-      try {
-        await delay(config.crawl.delayMs);
-        
-        let apiData = null;
-        let editNoticeData = null;
-        try {
-          const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: item.sourceId });
-          if (json && json.items && json.items.length > 0) {
-            apiData = json.items[0]; 
-          }
-        } catch (e) {}
+    if (items.length > 0) {
+      // Tìm entry của chính sourceId này
+      const selfEntry = items.find(d => d.auctionInfoId === sourceId);
+      if (selfEntry) {
+        result.publishRoundLabel = selfEntry.strLevelCorrection || '';
+        result.rootId = selfEntry.rootID || null;
 
-        try {
-          const editNotice = await fetchAPI('/ThongTin/getInfoEditNotice', { id: item.sourceId });
-          if (editNotice) {
-            editNoticeData = editNotice;
-          }
-        } catch (e) {}
-
-        const html = await fetchDetailHTML(item.sourceUrl);
-
-        if (html || apiData) {
-          const updates = { detailScraped: true, lastCrawledAt: new Date() };
-
-          if (apiData) {
-            if (apiData.propertyPlace) updates.address = apiData.propertyPlace;
-            if (apiData.propertyStartPrice) updates.startingPrice = apiData.propertyStartPrice;
-            if (apiData.propertyQuality) updates.propertyTypeName = apiData.propertyQuality;
-          }
-
-          if (html) {
-            // Lấy thông tin điều kiện từ HTML
-            const tdPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-            const tds = [];
-            let match;
-            while ((match = tdPattern.exec(html)) !== null) {
-              const text = match[1].replace(/<[^>]+>/g, '').trim();
-              if (text) tds.push(text);
-            }
-
-            for (const td of tds) {
-              if (td.length > 50 && td.toLowerCase().includes('tiêu chí') && !updates.requirements) {
-                updates.requirements = td.substring(0, 1000);
-              }
-              if (td.length > 50 && td.toLowerCase().includes('quyền sử dụng') && !updates.assetDescription) {
-                updates.assetDescription = td.substring(0, 1000);
-              }
-            }
-          }
-
-          // Lấy danh sách file đính kèm
-          const files = [];
-          if (editNoticeData) {
-            if (Array.isArray(editNoticeData.listFileNotice)) {
-              editNoticeData.listFileNotice.forEach(f => {
-                if (f.linkFile) {
-                  files.push({
-                    name: f.fileName,
-                    url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
-                  });
-                }
-              });
-            }
-            if (Array.isArray(editNoticeData.property)) {
-              editNoticeData.property.forEach(p => {
-                if (Array.isArray(p.listFile)) {
-                  p.listFile.forEach(f => {
-                    if (f.linkFile) {
-                      files.push({
-                        name: f.fileName,
-                        url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
-                      });
-                    }
-                  });
-                }
-              });
-            }
-          }
-          if (files.length > 0) {
-            updates.files = files;
-          }
-
-          await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
-          stats.updated++;
-        } else {
-          await OrgSelection.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
-          stats.skipped++;
-        }
-      } catch (err) {
-        stats.errors++;
-        await OrgSelection.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
-        if (stats.errors <= 5) console.error(`  ⚠️ ${item.sourceId}: ${err.message}`);
+        // Parse số lần từ label: "Thông báo công khai lần 2" → 2
+        const match = result.publishRoundLabel.match(/lần\s+(\d+)/i);
+        if (match) result.publishRound = parseInt(match[1]);
       }
 
-      processed++;
-      if (processed % 10 === 0) {
-        console.log(`  🔎 ${processed}/${limit} | ✅ ${stats.updated} | ❌ ${stats.errors}`);
-      }
+      // Thu thập tất cả IDs liên quan
+      result.relatedIds = items.map(d => d.auctionInfoId).filter(id => id !== sourceId);
     }
-
-    log.status = 'completed';
-    console.log(`\n✅ Org Detail hoàn thành! Updated: ${stats.updated} | Skipped: ${stats.skipped} | Errors: ${stats.errors}`);
-  } catch (err) {
-    log.status = 'failed';
-    log.errorMessages.push(err.message);
-    console.error(`\n❌ Org Detail crawl thất bại: ${err.message}`);
-  }
-
-  log.finishedAt = new Date();
-  log.itemsUpdated = stats.updated;
-  log.itemsSkipped = stats.skipped;
-  log.pagesProcessed = processed;
-  await log.save();
-
-  return stats;
-}
-
-/**
- * Parse HTML detail page dùng regex (không cần cheerio, chạy nhẹ hơn)
- */
-function parseDetailHTML(html) {
-  const result = {};
-
-  // Extract table data - tìm các cột trong bảng chi tiết
-  // Bảng thường có: STT | Tên TS | Số lượng | Nơi có TS | Giá KĐ | Tiền ĐT | Thời gian ĐK...
-  const tdPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-  const tds = [];
-  let match;
-  while ((match = tdPattern.exec(html)) !== null) {
-    const text = match[1].replace(/<[^>]+>/g, '').trim();
-    if (text) tds.push(text);
-  }
-
-  // Tìm giá khởi điểm (các chuỗi có "đồng" hoặc số lớn)
-  for (const td of tds) {
-    const price = parsePrice(td);
-    if (price > 1_000_000 && !result.initialPrice) {
-      // Giá > 1 triệu, likely starting price
-      if (td.toLowerCase().includes('đồng') || price > 10_000_000) {
-        result.initialPrice = price;
-        result.currentPrice = price;
-      }
-    }
-  }
-
-  // Tìm tiền đặt trước (% hoặc số tiền)
-  for (const td of tds) {
-    if (td.includes('%') && !result.depositPercent) {
-      const pctMatch = td.match(/(\d+)\s*%/);
-      if (pctMatch) {
-        result.depositPercent = pctMatch[1] + '%';
-        if (result.initialPrice) {
-          result.deposit = Math.round(result.initialPrice * parseInt(pctMatch[1]) / 100);
-        }
-      }
-    }
-  }
-
-  // Tìm nơi có tài sản (thường là chuỗi dài chứa tên tỉnh/huyện)
-  for (const td of tds) {
-    if (td.length > 20 && !result.address) {
-      const province = extractProvince(td);
-      if (province) {
-        result.address = td;
-        result.province = province;
-        // Extract district
-        const districtMatch = td.match(/(quận|huyện|thị xã|thành phố)\s+([^,;]+)/i);
-        if (districtMatch) result.district = districtMatch[0].trim();
-      }
-    }
-  }
-
-  // Tìm số lượng
-  for (const td of tds) {
-    if (td.match(/^\d+\s*(thửa|lô|căn|chiếc|bộ|cái|hệ thống)/i) && !result.propertyAmount) {
-      result.propertyAmount = td;
-    }
-  }
-
-  // Tìm điều kiện
-  for (const td of tds) {
-    if (td.length > 50 && td.toLowerCase().includes('điều kiện') && !result.conditions) {
-      result.conditions = td.substring(0, 500);
-    }
-  }
-
-  // Tìm tên tài sản chi tiết
-  for (const td of tds) {
-    if (td.length > 30 && td.toLowerCase().includes('quyền sử dụng') && !result.quality) {
-      result.quality = td.substring(0, 200);
-    }
+  } catch (e) {
+    // Không throw, giữ default
   }
 
   return result;
 }
 
-module.exports = { crawlDetails, crawlOrgDetails };
+/**
+ * Tạo/update Duplicate record nếu có nhiều hơn 1 lần đăng
+ */
+async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
+  if (!relatedIds || relatedIds.length === 0) return;
+
+  const allIds = [sourceId, ...relatedIds].sort((a, b) => a - b);
+
+  // Tìm duplicate đã có chứa bất kỳ ID nào
+  let dup = await Duplicate.findOne({
+    sourceIds: { $in: allIds },
+    type,
+  });
+
+  if (dup) {
+    // Merge thêm IDs mới
+    const merged = [...new Set([...dup.sourceIds, ...allIds])].sort((a, b) => a - b);
+    dup.sourceIds = merged;
+    dup.name = name || dup.name;
+    await dup.save();
+  } else {
+    await Duplicate.create({ name, sourceIds: allIds, type });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPER: Chi tiết THÔNG BÁO ĐẤU GIÁ
+// ═══════════════════════════════════════════════════════
+
+async function fetchAuctionItemDetail(sourceId) {
+  const updates = {};
+  let files = [];
+
+  // 1. propertyInfo → giá, địa chỉ
+  try {
+    const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
+    if (json && json.items && json.items.length > 0) {
+      const prop = json.items[0];
+      if (prop.propertyPlace) updates.address = prop.propertyPlace;
+      if (prop.propertyStartPrice) {
+        updates.initialPrice = prop.propertyStartPrice;
+        updates.currentPrice = prop.propertyStartPrice;
+      }
+      if (prop.deposit) updates.deposit = prop.deposit;
+      if (prop.fileCost) updates.applicationFee = prop.fileCost;
+      if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
+      if (prop.propertyQuality) updates.quality = prop.propertyQuality;
+    }
+  } catch (e) {}
+
+  // 2. viewDetailAuctionInfo → files
+  try {
+    const viewDetail = await fetchAPI('/portal/viewDetailAuctionInfo', { auctionInfoId: sourceId });
+    if (viewDetail && Array.isArray(viewDetail.listFile) && viewDetail.listFile.length > 0) {
+      files = viewDetail.listFile
+        .filter(f => f.linkFile)
+        .map(f => ({
+          name: f.fileName,
+          url: `https://dgts.moj.gov.vn/portal/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
+        }));
+    }
+  } catch (e) {}
+
+  // 3. pageAuctionInfoPublish2 → đăng lần mấy
+  const publishInfo = await fetchPublishHistory(sourceId);
+  Object.assign(updates, publishInfo);
+
+  return { updates, files };
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPER: Chi tiết LỰA CHỌN TỔ CHỨC
+// ═══════════════════════════════════════════════════════
+
+async function fetchOrgItemDetail(sourceId) {
+  const updates = {};
+  let files = [];
+
+  // 1. propertyInfo → giá, địa chỉ
+  try {
+    const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
+    if (json && json.items && json.items.length > 0) {
+      const prop = json.items[0];
+      if (prop.propertyPlace) updates.address = prop.propertyPlace;
+      if (prop.propertyStartPrice) updates.startingPrice = prop.propertyStartPrice;
+      if (prop.propertyQuality) updates.propertyTypeName = prop.propertyQuality;
+    }
+  } catch (e) {}
+
+  // 2. getInfoEditNotice → files
+  try {
+    const editNotice = await fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId });
+    if (editNotice) {
+      if (Array.isArray(editNotice.listFileNotice)) {
+        editNotice.listFileNotice.forEach(f => {
+          if (f.linkFile) {
+            files.push({
+              name: f.fileName,
+              url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
+            });
+          }
+        });
+      }
+      if (Array.isArray(editNotice.property)) {
+        editNotice.property.forEach(p => {
+          if (Array.isArray(p.listFile)) {
+            p.listFile.forEach(f => {
+              if (f.linkFile) {
+                files.push({
+                  name: f.fileName,
+                  url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
+                });
+              }
+            });
+          }
+          if (p.propertyName && !updates.assetDescription) {
+            updates.assetDescription = p.propertyName;
+          }
+        });
+      }
+      if (editNotice.notice && editNotice.notice.content) {
+        updates.requirements = editNotice.notice.content.substring(0, 2000);
+      }
+    }
+  } catch (e) {}
+
+  // 3. pageAuctionInfoPublish2 → đăng lần mấy
+  try {
+    const publishInfo = await fetchPublishHistory(sourceId);
+    Object.assign(updates, publishInfo);
+  } catch (e) {}
+
+  return { updates, files };
+}
+
+// ═══════════════════════════════════════════════════════
+// MANUAL RE-CRAWL
+// ═══════════════════════════════════════════════════════
+
+async function crawlDetails(options = {}) {
+  const maxItems = options.maxItems || 100;
+  const log = await CrawlLog.create({
+    type: 'detail', startedAt: new Date(),
+    itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
+  });
+  let stats = { updated: 0, errors: 0 };
+  const items = await AuctionNotice.find({ detailScraped: { $ne: true } })
+    .sort({ publishedAt: -1 }).limit(maxItems);
+
+  for (const item of items) {
+    try {
+      await delay(config.crawl.delayMs);
+      const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
+      updates.detailScraped = true;
+      updates.lastCrawledAt = new Date();
+      if (files.length > 0) updates.files = files;
+      await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+      // Handle duplicate
+      if (updates.relatedIds && updates.relatedIds.length > 0) {
+        await handleDuplicate(item.sourceId, item.name, updates.relatedIds, 'auction');
+      }
+      stats.updated++;
+    } catch (err) {
+      stats.errors++;
+      await AuctionNotice.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
+    }
+  }
+  log.status = 'completed'; log.finishedAt = new Date();
+  log.itemsUpdated = stats.updated; log.pagesProcessed = items.length;
+  await log.save();
+  return stats;
+}
+
+async function crawlOrgDetails(options = {}) {
+  const maxItems = options.maxItems || 50;
+  const log = await CrawlLog.create({
+    type: 'org_detail', startedAt: new Date(),
+    itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
+  });
+  let stats = { updated: 0, errors: 0 };
+  const items = await OrgSelection.find({ detailScraped: { $ne: true } })
+    .sort({ publishedAt: -1 }).limit(maxItems);
+
+    for (const item of items) {
+      try {
+        await delay(config.crawl.delayMs);
+        const { updates, files } = await fetchOrgItemDetail(item.sourceId);
+        updates.detailScraped = true;
+        updates.lastCrawledAt = new Date();
+        if (files.length > 0) updates.files = files;
+        await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
+        
+        // Handle duplicate
+        if (updates.relatedIds && updates.relatedIds.length > 0) {
+          await handleDuplicate(item.sourceId, item.name, updates.relatedIds, 'org');
+        }
+        
+        stats.updated++;
+      } catch (err) {
+      stats.errors++;
+      await OrgSelection.updateOne({ _id: item._id }, { $set: { detailScraped: true } });
+    }
+  }
+  log.status = 'completed'; log.finishedAt = new Date();
+  log.itemsUpdated = stats.updated; log.pagesProcessed = items.length;
+  await log.save();
+  return stats;
+}
+
+// ═══════════════════════════════════════════════════════
+// RECOVER MISSING DUPLICATES
+// ═══════════════════════════════════════════════════════
+
+async function recoverMissingDuplicates() {
+  console.log(`\n🔍 [Duplicate] Bắt đầu cào phục hồi các bài đăng bị thiếu...`);
+  const duplicates = await Duplicate.find({});
+  let recoveredCount = 0;
+
+  for (const dup of duplicates) {
+    if (!dup.sourceIds || dup.sourceIds.length === 0) continue;
+    
+    const Model = dup.type === 'org' ? OrgSelection : AuctionNotice;
+    const existingItems = await Model.find({ sourceId: { $in: dup.sourceIds } }).select('sourceId');
+    const existingIds = existingItems.map(i => i.sourceId);
+    
+    const missingIds = dup.sourceIds.filter(id => !existingIds.includes(id));
+    if (missingIds.length === 0) continue;
+
+    for (const missingId of missingIds) {
+      console.log(`Đang cào phục hồi ID ${missingId} (${dup.type})...`);
+      try {
+        await delay(config.crawl.delayMs || 1000);
+        const propInfo = await fetchAPI('/portal/propertyInfo', { auctionInfoId: missingId });
+        const pubHistory = await fetchAPI('/portal/pageAuctionInfoPublish2', { auctionInfoId: missingId, p: 0 });
+        
+        let name = null, initialPrice = null, address = null;
+        if (propInfo && propInfo.items && propInfo.items.length > 0) {
+          name = propInfo.items[0].propertyName || propInfo.items[0].propertyDesc || `Bài đăng ${missingId}`;
+          initialPrice = propInfo.items[0].propertyStartPrice;
+          address = propInfo.items[0].propertyPlace;
+        } else {
+          name = `Bài đăng ${missingId} (Không có dữ liệu chi tiết)`;
+        }
+        
+        let publishedAt = new Date();
+        if (pubHistory && Array.isArray(pubHistory.items)) {
+          const entry = pubHistory.items.find(i => i.auctionInfoId === missingId);
+          if (entry && entry.publishTime1) {
+            publishedAt = new Date(entry.publishTime1);
+          }
+        }
+        
+        let url = '';
+        if (dup.type === 'org') {
+          url = `https://dgts.moj.gov.vn/thong-bao-lua-chon-to-chuc-dau-gia/${missingId}.html`;
+        } else {
+          url = `https://dgts.moj.gov.vn/thong-bao-cong-khai-viec-dau-gia/${missingId}.html`;
+        }
+
+        const newData = {
+          sourceId: missingId,
+          name,
+          address,
+          publishedAt,
+          sourceUrl: url,
+          status: 'Đã phục hồi',
+          detailScraped: false
+        };
+        
+        if (dup.type === 'org') {
+          newData.startingPrice = initialPrice;
+        } else {
+          newData.initialPrice = initialPrice;
+        }
+
+        await Model.updateOne({ sourceId: missingId }, { $set: newData }, { upsert: true });
+        
+        // Cào thêm files và details
+        if (dup.type === 'org') {
+           await fetchOrgItemDetail(missingId); // updates are skipped here but files might be triggered next detail crawl
+        } else {
+           await fetchAuctionItemDetail(missingId);
+        }
+        
+        recoveredCount++;
+        
+      } catch (err) {
+        console.error(`Lỗi phục hồi ID ${missingId}:`, err.message);
+      }
+    }
+  }
+  
+  console.log(`✅ Hoàn thành phục hồi ${recoveredCount} bài đăng bị thiếu.`);
+  return recoveredCount;
+}
+
+module.exports = {
+  fetchAuctionItemDetail,
+  fetchOrgItemDetail,
+  fetchPublishHistory,
+  handleDuplicate,
+  crawlDetails,
+  crawlOrgDetails,
+  recoverMissingDuplicates
+};

@@ -28,9 +28,6 @@
                 <p class="text-sm text-slate-500 mt-1">Nguồn: dgts.moj.gov.vn | Chạy tự động mỗi 15 phút</p>
             </div>
             <div class="flex items-center gap-4">
-                <button @click="triggerDetailCrawl" class="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg font-medium hover:bg-purple-100 transition flex items-center gap-2" :disabled="triggering">
-                    <i class="fa-solid fa-robot" :class="{'animate-pulse': triggering}"></i> {{ triggering ? 'Đang kích hoạt...' : 'Cào chi tiết' }}
-                </button>
                 <button @click="refreshData" class="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition flex items-center gap-2">
                     <i class="fa-solid fa-arrows-rotate" :class="{'animate-spin': loading}"></i> Làm mới
                 </button>
@@ -58,9 +55,24 @@
                 <div class="text-sm font-medium text-slate-500 mb-1">Cập Nhật Lần Cuối</div>
                 <div class="text-xl font-bold text-slate-800 mt-2">{{ lastCrawlTime ? formatRelTime(lastCrawlTime) : '...' }}</div>
             </div>
-            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-                <div class="text-sm font-medium text-slate-500 mb-1">Trạng Thái Bot</div>
-                <div class="text-xl font-bold text-emerald-600 mt-2">Hoạt động bình thường</div>
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="text-sm font-medium text-slate-500">Bài đăng trùng lặp (≥2 lần) <i class="fa-solid fa-copy text-xs ml-1"></i></div>
+                    <button @click="triggerDuplicateScan()" class="px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] font-medium hover:bg-green-100 transition flex items-center gap-1" :disabled="triggeringDuplicate">
+                        <i class="fa-solid fa-rotate" :class="{'animate-spin': triggeringDuplicate}"></i> Cập nhật
+                    </button>
+                </div>
+                <div class="flex justify-between items-center">
+                    <div class="flex-1 cursor-pointer hover:bg-slate-50 p-2 rounded transition text-center" @click="openDuplicateModal('auction')">
+                        <div class="text-xs text-blue-500 font-bold mb-1">TÀI SẢN</div>
+                        <div class="text-2xl font-bold text-slate-800">{{ stats.totalAuctionDuplicates != null ? stats.totalAuctionDuplicates.toLocaleString() : '...' }} <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-300"></i></div>
+                    </div>
+                    <div class="w-px bg-slate-200 h-10"></div>
+                    <div class="flex-1 cursor-pointer hover:bg-slate-50 p-2 rounded transition text-center" @click="openDuplicateModal('org')">
+                        <div class="text-xs text-orange-500 font-bold mb-1">TỔ CHỨC</div>
+                        <div class="text-2xl font-bold text-slate-800">{{ stats.totalOrgDuplicates != null ? stats.totalOrgDuplicates.toLocaleString() : '...' }} <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-300"></i></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -104,6 +116,14 @@
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                         <h2 class="font-bold text-slate-800"><i class="fa-solid fa-gavel text-blue-500 mr-2"></i> Thông Báo Việc Đấu Giá</h2>
+                        <div class="flex gap-2">
+                            <button @click="triggerListCrawl('auction')" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded text-xs font-medium hover:bg-indigo-100 transition flex items-center gap-1" :disabled="triggeringList">
+                                <i class="fa-solid fa-list"></i> Cào danh sách
+                            </button>
+                            <button @click="triggerDetailCrawl('auction')" class="px-3 py-1.5 bg-purple-50 text-purple-600 rounded text-xs font-medium hover:bg-purple-100 transition flex items-center gap-1" :disabled="triggering">
+                                <i class="fa-solid fa-robot"></i> Cào chi tiết
+                            </button>
+                        </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-slate-200">
@@ -112,7 +132,8 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tài sản / Thông báo</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tỉnh thành</th>
                                     <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Giá khởi điểm</th>
-                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Lần cập nhật</th>
+                                    <th class="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Lần đăng</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Thời gian</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-slate-200">
@@ -131,12 +152,16 @@
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-red-600">
                                         {{ formatMoney(item.currentPrice || item.initialPrice) }}
                                     </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                                        <span v-if="item.publishRound > 1" class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">Lần {{ item.publishRound }}</span>
+                                        <span v-else class="text-slate-400 text-xs">Lần 1</span>
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-xs text-slate-500">
                                         {{ formatRelTime(item.publishedAt) }}
                                     </td>
                                 </tr>
                                 <tr v-if="!recentAuctions.length && !loading">
-                                    <td colspan="4" class="px-6 py-8 text-center text-slate-500">Đang cào dữ liệu hoặc chưa có dữ liệu...</td>
+                                    <td colspan="5" class="px-6 py-8 text-center text-slate-500">Đang cào dữ liệu hoặc chưa có dữ liệu...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -157,6 +182,14 @@
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                         <h2 class="font-bold text-slate-800"><i class="fa-solid fa-handshake text-orange-500 mr-2"></i> Lựa Chọn Tổ Chức Đấu Giá</h2>
+                        <div class="flex gap-2">
+                            <button @click="triggerListCrawl('org')" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded text-xs font-medium hover:bg-indigo-100 transition flex items-center gap-1" :disabled="triggeringList">
+                                <i class="fa-solid fa-list"></i> Cào danh sách
+                            </button>
+                            <button @click="triggerDetailCrawl('org')" class="px-3 py-1.5 bg-purple-50 text-purple-600 rounded text-xs font-medium hover:bg-purple-100 transition flex items-center gap-1" :disabled="triggering">
+                                <i class="fa-solid fa-robot"></i> Cào chi tiết
+                            </button>
+                        </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-slate-200">
@@ -204,6 +237,8 @@
                 </div>
             </div>
         </div>
+
+
 
         <!-- Modal Detail -->
         <div v-if="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
@@ -272,6 +307,81 @@
                 </div>
             </div>
         </div>
+
+        <!-- Modal Duplicates -->
+        <div v-if="isDuplicateModalOpen" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="closeDuplicateModal" aria-hidden="true"></div>
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-5xl sm:w-full">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4 flex justify-between items-center">
+                                    <span><i class="fa-solid fa-copy text-orange-500 mr-2"></i> Danh sách Bài đăng trùng lặp ({{ duplicateType === 'auction' ? 'Tài Sản Đấu Giá' : 'Tổ Chức Đấu Giá' }})</span>
+                                    <button @click="closeDuplicateModal" class="text-gray-400 hover:text-gray-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+                                </h3>
+                                
+                                <div v-if="loadingDuplicates" class="py-8 text-center text-gray-500">
+                                    <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i>
+                                    <p>Đang tải dữ liệu...</p>
+                                </div>
+                                
+                                <div v-else class="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+                                    <div v-for="(dup, index) in duplicates" :key="dup._id" class="border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                                        <div class="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-start">
+                                            <div>
+                                                <h4 class="font-bold text-slate-800 text-sm line-clamp-2" :title="dup.name">{{ dup.name }}</h4>
+                                                <div class="mt-1 flex items-center gap-2">
+                                                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">{{ dup.sourceIds?.length || 0 }} lần đăng</span>
+                                                    <span v-if="dup.isPriceDrop" class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold"><i class="fa-solid fa-bolt"></i> Có Giảm Giá</span>
+                                                    <span v-else class="px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full text-xs font-medium">= Cùng giá</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white p-0">
+                                            <table class="min-w-full divide-y divide-slate-100">
+                                                <thead class="bg-slate-50">
+                                                    <tr>
+                                                        <th class="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Lần đăng</th>
+                                                        <th class="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Giá khởi điểm</th>
+                                                        <th class="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Ngày đăng</th>
+                                                        <th class="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Link</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-100">
+                                                    <tr v-for="item in dup.notices" :key="item.sourceId" class="hover:bg-slate-50">
+                                                        <td class="px-4 py-2 text-sm text-slate-800 font-medium whitespace-nowrap">Lần {{ item.displayRound }}</td>
+                                                        <td class="px-4 py-2 text-sm text-red-600 font-bold text-right whitespace-nowrap">
+                                                            <span v-if="item.isMissing" class="text-slate-400 italic font-normal text-xs">Chưa cào data</span>
+                                                            <span v-else>{{ formatMoney(item.initialPrice) }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-slate-500 text-center whitespace-nowrap">
+                                                            <span v-if="item.isMissing">-</span>
+                                                            <span v-else>{{ formatDate(item.publishedAt) }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-2 text-center whitespace-nowrap">
+                                                            <a v-if="item.sourceUrl" :href="item.sourceUrl" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition"><i class="fa-solid fa-arrow-up-right-from-square"></i> Xem</a>
+                                                            <span v-else class="text-xs text-slate-300">Không có link</span>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div v-if="!duplicates.length" class="text-center py-8 text-slate-500">Chưa có dữ liệu bài đăng lặp.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse border-t border-gray-200">
+                        <button @click="closeDuplicateModal" type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Đóng
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -289,6 +399,7 @@
                     recentOrgSelections: [],
                     loading: false,
                     triggering: false,
+                    triggeringList: false,
                     serverStatus: true,
                     lastCrawlTime: null,
                     
@@ -298,14 +409,21 @@
                     selectedItem: null,
                     selectedItemType: 'auction',
 
+                    // Duplicate Modal state
+                    isDuplicateModalOpen: false,
+                    loadingDuplicates: false,
+                    duplicates: [],
+                    duplicateType: 'auction',
+                    triggeringDuplicate: false,
+
                     // Pagination state
                     auctionsPagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
                     orgPagination: { page: 1, limit: 10, total: 0, totalPages: 1 }
                 }
             },
             methods: {
-                async triggerDetailCrawl() {
-                    const input = prompt("Nhập số lượng bài mới nhất muốn cào chi tiết (mặc định: 30, nhập 9999 để cào toàn bộ):", "30");
+                async triggerDetailCrawl(type = 'all') {
+                    const input = prompt("Nhập số lượng bài mới nhất muốn cập nhật chi tiết (mặc định: 30, nhập 9999 để cào toàn bộ):", "30");
                     if (input === null) return; // Bấm Cancel
                     
                     const limit = parseInt(input) || 30;
@@ -316,7 +434,7 @@
                             headers: {
                                 'Content-Type': 'application/json'
                             },
-                            body: JSON.stringify({ limit })
+                            body: JSON.stringify({ limit, type })
                         });
                         
                         if (!res.ok) {
@@ -327,13 +445,72 @@
                         }
                         const data = await res.json();
                         if (data.success) {
-                            alert(`Đã ra lệnh cho bot cào ${limit} bài mới nhất! Bạn có thể xem kết quả trong lịch sử (sau vài phút).`);
+                            alert(`Đã ra lệnh cho bot cào ${limit} bài chi tiết!`);
                             setTimeout(() => this.refreshData(), 3000);
                         }
                     } catch (error) {
                         alert('Lỗi kích hoạt bot cào chi tiết: ' + error.message);
                     } finally {
                         this.triggering = false;
+                    }
+                },
+                async triggerDuplicateScan() {
+                    if(!confirm('Chức năng này sẽ quét toàn bộ Database để tìm các bài đăng trùng lặp chưa được nhóm. Bạn có muốn chạy không?')) return;
+                    this.triggeringDuplicate = true;
+                    try {
+                        const res = await fetch('/api/trigger-duplicate-scan', { method: 'POST' });
+                        const data = await res.json();
+                        alert(data.message);
+                    } catch(err) {
+                        alert('Lỗi: ' + err.message);
+                    } finally {
+                        this.triggeringDuplicate = false;
+                    }
+                },
+                async triggerListCrawl(type = 'all') {
+                    const input = prompt("Nhập số trang muốn cào (mỗi trang có 20-25 bài, mặc định: 5):", "5");
+                    if (input === null) return;
+                    
+                    const maxPages = parseInt(input) || 5;
+                    this.triggeringList = true;
+                    try {
+                        const res = await fetch('/api/trigger-list-crawl', { 
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ maxPages, type })
+                        });
+                        
+                        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+                        const data = await res.json();
+                        if (data.success) {
+                            alert(`Đã ra lệnh cho bot cào ${maxPages} trang danh sách! Vui lòng chờ vài phút và làm mới trang.`);
+                            setTimeout(() => this.refreshData(), 3000);
+                        }
+                    } catch (error) {
+                        alert('Lỗi kích hoạt bot cào danh sách: ' + error.message);
+                    } finally {
+                        this.triggeringList = false;
+                    }
+                },
+                openDuplicateModal(type) {
+                    this.duplicateType = type;
+                    this.isDuplicateModalOpen = true;
+                    this.fetchDuplicates();
+                },
+                closeDuplicateModal() {
+                    this.isDuplicateModalOpen = false;
+                },
+                async fetchDuplicates() {
+                    this.loadingDuplicates = true;
+                    try {
+                        const res = await fetch(`/api/duplicates?limit=50&page=1&type=${this.duplicateType}`);
+                        const data = await res.json();
+                        this.duplicates = data.items || [];
+                    } catch (error) {
+                        console.error('Error fetching duplicates:', error);
+                        alert('Có lỗi xảy ra khi tải danh sách trùng lặp');
+                    } finally {
+                        this.loadingDuplicates = false;
                     }
                 },
                 formatMoney(amount) {
@@ -408,6 +585,10 @@
                         this.orgPagination.page = newPage;
                         this.fetchOrgSelections();
                     }
+                },
+                formatMoney(val) {
+                    if (!val) return '—';
+                    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
                 },
                 async refreshData() {
                     this.loading = true;

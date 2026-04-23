@@ -8,11 +8,11 @@ const orgSelectionSchema = new mongoose.Schema({
   titleName: String,
   slug: String,
 
-  name: { type: String, index: true },             // propertyName
-  shortDescription: String,                         // subPropertyName
+  name: { type: String, index: true },
+  shortDescription: String,
 
   // Parties
-  owner: String,                                    // fullname
+  owner: String,
   ownerAddress: String,
 
   // Dates
@@ -41,8 +41,11 @@ const orgSelectionSchema = new mongoose.Schema({
     url: String
   }],
 
-  // Sample ID to group identical names
-  sampleId: { type: mongoose.Schema.Types.ObjectId, ref: 'AuctionSample', index: true },
+  // Publish round info
+  publishRound: { type: Number, default: 1 },
+  publishRoundLabel: String,
+  rootId: Number,
+  relatedIds: [Number],
 
   // Crawl tracking
   detailScraped: { type: Boolean, default: false },
