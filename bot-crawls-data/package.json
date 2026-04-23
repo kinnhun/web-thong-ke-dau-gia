@@ -1,0 +1,22 @@
+{
+  "name": "bot-crawls-auction-data",
+  "version": "1.0.0",
+  "description": "Bot cào dữ liệu đấu giá từ dgts.moj.gov.vn và lưu vào MongoDB",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "crawl": "node src/crawler.js",
+    "api": "node src/api/server.js",
+    "crawl:auction": "node src/crawler.js --type=auction",
+    "crawl:org": "node src/crawler.js --type=org",
+    "crawl:detail": "node src/crawler.js --type=detail"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.18.0",
+    "mongoose": "^8.4.0",
+    "node-cron": "^3.0.3",
+    "puppeteer": "^24.0.0"
+  }
+}

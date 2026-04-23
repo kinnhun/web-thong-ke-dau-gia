@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Đấu Giá - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/dayjs@1.11.10/dayjs.min.js"></script>
+    <script src="https://unpkg.com/dayjs@1.11.10/locale/vi.js"></script>
+    <script src="https://unpkg.com/dayjs@1.11.10/plugin/relativeTime.js"></script>
+    <script src="https://unpkg.com/dayjs@1.11.10/plugin/customParseFormat.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f1f5f9; }
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="text-slate-800 font-sans">
+    <div id="app" v-cloak class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900 flex items-center gap-3">
+                    <i class="fa-solid fa-robot text-blue-600"></i> Bot Cào Dữ Liệu Đấu Giá
+                </h1>
+                <p class="text-sm text-slate-500 mt-1">Nguồn: dgts.moj.gov.vn | Chạy tự động mỗi 15 phút</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <button @click="triggerDetailCrawl" class="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg font-medium hover:bg-purple-100 transition flex items-center gap-2" :disabled="triggering">
+                    <i class="fa-solid fa-robot" :class="{'animate-pulse': triggering}"></i> {{ triggering ? 'Đang kích hoạt...' : 'Cào chi tiết' }}
+                </button>
+                <button @click="refreshData" class="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition flex items-center gap-2">
+                    <i class="fa-solid fa-arrows-rotate" :class="{'animate-spin': loading}"></i> Làm mới
+                </button>
+                <div class="px-4 py-2 rounded-lg font-medium flex items-center gap-2" :class="serverStatus ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'">
+                    <span class="relative flex h-3 w-3">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" :class="serverStatus ? 'bg-green-400' : 'bg-red-400'"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3" :class="serverStatus ? 'bg-green-500' : 'bg-red-500'"></span>
+                    </span>
+                    {{ serverStatus ? 'Server Đang Chạy' : 'Server Mất Kết Nối' }}
+                </div>
+            </div>
+        </header>
+
+        <!-- Stats row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                <div class="text-sm font-medium text-slate-500 mb-1">Tổng Số Tài Sản Đấu Giá</div>
+                <div class="text-3xl font-bold text-slate-800">{{ stats.total ? stats.total.toLocaleString() : '...' }}</div>
+            </div>
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                <div class="text-sm font-medium text-slate-500 mb-1">Tài Sản Mới (7 ngày)</div>
+                <div class="text-3xl font-bold text-blue-600">{{ stats.recentCount ? stats.recentCount.toLocaleString() : '...' }}</div>
+            </div>
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                <div class="text-sm font-medium text-slate-500 mb-1">Cập Nhật Lần Cuối</div>
+                <div class="text-xl font-bold text-slate-800 mt-2">{{ lastCrawlTime ? formatRelTime(lastCrawlTime) : '...' }}</div>
+            </div>
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                <div class="text-sm font-medium text-slate-500 mb-1">Trạng Thái Bot</div>
+                <div class="text-xl font-bold text-emerald-600 mt-2">Hoạt động bình thường</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left col: Logs -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h2 class="font-bold text-slate-800"><i class="fa-solid fa-clipboard-list text-slate-400 mr-2"></i> Lịch Sử Chạy Gần Nhất</h2>
+                    </div>
+                    <div class="p-4 overflow-y-auto max-h-[600px]">
+                        <div v-if="!logs.length && !loading" class="text-center text-slate-500 py-4">Không có lịch sử chạy</div>
+                        <ul class="space-y-4">
+                            <li v-for="log in logs" :key="log._id" class="border-l-2 pl-4 pb-2" :class="log.status === 'success' ? 'border-green-400' : 'border-red-400'">
+                                <div class="flex justify-between items-start mb-1">
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded" :class="log.type === 'auction_list' ? 'bg-blue-100 text-blue-700' : (log.type === 'auction_detail' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700')">
+                                        {{ log.type === 'auction_list' ? 'Cào Danh Sách' : (log.type === 'auction_detail' ? 'Cào Chi Tiết' : 'Tổ Chức ĐG') }}
+                                    </span>
+                                    <span class="text-xs text-slate-500">{{ formatDate(log.startTime) }}</span>
+                                </div>
+                                <div class="text-sm text-slate-700 mt-2 space-y-1">
+                                    <div class="flex items-center gap-4">
+                                        <span v-if="log.insertedCount !== undefined" class="text-green-600"><i class="fa-solid fa-plus mr-1"></i>Thêm: {{log.insertedCount}}</span>
+                                        <span v-if="log.updatedCount !== undefined" class="text-blue-600"><i class="fa-solid fa-pen mr-1"></i>Sửa: {{log.updatedCount}}</span>
+                                    </div>
+                                    <div class="text-xs text-slate-500 flex justify-between mt-1">
+                                        <span>TG: {{ Math.round((new Date(log.endTime) - new Date(log.startTime))/1000) }}s</span>
+                                        <span v-if="log.errorCount > 0" class="text-red-500">Lỗi: {{log.errorCount}}</span>
+                                    </div>
+                                    <div v-if="log.errorMessage" class="text-xs text-red-500 mt-1 truncate" :title="log.errorMessage">{{ log.errorMessage }}</div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right col: Latest data -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Thông báo đấu giá -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h2 class="font-bold text-slate-800"><i class="fa-solid fa-gavel text-blue-500 mr-2"></i> Thông Báo Việc Đấu Giá</h2>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tài sản / Thông báo</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tỉnh thành</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Giá khởi điểm</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Lần cập nhật</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-slate-200">
+                                <tr v-for="item in recentAuctions" :key="item.id" @click="viewDetail('auction', item.id)" class="hover:bg-slate-50 transition cursor-pointer">
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm font-medium text-blue-600 line-clamp-2" :title="item.name">{{ item.name }}</div>
+                                        <div class="text-xs text-slate-500 mt-1 line-clamp-1" :title="item.organizer">
+                                            <i class="fa-regular fa-building mr-1"></i> {{ item.organizer || 'Chưa cập nhật' }}
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-600">
+                                            {{ item.province || 'Chưa rõ' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-red-600">
+                                        {{ formatMoney(item.currentPrice || item.initialPrice) }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-xs text-slate-500">
+                                        {{ formatRelTime(item.publishedAt) }}
+                                    </td>
+                                </tr>
+                                <tr v-if="!recentAuctions.length && !loading">
+                                    <td colspan="4" class="px-6 py-8 text-center text-slate-500">Đang cào dữ liệu hoặc chưa có dữ liệu...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <div class="text-sm text-slate-500">
+                            Hiển thị {{ auctionsPagination.page * auctionsPagination.limit - auctionsPagination.limit + 1 }} - {{ Math.min(auctionsPagination.page * auctionsPagination.limit, auctionsPagination.total) }} trong {{ auctionsPagination.total }}
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="changeAuctionPage(auctionsPagination.page - 1)" :disabled="auctionsPagination.page <= 1" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 text-sm">Trước</button>
+                            <span class="px-3 py-1 bg-blue-50 text-blue-600 rounded text-sm font-medium">Trang {{ auctionsPagination.page }} / {{ auctionsPagination.totalPages || 1 }}</span>
+                            <button @click="changeAuctionPage(auctionsPagination.page + 1)" :disabled="auctionsPagination.page >= auctionsPagination.totalPages" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 text-sm">Sau</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lựa chọn tổ chức -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h2 class="font-bold text-slate-800"><i class="fa-solid fa-handshake text-orange-500 mr-2"></i> Lựa Chọn Tổ Chức Đấu Giá</h2>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tài sản tìm tổ chức đấu giá</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tỉnh thành</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Người có tài sản</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Ngày đăng</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-slate-200">
+                                <tr v-for="item in recentOrgSelections" :key="item._id" @click="viewDetail('org', item.id || item._id)" class="hover:bg-slate-50 transition cursor-pointer">
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm font-medium text-orange-600 line-clamp-2" :title="item.name">{{ item.name }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-600">
+                                            {{ item.province || 'Chưa rõ' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-slate-600 max-w-[200px] truncate" :title="item.owner">
+                                        {{ item.owner || 'Chưa rõ' }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-xs text-slate-500">
+                                        {{ formatRelTime(item.publishedAt) }}
+                                    </td>
+                                </tr>
+                                <tr v-if="!recentOrgSelections.length && !loading">
+                                    <td colspan="4" class="px-6 py-8 text-center text-slate-500">Đang cào dữ liệu hoặc chưa có dữ liệu...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <div class="text-sm text-slate-500">
+                            Hiển thị {{ orgPagination.page * orgPagination.limit - orgPagination.limit + 1 }} - {{ Math.min(orgPagination.page * orgPagination.limit, orgPagination.total) }} trong {{ orgPagination.total }}
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="changeOrgPage(orgPagination.page - 1)" :disabled="orgPagination.page <= 1" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 text-sm">Trước</button>
+                            <span class="px-3 py-1 bg-orange-50 text-orange-600 rounded text-sm font-medium">Trang {{ orgPagination.page }} / {{ orgPagination.totalPages || 1 }}</span>
+                            <button @click="changeOrgPage(orgPagination.page + 1)" :disabled="orgPagination.page >= orgPagination.totalPages" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 text-sm">Sau</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Detail -->
+        <div v-if="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="closeModal" aria-hidden="true"></div>
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4 flex justify-between items-center" id="modal-title">
+                                    <span>{{ selectedItemType === 'auction' ? 'Chi tiết Tài Sản Đấu Giá' : 'Chi tiết Tìm Tổ Chức Đấu Giá' }}</span>
+                                    <button @click="closeModal" class="text-gray-400 hover:text-gray-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+                                </h3>
+                                
+                                <div v-if="loadingDetail" class="py-8 text-center text-gray-500">
+                                    <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i>
+                                    <p>Đang tải chi tiết...</p>
+                                </div>
+                                
+                                <div v-else-if="selectedItem" class="space-y-4 max-h-[60vh] overflow-y-auto pr-2 text-sm">
+                                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                                        <h4 class="font-bold text-lg text-blue-700 mb-2">{{ selectedItem.name }}</h4>
+                                        <p v-if="selectedItem.shortDescription" class="text-slate-600 mb-2">{{ selectedItem.shortDescription }}</p>
+                                        <a v-if="selectedItem.sourceUrl" :href="selectedItem.sourceUrl" target="_blank" class="text-blue-500 hover:underline text-xs"><i class="fa-solid fa-link"></i> Xem bài đăng gốc</a>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div><span class="text-slate-500 block text-xs uppercase">Tỉnh/Thành phố</span> <span class="font-medium">{{ selectedItem.province || 'N/A' }}</span></div>
+                                        
+                                        <!-- Auction Notice fields -->
+                                        <template v-if="selectedItemType === 'auction'">
+                                            <div><span class="text-slate-500 block text-xs uppercase">Giá khởi điểm</span> <span class="font-bold text-red-600">{{ formatMoney(selectedItem.initialPrice) }}</span></div>
+                                            <div><span class="text-slate-500 block text-xs uppercase">Tiền đặt trước</span> <span class="font-medium">{{ formatMoney(selectedItem.deposit) }}</span></div>
+                                            <div v-if="selectedItem.organizer"><span class="text-slate-500 block text-xs uppercase">Tổ chức đấu giá</span> <span class="font-medium">{{ selectedItem.organizer }}</span></div>
+                                            <div><span class="text-slate-500 block text-xs uppercase">Thời gian tổ chức ĐG</span> <span class="font-medium">{{ formatDate(selectedItem.auctionDate) }}</span></div>
+                                        </template>
+
+                                        <!-- Org Selection fields -->
+                                        <template v-if="selectedItemType === 'org'">
+                                            <div v-if="selectedItem.startingPrice"><span class="text-slate-500 block text-xs uppercase">Giá khởi điểm</span> <span class="font-bold text-red-600">{{ formatMoney(selectedItem.startingPrice) }}</span></div>
+                                        </template>
+
+                                        <div><span class="text-slate-500 block text-xs uppercase">Người/Đơn vị có tài sản</span> <span class="font-medium">{{ selectedItem.owner || 'N/A' }}</span></div>
+                                        <div><span class="text-slate-500 block text-xs uppercase">Ngày đăng thông báo</span> <span class="font-medium">{{ formatDate(selectedItem.publishedAt) }}</span></div>
+                                    </div>
+
+                                    <div v-if="selectedItem.assetDescription || selectedItem.conditions" class="mt-6 border-t pt-4">
+                                        <h5 class="font-bold mb-2 text-slate-800"><i class="fa-solid fa-file-lines text-slate-500 mr-2"></i>Thông tin chi tiết tài sản</h5>
+                                        <div class="prose prose-sm max-w-none whitespace-pre-wrap text-slate-700 bg-slate-50 p-4 rounded-lg border border-slate-200" v-html="selectedItem.assetDescription || selectedItem.conditions"></div>
+                                    </div>
+
+                                    <div v-if="selectedItem.requirements" class="mt-4 border-t pt-4">
+                                        <h5 class="font-bold mb-2 text-slate-800"><i class="fa-solid fa-list-check text-slate-500 mr-2"></i>Tiêu chí lựa chọn</h5>
+                                        <div class="prose prose-sm max-w-none whitespace-pre-wrap text-slate-700 bg-slate-50 p-4 rounded-lg border border-slate-200" v-html="selectedItem.requirements"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" @click="closeModal" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Đóng
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        dayjs.locale('vi');
+        dayjs.extend(dayjs_plugin_relativeTime);
+
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    stats: {},
+                    logs: [],
+                    recentAuctions: [],
+                    recentOrgSelections: [],
+                    loading: false,
+                    triggering: false,
+                    serverStatus: true,
+                    lastCrawlTime: null,
+                    
+                    // Modal state
+                    isModalOpen: false,
+                    loadingDetail: false,
+                    selectedItem: null,
+                    selectedItemType: 'auction',
+
+                    // Pagination state
+                    auctionsPagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
+                    orgPagination: { page: 1, limit: 10, total: 0, totalPages: 1 }
+                }
+            },
+            methods: {
+                async triggerDetailCrawl() {
+                    const input = prompt("Nhập số lượng bài mới nhất muốn cào chi tiết (mặc định: 30, nhập 9999 để cào toàn bộ):", "30");
+                    if (input === null) return; // Bấm Cancel
+                    
+                    const limit = parseInt(input) || 30;
+                    this.triggering = true;
+                    try {
+                        const res = await fetch('/api/trigger-detail-crawl', { 
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ limit })
+                        });
+                        
+                        if (!res.ok) {
+                            if (res.status === 404) {
+                                throw new Error('Không tìm thấy đường dẫn API. Bạn đã khởi động lại (Ctrl+C và npm start) bot chưa?');
+                            }
+                            throw new Error(`HTTP Error: ${res.status}`);
+                        }
+                        const data = await res.json();
+                        if (data.success) {
+                            alert(`Đã ra lệnh cho bot cào ${limit} bài mới nhất! Bạn có thể xem kết quả trong lịch sử (sau vài phút).`);
+                            setTimeout(() => this.refreshData(), 3000);
+                        }
+                    } catch (error) {
+                        alert('Lỗi kích hoạt bot cào chi tiết: ' + error.message);
+                    } finally {
+                        this.triggering = false;
+                    }
+                },
+                formatMoney(amount) {
+                    if (!amount) return '0 đ';
+                    return amount.toLocaleString('vi-VN') + ' đ';
+                },
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    return dayjs(dateStr).format('HH:mm DD/MM/YYYY');
+                },
+                formatRelTime(dateStr) {
+                    if (!dateStr) return '';
+                    return dayjs(dateStr).fromNow();
+                },
+                closeModal() {
+                    this.isModalOpen = false;
+                    this.selectedItem = null;
+                },
+                async viewDetail(type, id) {
+                    if (!id) return;
+                    this.selectedItemType = type;
+                    this.isModalOpen = true;
+                    this.loadingDetail = true;
+                    this.selectedItem = null;
+                    
+                    try {
+                        const endpoint = type === 'auction' ? `/api/auctions/${id}` : `/api/org-selections/${id}`;
+                        const res = await fetch(endpoint);
+                        const data = await res.json();
+                        if (data && !data.error) {
+                            this.selectedItem = data;
+                        } else {
+                            alert('Không lấy được thông tin chi tiết');
+                            this.closeModal();
+                        }
+                    } catch (error) {
+                        console.error('Error fetching detail:', error);
+                        alert('Có lỗi xảy ra khi tải chi tiết');
+                        this.closeModal();
+                    } finally {
+                        this.loadingDetail = false;
+                    }
+                },
+                async fetchAuctions() {
+                    try {
+                        const auctionsRes = await fetch(`/api/auctions?limit=${this.auctionsPagination.limit}&page=${this.auctionsPagination.page}&sort=publishedAt&order=desc`);
+                        const auctionsData = await auctionsRes.json();
+                        this.recentAuctions = auctionsData.items || [];
+                        this.auctionsPagination = auctionsData.pagination || this.auctionsPagination;
+                    } catch (e) {
+                        console.error('Error fetching auctions:', e);
+                    }
+                },
+                async fetchOrgSelections() {
+                    try {
+                        const orgRes = await fetch(`/api/org-selections?limit=${this.orgPagination.limit}&page=${this.orgPagination.page}&sort=publishedAt&order=desc`);
+                        const orgData = await orgRes.json();
+                        this.recentOrgSelections = orgData.items || [];
+                        this.orgPagination = orgData.pagination || this.orgPagination;
+                    } catch (e) {
+                        console.error('Error fetching org selections:', e);
+                    }
+                },
+                changeAuctionPage(newPage) {
+                    if (newPage >= 1 && newPage <= this.auctionsPagination.totalPages) {
+                        this.auctionsPagination.page = newPage;
+                        this.fetchAuctions();
+                    }
+                },
+                changeOrgPage(newPage) {
+                    if (newPage >= 1 && newPage <= this.orgPagination.totalPages) {
+                        this.orgPagination.page = newPage;
+                        this.fetchOrgSelections();
+                    }
+                },
+                async refreshData() {
+                    this.loading = true;
+                    try {
+                        // Gọi API để check server sống không
+                        const health = await fetch('/health');
+                        if(!health.ok) throw new Error('Mất kết nối server');
+                        this.serverStatus = true;
+
+                        // Lấy thống kê
+                        const statsRes = await fetch('/api/auctions/stats');
+                        this.stats = await statsRes.json();
+
+                        // Lấy danh sách logs
+                        const logsRes = await fetch('/api/crawl-logs');
+                        this.logs = await logsRes.json();
+                        if (this.logs.length > 0) {
+                            this.lastCrawlTime = this.logs[0].endTime || this.logs[0].startTime;
+                        }
+
+                        // Lấy danh sách
+                        await this.fetchAuctions();
+                        await this.fetchOrgSelections();
+
+                    } catch (err) {
+                        console.error(err);
+                        this.serverStatus = false;
+                    } finally {
+                        this.loading = false;
+                    }
+                }
+            },
+            mounted() {
+                this.refreshData();
+                // Auto refresh every 30 seconds
+                setInterval(this.refreshData, 30000);
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
