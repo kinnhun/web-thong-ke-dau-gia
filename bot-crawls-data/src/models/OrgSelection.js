@@ -41,6 +41,16 @@ const orgSelectionSchema = new mongoose.Schema({
     url: String
   }],
 
+  // Multi-asset
+  properties: [{
+    name: String,
+    amount: String,
+    startPrice: Number,
+    deposit: Number,
+    place: String,
+    quality: String,
+  }],
+
   // Publish round info
   publishRound: { type: Number, default: 1 },
   publishRoundLabel: String,

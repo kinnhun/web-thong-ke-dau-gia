@@ -455,6 +455,7 @@ function transformAuction(doc) {
     propertyTypeName: doc.propertyTypeName || '',
     propertyAmount: doc.propertyAmount || '',
     files: doc.files || [],
+    properties: doc.properties || [],
   };
 }
 

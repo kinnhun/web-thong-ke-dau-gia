@@ -110,7 +110,12 @@
             <tbody>
               <tr v-for="item in recentAuctions" :key="item.id" @click="viewDetail('auction', item.id)">
                 <td style="max-width:320px">
-                  <div class="name-link line-clamp-2" :title="item.name">{{ item.name }}</div>
+                  <div class="name-link line-clamp-2" :title="item.name">
+                    <span v-if="item.properties && item.properties.length > 1" class="tag tag-blue" style="margin-right:6px;font-size:.65rem;padding:2px 6px">
+                      <i class="fa-solid fa-boxes-stacked"></i> {{ item.properties.length }} tài sản
+                    </span>
+                    {{ item.name }}
+                  </div>
                   <div style="font-size:.7rem;color:var(--text-muted);margin-top:2px" class="line-clamp-1" v-if="item.organizer">
                     <i class="fa-regular fa-building"></i> {{ item.organizer }}
                   </div>
@@ -155,7 +160,12 @@
             <tbody>
               <tr v-for="item in recentOrgSelections" :key="item._id" @click="viewDetail('org', item._id)">
                 <td style="max-width:360px">
-                  <div class="name-link line-clamp-2" :title="item.name">{{ item.name }}</div>
+                  <div class="name-link line-clamp-2" :title="item.name">
+                    <span v-if="item.properties && item.properties.length > 1" class="tag tag-blue" style="margin-right:6px;font-size:.65rem;padding:2px 6px">
+                      <i class="fa-solid fa-boxes-stacked"></i> {{ item.properties.length }} tài sản
+                    </span>
+                    {{ item.name }}
+                  </div>
                 </td>
                 <td class="text-nowrap"><span class="tag tag-muted">{{ item.province || '—' }}</span></td>
                 <td class="text-right text-nowrap line-clamp-1" style="max-width:200px;font-size:.8rem">{{ item.owner || '—' }}</td>
@@ -232,6 +242,27 @@
             </template>
             <div class="detail-field"><div class="field-label">Chủ tài sản</div><div class="field-value">{{ selectedItem.owner || '—' }}</div></div>
             <div class="detail-field"><div class="field-label">Ngày đăng</div><div class="field-value">{{ formatDate(selectedItem.publishedAt) }}</div></div>
+          </div>
+          <!-- Multi-asset table -->
+          <div v-if="selectedItem.properties && selectedItem.properties.length > 1" class="dup-info-card" style="margin-top:12px">
+            <h5><i class="fa-solid fa-boxes-stacked" style="color:var(--accent-blue)"></i> {{ selectedItem.properties.length }} tài sản trong bài đăng</h5>
+            <table class="data-table" style="font-size:.78rem">
+              <thead><tr><th>STT</th><th>Tên tài sản</th><th>SL</th><th class="text-right">Giá khởi điểm</th><th class="text-right">Đặt trước</th></tr></thead>
+              <tbody>
+                <tr v-for="(p,pi) in selectedItem.properties" :key="pi" style="cursor:default">
+                  <td><span class="tag tag-muted">{{ pi+1 }}</span></td>
+                  <td style="max-width:250px" :title="p.name">{{ p.name || '—' }}</td>
+                  <td class="text-center">{{ p.amount }}</td>
+                  <td class="text-right text-nowrap"><span class="price">{{ formatMoney(p.startPrice) }}</span></td>
+                  <td class="text-right text-nowrap">{{ formatMoney(p.deposit) }}</td>
+                </tr>
+                <tr style="cursor:default;font-weight:600;border-top:2px solid var(--border)">
+                  <td colspan="3" class="text-right">Tổng cộng:</td>
+                  <td class="text-right text-nowrap"><span class="price" style="color:var(--accent-green)">{{ formatMoney(selectedItem.initialPrice || selectedItem.startingPrice) }}</span></td>
+                  <td class="text-right text-nowrap">{{ formatMoney(selectedItem.deposit) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <!-- Duplicate group info -->
           <div v-if="selectedItem.duplicateGroup" class="dup-info-card">

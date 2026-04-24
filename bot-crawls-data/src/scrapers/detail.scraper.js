@@ -222,20 +222,42 @@ async function fetchAuctionItemDetail(sourceId) {
   const updates = {};
   let files = [];
 
-  // 1. propertyInfo → giá, địa chỉ
+  // 1. propertyInfo → giá, địa chỉ, danh sách tài sản
   try {
     const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
     if (json && json.items && json.items.length > 0) {
-      const prop = json.items[0];
+      const allItems = json.items;
+      const prop = allItems[0]; // Lấy thông tin chung từ item đầu
       if (prop.propertyPlace) updates.address = prop.propertyPlace;
-      if (prop.propertyStartPrice) {
-        updates.initialPrice = prop.propertyStartPrice;
-        updates.currentPrice = prop.propertyStartPrice;
-      }
-      if (prop.deposit) updates.deposit = prop.deposit;
       if (prop.fileCost) updates.applicationFee = prop.fileCost;
       if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
       if (prop.propertyQuality) updates.quality = prop.propertyQuality;
+
+      if (allItems.length === 1) {
+        // Bài đăng 1 tài sản → lưu giá bình thường
+        if (prop.propertyStartPrice) {
+          updates.initialPrice = prop.propertyStartPrice;
+          updates.currentPrice = prop.propertyStartPrice;
+        }
+        if (prop.deposit) updates.deposit = prop.deposit;
+      } else {
+        // Bài đăng NHIỀU tài sản → lưu chi tiết từng item + tổng giá
+        const properties = allItems.map(p => ({
+          name: p.propertyName || p.propertyDesc || '',
+          amount: p.propertyAmount || '01',
+          startPrice: p.propertyStartPrice || 0,
+          deposit: p.deposit || 0,
+          place: p.propertyPlace || '',
+          quality: p.propertyQuality || '',
+        }));
+        updates.properties = properties;
+        // Tổng giá = sum tất cả tài sản
+        const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
+        const totalDeposit = properties.reduce((s, p) => s + (p.deposit || 0), 0);
+        updates.initialPrice = totalPrice;
+        updates.currentPrice = totalPrice;
+        updates.deposit = totalDeposit;
+      }
     }
   } catch (e) {}
 
@@ -269,14 +291,29 @@ async function fetchOrgItemDetail(sourceId) {
   const updates = {};
   let files = [];
 
-  // 1. propertyInfo → giá, địa chỉ
+  // 1. propertyInfo → giá, địa chỉ, danh sách tài sản
   try {
     const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
     if (json && json.items && json.items.length > 0) {
-      const prop = json.items[0];
+      const allItems = json.items;
+      const prop = allItems[0];
       if (prop.propertyPlace) updates.address = prop.propertyPlace;
-      if (prop.propertyStartPrice) updates.startingPrice = prop.propertyStartPrice;
       if (prop.propertyQuality) updates.propertyTypeName = prop.propertyQuality;
+
+      if (allItems.length === 1) {
+        if (prop.propertyStartPrice) updates.startingPrice = prop.propertyStartPrice;
+      } else {
+        const properties = allItems.map(p => ({
+          name: p.propertyName || p.propertyDesc || '',
+          amount: p.propertyAmount || '01',
+          startPrice: p.propertyStartPrice || 0,
+          deposit: p.deposit || 0,
+          place: p.propertyPlace || '',
+          quality: p.propertyQuality || '',
+        }));
+        updates.properties = properties;
+        updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      }
     }
   } catch (e) {}
 
