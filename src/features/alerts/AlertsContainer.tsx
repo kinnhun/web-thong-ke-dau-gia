@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { assetTypeLabel, provincesList } from "@/data/mockAuctions";
+import { assetTypeLabel } from "@/domains/auction/auction.types";
+import { useFilterOptions } from "@/domains/auction/auction.hooks";
 
 const savedFilters = [
   { name: "Đất Đồng Nai giảm >20%", condition: "Loại: Đất · Tỉnh: Đồng Nai · Giảm ≥ 20%", created: "2 ngày trước", matches: 12, status: "active" },
@@ -29,6 +30,8 @@ const channelLabel = { email: "Email", web: "Web", telegram: "Telegram" } as con
 
 export function AlertsContainer() {
   const [open, setOpen] = useState(false);
+  const { data: filterOptions } = useFilterOptions();
+  const provincesList = filterOptions?.provinces ?? [];
 
   return (
     <div className="container mx-auto max-w-[1200px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">

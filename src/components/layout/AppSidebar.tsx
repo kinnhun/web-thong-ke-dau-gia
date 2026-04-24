@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   LogIn,
   TrendingDown,
+  History,
+  Star,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -27,9 +29,11 @@ import {
 
 const mainItems = [
   { title: "Tổng quan", url: "/", icon: LayoutDashboard, end: true },
+  { title: "Danh sách theo dõi", url: "/watchlist", icon: Star },
   { title: "Tài sản giảm giá", url: "/discounts", icon: TrendingDown },
+  { title: "Tài sản đăng lại", url: "/relisted", icon: History },
   { title: "Báo cáo thị trường", url: "/reports", icon: BarChart3 },
-  { title: "Cảnh báo & bộ lọc", url: "/alerts", icon: Bell },
+  // { title: "Cảnh báo & bộ lọc", url: "/alerts", icon: Bell },
 ];
 
 const adminItems = [

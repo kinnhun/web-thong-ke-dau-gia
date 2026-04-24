@@ -4,6 +4,10 @@ const path = require('path');
 const config = require('../config');
 const { connectDB } = require('../db');
 const auctionRoutes = require('./routes');
+const dashboardRoutes = require('./dashboard.routes');
+const discountedRoutes = require('./discounted.routes');
+const relistedRoutes = require('./relisted.routes');
+const reportsRoutes = require('./reports.routes');
 
 /**
  * Tạo Express app (không listen)
@@ -16,7 +20,6 @@ function createServer() {
   // Phục vụ giao diện web tĩnh từ thư mục public
   app.use(express.static(path.join(__dirname, '../../public')));
 
-
   // Health check
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -24,6 +27,10 @@ function createServer() {
 
   // API routes
   app.use('/api', auctionRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/discounted', discountedRoutes);
+  app.use('/api/relisted', relistedRoutes);
+  app.use('/api/reports', reportsRoutes);
 
   // Error handler
   app.use((err, req, res, _next) => {

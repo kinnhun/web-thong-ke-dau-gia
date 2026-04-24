@@ -1,5 +1,5 @@
 import { Building2, Car, Cog, Gavel, Home, Landmark, Package } from "lucide-react";
-import type { AssetType } from "@/data/mockAuctions";
+import type { AssetType } from "@/domains/auction/auction.types";
 import { cn } from "@/lib/utils";
 
 const map: Record<AssetType, typeof Home> = {

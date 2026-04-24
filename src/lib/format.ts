@@ -2,7 +2,8 @@
  * Format a number as Vietnamese Dong currency (full).
  * e.g. 4200000000 → "4.200.000.000 ₫"
  */
-export function formatVND(value: number): string {
+export function formatVND(value: number | undefined | null): string {
+  if (value == null) return "Chưa cập nhật";
   return value.toLocaleString("vi-VN") + " ₫";
 }
 
@@ -10,7 +11,8 @@ export function formatVND(value: number): string {
  * Format VND in shortened form.
  * e.g. 4200000000 → "4,2 tỷ", 980000000 → "980 tr"
  */
-export function formatVNDShort(value: number): string {
+export function formatVNDShort(value: number | undefined | null): string {
+  if (value == null) return "Chưa cập nhật";
   if (value >= 1_000_000_000) {
     const v = value / 1_000_000_000;
     return v % 1 === 0 ? `${v} tỷ` : `${v.toFixed(1)} tỷ`.replace(".", ",");

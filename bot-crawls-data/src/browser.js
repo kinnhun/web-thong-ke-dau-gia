@@ -16,9 +16,9 @@ let isReady = false;
 async function initBrowser() {
   if (browser && isReady) return page;
 
-  console.log('🌐 Đang khởi tạo browser (visible mode)...');
+  console.log('🌐 Đang khởi tạo browser (headless mode)...');
   browser = await puppeteer.launch({
-    headless: false, // Visible mode để pass FEC challenge
+    headless: 'new', // Chrome headless mới — nhanh hơn, vẫn pass FEC
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',

@@ -1,39 +1,76 @@
+import { useState, useRef } from "react";
 import {
-  AlertCircle, CheckCircle2, Database, Download, Eye, GitMerge, Pencil, RefreshCw, Split, Wand2, XCircle,
+  AlertCircle, CheckCircle2, Database, Download, Eye, GitMerge,
+  Loader2, Pencil, RefreshCw, Split, Wand2, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { auctions } from "@/data/mockAuctions";
+import { useCrawlLogs, useAuctions } from "@/domains/auction";
 import { formatDate } from "@/lib/format";
-
-const rawRecords = auctions.slice(0, 8).map((a, i) => ({
-  id: `RAW-${1000 + i}`, name: a.name, price: a.currentPrice, province: a.province,
-  crawledAt: a.publishedAt, source: "moj.gov.vn", status: i % 4 === 0 ? "error" : i % 3 === 0 ? "pending" : "ok",
-}));
-
-const groups = auctions.slice(0, 6).map((a, i) => ({
-  groupId: a.groupId, name: a.name, count: a.history.length, confidence: 95 - i * 6,
-  status: i % 3 === 0 ? "pending" : "approved",
-}));
-
-const logs = [
-  { time: "10:42", module: "crawler", message: "Timeout khi gọi danh sách tỉnh Đồng Nai trang 12", level: "error", handled: false },
-  { time: "10:35", module: "matcher", message: "Phát hiện 3 cặp nghi ngờ trùng cần duyệt thủ công", level: "warning", handled: false },
-  { time: "09:58", module: "crawler", message: "Hoàn tất đồng bộ 247 tin mới", level: "info", handled: true },
-  { time: "09:30", module: "stats", message: "Tính lại thống kê thành công", level: "info", handled: true },
-  { time: "08:15", module: "normalizer", message: "Lỗi parse giá: ký tự đặc biệt trong tin RAW-1042", level: "error", handled: true },
-];
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  triggerListCrawl,
+  triggerDetailCrawl,
+  triggerDuplicateScan,
+} from "@/services/auction.service";
 
 const statusBadge = (s: string) => {
-  const map: Record<string, string> = { ok: "bg-new-badge-soft text-new-badge", pending: "bg-watch-badge-soft text-watch-badge", error: "bg-discount-deep-soft text-discount-deep", approved: "bg-new-badge-soft text-new-badge" };
-  const label: Record<string, string> = { ok: "Đã xử lý", pending: "Chờ duyệt", error: "Lỗi", approved: "Đã duyệt" };
-  return <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${map[s]}`}>{label[s]}</span>;
+  const map: Record<string, string> = {
+    ok: "bg-new-badge-soft text-new-badge",
+    completed: "bg-new-badge-soft text-new-badge",
+    pending: "bg-watch-badge-soft text-watch-badge",
+    running: "bg-watch-badge-soft text-watch-badge",
+    error: "bg-discount-deep-soft text-discount-deep",
+    failed: "bg-discount-deep-soft text-discount-deep",
+    approved: "bg-new-badge-soft text-new-badge",
+  };
+  const label: Record<string, string> = {
+    ok: "Đã xử lý", completed: "Hoàn thành", pending: "Chờ duyệt",
+    running: "Đang chạy", error: "Lỗi", failed: "Thất bại", approved: "Đã duyệt",
+  };
+  return <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${map[s] || "bg-secondary"}`}>{label[s] || s}</span>;
 };
 
-const levelIcon = { error: XCircle, warning: AlertCircle, info: CheckCircle2 } as const;
-const levelColor = { error: "text-destructive", warning: "text-watch-badge", info: "text-new-badge" } as const;
-
 export function AdminContainer() {
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<string | null>(null);
+  const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
+  const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
+
+  const rawRecords = rawAuctions?.items || [];
+  const logs = (crawlLogs || []).slice(0, 15);
+
+  const parentRef = useRef<HTMLDivElement>(null);
+  
+  const rowVirtualizer = useVirtualizer({
+    count: rawRecords.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 53,
+    overscan: 5,
+  });
+
+  const handleAction = async (name: string, fn: () => Promise<unknown>) => {
+    setActionLoading(name);
+    setActionResult(null);
+    try {
+      await fn();
+      setActionResult(`✅ ${name} thành công`);
+      refetchLogs();
+    } catch (err) {
+      setActionResult(`❌ ${name} thất bại: ${err instanceof Error ? err.message : "Unknown"}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const actions = [
+    { icon: RefreshCw, title: "Crawl danh sách", desc: "Thu thập tin mới", fn: () => triggerListCrawl(5, "auction") },
+    { icon: Database, title: "Crawl chi tiết", desc: "Lấy thông tin chi tiết", fn: () => triggerDetailCrawl(20, "auction") },
+    { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm bài đăng lại", fn: () => triggerDuplicateScan() },
+    { icon: GitMerge, title: "Crawl tổ chức", desc: "Crawl thông báo lựa chọn", fn: () => triggerListCrawl(5, "org") },
+    { icon: Eye, title: "Chi tiết tổ chức", desc: "Detail org selection", fn: () => triggerDetailCrawl(20, "org") },
+  ];
+
   return (
     <div className="container mx-auto max-w-[1400px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
@@ -45,16 +82,23 @@ export function AdminContainer() {
         </div>
       </header>
 
+      {actionResult && (
+        <div className="rounded-lg border bg-card px-4 py-2.5 text-sm">{actionResult}</div>
+      )}
+
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
-        {[
-          { icon: RefreshCw, title: "Crawl ngay", desc: "Thu thập tin mới" },
-          { icon: Database, title: "Đồng bộ dữ liệu", desc: "Sync từ nguồn" },
-          { icon: Wand2, title: "Chuẩn hóa", desc: "Làm sạch dữ liệu" },
-          { icon: GitMerge, title: "Tính lại thống kê", desc: "Recalc KPI" },
-          { icon: Eye, title: "Tạo lại chỉ mục", desc: "Search index" },
-        ].map((item) => (
-          <button key={item.title} className="rounded-xl border bg-card p-3 sm:p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer">
-            <item.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2" />
+        {actions.map((item) => (
+          <button
+            key={item.title}
+            onClick={() => handleAction(item.title, item.fn)}
+            disabled={!!actionLoading}
+            className="rounded-xl border bg-card p-3 sm:p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {actionLoading === item.title ? (
+              <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2 animate-spin" />
+            ) : (
+              <item.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2" />
+            )}
             <div className="font-medium text-[13px] sm:text-sm">{item.title}</div>
             <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{item.desc}</div>
           </button>
@@ -63,106 +107,113 @@ export function AdminContainer() {
 
       <Tabs defaultValue="raw" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="raw">Dữ liệu thô</TabsTrigger>
-          <TabsTrigger value="groups">Ghép tài sản</TabsTrigger>
-          <TabsTrigger value="logs">Nhật ký lỗi</TabsTrigger>
+          <TabsTrigger value="raw">Dữ liệu gần đây</TabsTrigger>
+          <TabsTrigger value="logs">Nhật ký crawl</TabsTrigger>
         </TabsList>
 
         <TabsContent value="raw">
           <div className="rounded-xl border bg-card overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px]">
-              <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">ID nguồn</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Tên tài sản</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Tỉnh</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Ngày crawl</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Nguồn</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Trạng thái</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rawRecords.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-mono text-xs">{r.id}</td>
-                    <td className="px-4 py-3 line-clamp-1 max-w-md">{r.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.province}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{formatDate(r.crawledAt)}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{r.source}</td>
-                    <td className="px-4 py-3">{statusBadge(r.status)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Pencil className="h-3.5 w-3.5" /></Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="groups">
-          <div className="rounded-xl border bg-card overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px]">
-              <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">Group ID</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Tên chuẩn hóa</th>
-                  <th className="px-4 py-2.5 text-center font-medium">Số bản ghi</th>
-                  <th className="px-4 py-2.5 text-center font-medium">Độ tin cậy</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Trạng thái</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => (
-                  <tr key={g.groupId} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-mono text-xs">{g.groupId}</td>
-                    <td className="px-4 py-3 line-clamp-1 max-w-md">{g.name}</td>
-                    <td className="px-4 py-3 text-center num">{g.count}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium num ${g.confidence >= 80 ? "bg-new-badge-soft text-new-badge" : "bg-watch-badge-soft text-watch-badge"}`}>
-                        {g.confidence}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">{statusBadge(g.status)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><GitMerge className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Split className="h-3.5 w-3.5" /></Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="w-full min-w-[950px] text-sm">
+              <div className="flex text-xs text-muted-foreground border-b bg-secondary/30 font-medium">
+                <div className="px-4 py-2.5 w-24">Source ID</div>
+                <div className="px-4 py-2.5 flex-1 min-w-[250px]">Tên tài sản</div>
+                <div className="px-4 py-2.5 w-32">Tỉnh</div>
+                <div className="px-4 py-2.5 w-32">Ngày đăng</div>
+                <div className="px-4 py-2.5 w-20 text-center">% giảm</div>
+                <div className="px-4 py-2.5 w-32">Trạng thái</div>
+                <div className="px-4 py-2.5 w-24 text-right">Thao tác</div>
+              </div>
+              
+              <div ref={parentRef} className="h-[500px] overflow-auto">
+                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative", width: "100%" }}>
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const r = rawRecords[virtualRow.index];
+                    return (
+                      <div
+                        key={r._id}
+                        className="flex items-center border-b last:border-0 hover:bg-secondary/40 absolute top-0 left-0 w-full"
+                        style={{
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <div className="px-4 py-3 w-24 font-mono text-xs">{r.sourceId}</div>
+                        <div className="px-4 py-3 flex-1 min-w-[250px]">
+                          <div className="line-clamp-1" title={r.name}>{r.name}</div>
+                        </div>
+                        <div className="px-4 py-3 w-32 text-muted-foreground">{r.province || "—"}</div>
+                        <div className="px-4 py-3 w-32 text-muted-foreground text-xs">{r.publishedAt ? formatDate(r.publishedAt) : "—"}</div>
+                        <div className="px-4 py-3 w-20 text-center num text-discount-deep font-medium">
+                          {r.priceDropPercent > 0 ? `−${r.priceDropPercent.toFixed(1)}%` : "—"}
+                        </div>
+                        <div className="px-4 py-3 w-32">{statusBadge(r.status || "ok")}</div>
+                        <div className="px-4 py-3 w-24 text-right">
+                          <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7"><Pencil className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {rawRecords.length === 0 && (
+                    <div className="px-4 py-8 text-center text-muted-foreground">
+                      {logsLoading ? <Loader2 className="h-5 w-5 animate-spin inline" /> : "Chưa có dữ liệu"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </TabsContent>
 
         <TabsContent value="logs">
           <div className="rounded-xl border bg-card">
             <div className="flex items-center justify-between border-b px-3 sm:px-5 py-3">
-              <h3 className="font-semibold text-sm">Nhật ký gần đây</h3>
-              <Button variant="outline" size="sm" className="text-xs h-7 sm:h-9"><Download className="h-3.5 w-3.5" /><span className="hidden sm:inline">Xuất log</span></Button>
+              <h3 className="font-semibold text-sm">Nhật ký crawl gần đây</h3>
+              <Button variant="outline" size="sm" className="text-xs h-7 sm:h-9" onClick={() => refetchLogs()}>
+                <RefreshCw className="h-3.5 w-3.5" /><span className="hidden sm:inline">Làm mới</span>
+              </Button>
             </div>
             <div className="divide-y">
-              {logs.map((l, i) => {
-                const Icon = levelIcon[l.level as keyof typeof levelIcon];
-                return (
-                  <div key={i} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-5 py-3">
-                    <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${levelColor[l.level as keyof typeof levelColor]}`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
-                        <span className="font-mono">{l.time}</span>
-                        <span className="rounded bg-secondary px-1.5 py-0.5">{l.module}</span>
-                        {l.handled && <span className="text-new-badge">đã xử lý</span>}
+              {logsLoading ? (
+                <div className="px-5 py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Đang tải...</div>
+              ) : logs.length === 0 ? (
+                <div className="px-5 py-8 text-center text-muted-foreground">Chưa có nhật ký</div>
+              ) : (
+                logs.map((l: Record<string, unknown>, i: number) => {
+                  const status = String(l.status || "unknown");
+                  const type = String(l.type || "");
+                  const Icon = status === "failed" ? XCircle : status === "running" ? AlertCircle : CheckCircle2;
+                  const color = status === "failed" ? "text-destructive" : status === "running" ? "text-watch-badge" : "text-new-badge";
+                  const startedAt = l.startedAt ? new Date(l.startedAt as string) : null;
+                  const finishedAt = l.finishedAt ? new Date(l.finishedAt as string) : null;
+                  const duration = startedAt && finishedAt
+                    ? Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000)
+                    : null;
+
+                  return (
+                    <div key={i} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-5 py-3">
+                      <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${color}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
+                          <span className="font-mono">{startedAt ? startedAt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "?"}</span>
+                          <span className="rounded bg-secondary px-1.5 py-0.5">{type}</span>
+                          {statusBadge(status)}
+                          {duration !== null && <span>{duration}s</span>}
+                        </div>
+                        <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">
+                          {l.itemsInserted !== undefined && <span>Mới: <strong className="num">{String(l.itemsInserted)}</strong></span>}
+                          {l.itemsUpdated !== undefined && <span> · Cập nhật: <strong className="num">{String(l.itemsUpdated)}</strong></span>}
+                          {l.itemsSkipped !== undefined && <span> · Bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}
+                          {l.pagesProcessed !== undefined && <span> · Trang: <strong className="num">{String(l.pagesProcessed)}</strong></span>}
+                        </div>
+                        {Array.isArray(l.errorMessages) && l.errorMessages.length > 0 && (
+                          <div className="text-xs text-destructive mt-1">{(l.errorMessages as string[]).slice(0, 2).join("; ")}</div>
+                        )}
                       </div>
-                      <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">{l.message}</div>
                     </div>
-                    {!l.handled && <Button variant="outline" size="sm" className="text-xs h-7 sm:h-9 shrink-0">Đánh dấu</Button>}
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </TabsContent>

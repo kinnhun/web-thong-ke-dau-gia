@@ -1,12 +1,14 @@
 import { cn } from "@/lib/utils";
-import type { AuctionStatus } from "@/data/mockAuctions";
-import { statusLabel } from "@/data/mockAuctions";
+import type { AuctionStatus } from "@/domains/auction/auction.types";
+import { statusLabel } from "@/domains/auction/auction.types";
 
 const styles: Record<AuctionStatus, string> = {
   upcoming: "bg-secondary text-secondary-foreground",
   receiving_docs: "bg-watch-badge-soft text-watch-badge",
   newly_reduced: "bg-discount-deep-soft text-discount-deep",
   watch: "bg-discount-mid-soft text-discount-mid",
+  completed: "bg-new-badge-soft text-new-badge",
+  unknown: "bg-secondary text-muted-foreground",
 };
 
 export const StatusBadge = ({ status, className }: { status: AuctionStatus; className?: string }) => (

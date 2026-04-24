@@ -4,6 +4,7 @@
   "description": "Bot cào dữ liệu đấu giá từ dgts.moj.gov.vn và lưu vào MongoDB",
   "main": "src/index.js",
   "scripts": {
+    "dev": "node src/index.js",
     "start": "node src/index.js",
     "crawl": "node src/crawler.js",
     "api": "node src/api/server.js",

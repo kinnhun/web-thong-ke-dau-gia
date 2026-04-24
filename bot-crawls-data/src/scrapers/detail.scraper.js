@@ -37,28 +37,39 @@ async function fetchPublishHistory(sourceId) {
   };
 
   try {
-    const data = await fetchAPI('/portal/pageAuctionInfoPublish2', {
+    // 1. Lấy thông tin Publish2 (Lần 1, lần 2...)
+    const dataPublish2 = await fetchAPI('/portal/pageAuctionInfoPublish2', {
+      auctionInfoId: sourceId,
+      p: 0,
+    });
+    
+    // 2. Lấy thông tin Corrections (Đính chính / Thay đổi)
+    const dataCorrections = await fetchAPI('/portal/pageAuctionInfoCorrections', {
       auctionInfoId: sourceId,
       p: 0,
     });
 
-    const items = data && Array.isArray(data.items) ? data.items : [];
+    const itemsPublish2 = dataPublish2 && Array.isArray(dataPublish2.items) ? dataPublish2.items : [];
+    const itemsCorrections = dataCorrections && Array.isArray(dataCorrections.items) ? dataCorrections.items : [];
+    
+    // Tìm self entry trong Publish2 trước, nếu không có thì tìm trong Corrections
+    const selfEntry = itemsPublish2.find(d => d.auctionInfoId === sourceId) || itemsCorrections.find(d => d.auctionInfoId === sourceId);
+    
+    if (selfEntry) {
+      result.publishRoundLabel = selfEntry.strLevelCorrection || '';
+      result.rootId = selfEntry.rootID || null;
 
-    if (items.length > 0) {
-      // Tìm entry của chính sourceId này
-      const selfEntry = items.find(d => d.auctionInfoId === sourceId);
-      if (selfEntry) {
-        result.publishRoundLabel = selfEntry.strLevelCorrection || '';
-        result.rootId = selfEntry.rootID || null;
-
-        // Parse số lần từ label: "Thông báo công khai lần 2" → 2
-        const match = result.publishRoundLabel.match(/lần\s+(\d+)/i);
-        if (match) result.publishRound = parseInt(match[1]);
-      }
-
-      // Thu thập tất cả IDs liên quan
-      result.relatedIds = items.map(d => d.auctionInfoId).filter(id => id !== sourceId);
+      const match = result.publishRoundLabel.match(/lần\s+(\d+)/i);
+      if (match) result.publishRound = parseInt(match[1]);
     }
+
+    // Gộp tất cả IDs liên quan từ cả 2 mảng
+    const allIds = [
+      ...itemsPublish2.map(d => d.auctionInfoId),
+      ...itemsCorrections.map(d => d.auctionInfoId)
+    ].filter(id => id && id !== sourceId);
+
+    result.relatedIds = [...new Set(allIds)];
   } catch (e) {
     // Không throw, giữ default
   }
@@ -104,26 +115,26 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
   dup.entries = entries;
   dup.relistCount = entries.length;
 
-  // Tính toán giá - phát hiện giảm giá ở BẤT KỲ lần đăng nào
+  // Tính toán giá — chỉ đánh dấu giảm giá khi latestPrice < firstPrice
   if (entries.length > 0) {
     const pricesWithValues = entries.filter(e => e.price && e.price > 0);
     if (pricesWithValues.length > 0) {
       dup.firstPrice = pricesWithValues[0].price;
       dup.latestPrice = pricesWithValues[pricesWithValues.length - 1].price;
 
-      // Tìm giá thấp nhất trong tất cả các lần đăng
-      const minPrice = Math.min(...pricesWithValues.map(e => e.price));
-      const maxPrice = Math.max(...pricesWithValues.map(e => e.price));
+      // isPriceDrop = true CHỈ KHI:
+      //   1. Giá lần cuối thấp hơn giá lần đầu
+      //   2. Có ít nhất 2 thời điểm đăng khác nhau (loại trường hợp cùng lúc, khác tài sản)
+      const uniqueTimestamps = [...new Set(
+        pricesWithValues
+          .filter(e => e.publishedAt)
+          .map(e => new Date(e.publishedAt).getTime())
+      )];
+      const isActualRelist = uniqueTimestamps.length >= 2;
 
-      // isPriceDrop = true nếu BẤT KỲ lần nào có giá thấp hơn lần đầu
-      // Ví dụ: 52M → 41M → 41M → 52M → vẫn là price drop
-      const hasAnyDrop = pricesWithValues.some(e => e.price < dup.firstPrice);
-      const uniquePrices = [...new Set(pricesWithValues.map(e => e.price))];
-
-      if (hasAnyDrop || uniquePrices.length > 1) {
+      if (type === 'auction' && dup.latestPrice < dup.firstPrice && isActualRelist) {
         dup.isPriceDrop = true;
-        // % giảm giá tính theo giá nhỏ nhất so với giá đầu tiên
-        dup.priceDropPercent = Math.round((1 - minPrice / dup.firstPrice) * 10000) / 100;
+        dup.priceDropPercent = Math.round((1 - dup.latestPrice / dup.firstPrice) * 10000) / 100;
       } else {
         dup.isPriceDrop = false;
         dup.priceDropPercent = 0;
@@ -354,12 +365,6 @@ async function fetchOrgItemDetail(sourceId) {
     }
   } catch (e) {}
 
-  // 3. pageAuctionInfoPublish2 → đăng lần mấy
-  try {
-    const publishInfo = await fetchPublishHistory(sourceId);
-    Object.assign(updates, publishInfo);
-  } catch (e) {}
-
   return { updates, files };
 }
 
@@ -451,8 +456,7 @@ async function crawlOrgDetails(options = {}) {
       try {
         await delay(Math.random() * 500);
         const { updates, files } = await fetchOrgItemDetail(item.sourceId);
-        const exactNameRelatedIds = await searchDuplicatesByExactName(item.sourceId, item.name, 'org');
-        return { item, updates, files, exactNameRelatedIds, success: true };
+        return { item, updates, files, success: true };
       } catch (err) {
         return { item, success: false, err };
       }
@@ -460,19 +464,12 @@ async function crawlOrgDetails(options = {}) {
 
     for (const result of chunkResults) {
       if (result.success) {
-        const { item, updates, files, exactNameRelatedIds } = result;
+        const { item, updates, files } = result;
         updates.detailScraped = true;
         updates.lastCrawledAt = new Date();
         if (files && files.length > 0) updates.files = files;
         
         await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
-        
-        let allRelatedIds = updates.relatedIds || [];
-        allRelatedIds = [...new Set([...allRelatedIds, ...exactNameRelatedIds])];
-
-        if (allRelatedIds.length > 0) {
-          await handleDuplicate(item.sourceId, item.name, allRelatedIds, 'org');
-        }
         
         stats.updated++;
       } else {
@@ -610,13 +607,19 @@ async function rebuildAllDuplicateEntries() {
       dup.firstPrice = pricesWithValues[0].price;
       dup.latestPrice = pricesWithValues[pricesWithValues.length - 1].price;
 
-      const minPrice = Math.min(...pricesWithValues.map(e => e.price));
-      const hasAnyDrop = pricesWithValues.some(e => e.price < dup.firstPrice);
-      const uniquePrices = [...new Set(pricesWithValues.map(e => e.price))];
+      // isPriceDrop = true CHỈ KHI:
+      //   1. Giá lần cuối thấp hơn giá lần đầu
+      //   2. Có ít nhất 2 thời điểm đăng khác nhau (loại trường hợp cùng lúc, khác tài sản)
+      const uniqueTimestamps = [...new Set(
+        pricesWithValues
+          .filter(e => e.publishedAt)
+          .map(e => new Date(e.publishedAt).getTime())
+      )];
+      const isActualRelist = uniqueTimestamps.length >= 2;
 
-      if (hasAnyDrop || uniquePrices.length > 1) {
+      if (dup.type === 'auction' && dup.latestPrice < dup.firstPrice && isActualRelist) {
         dup.isPriceDrop = true;
-        dup.priceDropPercent = Math.round((1 - minPrice / dup.firstPrice) * 10000) / 100;
+        dup.priceDropPercent = Math.round((1 - dup.latestPrice / dup.firstPrice) * 10000) / 100;
       } else {
         dup.isPriceDrop = false;
         dup.priceDropPercent = 0;
