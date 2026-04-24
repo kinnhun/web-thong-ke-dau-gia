@@ -22,6 +22,11 @@ async function initBrowser() {
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage', // Ngăn OOM memory
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process', // Giảm RAM rất nhiều
       '--disable-blink-features=AutomationControlled',
       '--window-size=1280,900',
     ],
@@ -29,6 +34,17 @@ async function initBrowser() {
   });
 
   page = (await browser.pages())[0] || await browser.newPage();
+
+  // Block hình ảnh, css, font để tiết kiệm RAM tối đa
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const type = req.resourceType();
+    if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
 
   // Ẩn webdriver flag
   await page.evaluateOnNewDocument(() => {
