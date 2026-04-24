@@ -141,13 +141,17 @@ async function fetchAPI(endpoint, params = {}) {
 
   const result = await p.evaluate(async (fetchUrl) => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(fetchUrl, {
         headers: {
           'Accept': 'application/json, text/javascript, */*; q=0.01',
           'X-Requested-With': 'XMLHttpRequest',
         },
         credentials: 'same-origin',
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       if (!res.ok) {
         return { error: true, status: res.status, message: `HTTP ${res.status}` };
@@ -180,10 +184,14 @@ async function fetchDetailHTML(url) {
 
   const result = await p.evaluate(async (fetchUrl) => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(fetchUrl, {
         headers: { 'Accept': 'text/html' },
         credentials: 'same-origin',
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       if (!res.ok) return { error: true, status: res.status };
       const html = await res.text();
       return { error: false, html };

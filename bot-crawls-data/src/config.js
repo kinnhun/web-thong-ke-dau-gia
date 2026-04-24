@@ -13,7 +13,7 @@ module.exports = {
     skipThreshold: parseInt(process.env.CRAWL_SKIP_THRESHOLD || '20', 10),
   },
   api: {
-    port: parseInt(process.env.API_PORT || '4000', 10),
+    port: parseInt(process.env.API_PORT || '4321', 10),
   },
   baseUrl: process.env.BASE_URL || 'https://dgts.moj.gov.vn',
   cron: process.env.CRON_SCHEDULE || '*/15 * * * *', // Mỗi 15 phút
