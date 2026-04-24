@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useWatchlist } from "@/domains/watchlist/watchlist.hooks";
 import { formatVND, formatDate } from "@/lib/format";
 import { AssetTypeIcon } from "@/components/auction/AssetTypeIcon";
-import { assetTypeLabel } from "@/domains/auction";
+import { assetTypeLabel, type AssetType } from "@/domains/auction";
 
 export function WatchlistContainer() {
   const { watchlist, toggleWatch, isLoaded } = useWatchlist();
@@ -124,10 +124,10 @@ export function WatchlistContainer() {
                     <td className="px-4 py-3"><Checkbox /></td>
                     <td className="px-4 py-3">
                       <Link href={`/auction/${item.id}`} className="flex items-start gap-2 group max-w-md">
-                        <AssetTypeIcon type={item.type} className="mt-0.5 text-muted-foreground" />
+                        <AssetTypeIcon type={item.type as AssetType} className="mt-0.5 text-muted-foreground" />
                         <div className="min-w-0">
                           <div className="font-medium group-hover:text-primary line-clamp-1">{item.name}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">{assetTypeLabel[item.type] || item.type}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{assetTypeLabel[item.type as AssetType] || item.type}</div>
                         </div>
                       </Link>
                     </td>
@@ -182,7 +182,7 @@ export function WatchlistContainer() {
           {filteredList.map((item) => (
              <div key={item.id} className="group flex flex-col bg-card border rounded-xl p-4 shadow-sm hover:shadow-md transition-all hover:border-primary/30">
                <div className="flex justify-between items-start mb-2 gap-2">
-                 <AssetTypeIcon type={item.type} className="text-muted-foreground shrink-0" />
+                 <AssetTypeIcon type={item.type as AssetType} className="text-muted-foreground shrink-0" />
                  {item.relistCount > 1 && (
                    <span className="inline-flex bg-muted/50 rounded text-xs font-medium px-1.5 py-0.5 whitespace-nowrap">
                      Lần {item.relistCount}

@@ -131,8 +131,8 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
               name: auction.name,
               type: auction.type,
               relistCount: dup?.relistCount || 1,
-              firstPrice: dup?.firstPrice || auction.price,
-              latestPrice: dup?.latestPrice || auction.price,
+              firstPrice: dup?.firstPrice || auction.initialPrice,
+              latestPrice: dup?.latestPrice || auction.currentPrice,
               priceDropPercent: dup?.priceDropPercent || 0,
               publishedAt: auction.publishedAt,
               url: `/auction/${auction.sourceId}`
