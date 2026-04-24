@@ -5,9 +5,9 @@ module.exports = {
     uri: process.env.MONGO_URI || 'mongodb://localhost:27017/thong_ke_dau_gia',
   },
   crawl: {
-    concurrency: parseInt(process.env.CRAWL_CONCURRENCY || '3', 10),
-    delayMs: parseInt(process.env.CRAWL_DELAY_MS || '500', 10),
-    pageSize: parseInt(process.env.CRAWL_PAGE_SIZE || '20', 10),
+    concurrency: parseInt(process.env.CRAWL_CONCURRENCY || '5', 10),
+    delayMs: parseInt(process.env.CRAWL_DELAY_MS || '300', 10),
+    pageSize: parseInt(process.env.CRAWL_PAGE_SIZE || '100', 10),
     maxPages: parseInt(process.env.CRAWL_MAX_PAGES || '0', 10), // 0 = unlimited
     // Gặp N bản ghi cũ liên tiếp → dừng, vì đã cào hết data mới
     skipThreshold: parseInt(process.env.CRAWL_SKIP_THRESHOLD || '20', 10),

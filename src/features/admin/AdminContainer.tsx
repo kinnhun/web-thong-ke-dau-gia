@@ -1,12 +1,13 @@
 import { useState, useRef } from "react";
 import {
   AlertCircle, CheckCircle2, Database, Download, Eye, GitMerge,
-  Loader2, Pencil, RefreshCw, Split, Wand2, XCircle,
+  Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
+  TrendingDown, Layers, FileBarChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCrawlLogs, useAuctions } from "@/domains/auction";
-import { formatDate } from "@/lib/format";
+import { useCrawlLogs, useAuctions, useDashboardStats } from "@/domains/auction";
+import { formatDate, formatVNDShort } from "@/lib/format";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   triggerListCrawl,
@@ -18,6 +19,7 @@ const statusBadge = (s: string) => {
   const map: Record<string, string> = {
     ok: "bg-new-badge-soft text-new-badge",
     completed: "bg-new-badge-soft text-new-badge",
+    early_stopped: "bg-discount-light-soft text-discount-light-foreground",
     pending: "bg-watch-badge-soft text-watch-badge",
     running: "bg-watch-badge-soft text-watch-badge",
     error: "bg-discount-deep-soft text-discount-deep",
@@ -25,7 +27,7 @@ const statusBadge = (s: string) => {
     approved: "bg-new-badge-soft text-new-badge",
   };
   const label: Record<string, string> = {
-    ok: "Đã xử lý", completed: "Hoàn thành", pending: "Chờ duyệt",
+    ok: "Đã xử lý", completed: "Hoàn thành", early_stopped: "Dừng sớm", pending: "Chờ duyệt",
     running: "Đang chạy", error: "Lỗi", failed: "Thất bại", approved: "Đã duyệt",
   };
   return <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${map[s] || "bg-secondary"}`}>{label[s] || s}</span>;
@@ -36,6 +38,7 @@ export function AdminContainer() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
+  const { data: stats } = useDashboardStats();
 
   const rawRecords = rawAuctions?.items || [];
   const logs = (crawlLogs || []).slice(0, 15);
@@ -83,8 +86,43 @@ export function AdminContainer() {
       </header>
 
       {actionResult && (
-        <div className="rounded-lg border bg-card px-4 py-2.5 text-sm">{actionResult}</div>
+        <div className={`rounded-lg border px-4 py-2.5 text-sm flex items-center gap-2 ${actionResult.startsWith("✅") ? "bg-new-badge-soft border-new-badge/20 text-new-badge" : "bg-discount-deep-soft border-discount-deep/20 text-discount-deep"}`}>
+          {actionResult.startsWith("✅") ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+          {actionResult}
+        </div>
       )}
+
+      {/* Tổng quan dữ liệu */}
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        <div className="rounded-xl border bg-card p-3 sm:p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
+            <Layers className="h-4 w-4" />
+            <span className="text-xs font-medium">Thông báo đấu giá</span>
+          </div>
+          <div className="text-lg sm:text-xl font-bold num">{(stats?.totalAuctions ?? 0).toLocaleString("vi-VN")}</div>
+        </div>
+        <div className="rounded-xl border bg-card p-3 sm:p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
+            <FileBarChart className="h-4 w-4" />
+            <span className="text-xs font-medium">Lựa chọn tổ chức</span>
+          </div>
+          <div className="text-lg sm:text-xl font-bold num">{(stats?.totalOrg ?? 0).toLocaleString("vi-VN")}</div>
+        </div>
+        <div className="rounded-xl border bg-card p-3 sm:p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
+            <TrendingDown className="h-4 w-4 text-discount-deep" />
+            <span className="text-xs font-medium">Đang giảm giá</span>
+          </div>
+          <div className="text-lg sm:text-xl font-bold num text-discount-deep">{(stats?.totalDiscounted ?? 0).toLocaleString("vi-VN")}</div>
+        </div>
+        <div className="rounded-xl border bg-card p-3 sm:p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
+            <Activity className="h-4 w-4 text-new-badge" />
+            <span className="text-xs font-medium">Mới 72h</span>
+          </div>
+          <div className="text-lg sm:text-xl font-bold num text-new-badge">{(stats?.newIn72h ?? 0).toLocaleString("vi-VN")}</div>
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         {actions.map((item) => (

@@ -42,8 +42,10 @@ const duplicateSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Compound index cho tìm kiếm nhanh
+// Compound indexes cho tìm kiếm nhanh
 duplicateSchema.index({ type: 1, isPriceDrop: -1, updatedAt: -1 });
 duplicateSchema.index({ 'sourceIds': 1 });
+duplicateSchema.index({ type: 1, isPriceDrop: 1, priceDropPercent: -1 });
+duplicateSchema.index({ type: 1, relistCount: -1 });
 
 module.exports = mongoose.model('Duplicate', duplicateSchema);

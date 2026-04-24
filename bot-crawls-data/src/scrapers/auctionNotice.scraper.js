@@ -86,54 +86,74 @@ async function processItems(items, stats, options = {}) {
   const isAuto = options.isAuto || false;
   let consecutiveOld = options.prevOld || 0;
 
+  // ⚡ Batch check: 1 query thay vì N queries
+  const sourceIds = items.map(i => i.id).filter(Boolean);
+  const existingDocs = await AuctionNotice.find({ sourceId: { $in: sourceIds } }).select('sourceId').lean();
+  const existingSet = new Set(existingDocs.map(d => d.sourceId));
+
+  // Phân loại: cũ vs mới
+  const newItems = [];
   for (const item of items) {
-    try {
+    const sourceId = item.id;
+    if (!sourceId) { stats.skipped++; continue; }
+
+    if (existingSet.has(sourceId)) {
+      stats.skipped++;
+      if (isAuto) {
+        consecutiveOld++;
+        if (consecutiveOld >= SKIP_THRESHOLD) return { consecutiveOld };
+      }
+    } else {
+      if (isAuto) consecutiveOld = 0;
+      newItems.push(item);
+    }
+  }
+
+  // ⚡ Xử lý items mới theo chunk song song
+  const concurrency = config.crawl.concurrency || 5;
+  for (let i = 0; i < newItems.length; i += concurrency) {
+    const chunk = newItems.slice(i, i + concurrency);
+    const results = await Promise.allSettled(chunk.map(async (item) => {
       const sourceId = item.id;
-      if (!sourceId) { stats.skipped++; continue; }
+      const data = buildAuctionData(item);
+      data.sourceId = sourceId;
+      data.lastCrawledAt = new Date();
 
-      const existing = await AuctionNotice.findOne({ sourceId }).select('_id');
-      if (existing) {
-        stats.skipped++;
-        if (isAuto) {
-          consecutiveOld++;
-          if (consecutiveOld >= SKIP_THRESHOLD) return { consecutiveOld };
-        }
-        continue;
-      } else {
-        if (isAuto) consecutiveOld = 0;
-        const data = buildAuctionData(item);
-        data.sourceId = sourceId;
-        data.lastCrawledAt = new Date();
+      try {
+        const { updates, files } = await fetchAuctionItemDetail(sourceId);
+        Object.assign(data, updates);
+        if (files.length > 0) data.files = files;
+        data.detailScraped = true;
+        return { data, hasDetail: true, relatedIds: data.relatedIds, sourceId, name: data.name };
+      } catch (e) {
+        data.detailScraped = false;
+        return { data, hasDetail: false, sourceId, name: data.name };
+      }
+    }));
 
-        // Detail inline
+    // Lưu DB tuần tự tránh race condition
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { data, hasDetail, relatedIds, sourceId, name } = result.value;
         try {
-          await delay(300);
-          const { updates, files } = await fetchAuctionItemDetail(sourceId);
-          Object.assign(data, updates);
-          if (files.length > 0) data.files = files;
-          data.detailScraped = true;
-          stats.detailOk++;
+          await AuctionNotice.create(data);
+          stats.inserted++;
+          if (hasDetail) stats.detailOk++;
 
-          // Duplicate check
-          if (data.relatedIds && data.relatedIds.length > 0) {
-            await handleDuplicate(sourceId, data.name, data.relatedIds, 'auction');
+          if (relatedIds && relatedIds.length > 0) {
+            await handleDuplicate(sourceId, name, relatedIds, 'auction');
             stats.duplicates++;
           }
-        } catch (e) {
-          data.detailScraped = false;
+        } catch (err) {
+          if (err.code === 11000) {
+            stats.skipped++;
+            if (isAuto) consecutiveOld++;
+          } else {
+            stats.errors++;
+          }
         }
-
-        await AuctionNotice.create(data);
-        stats.inserted++;
-      }
-    } catch (err) {
-      if (err.code === 11000) { 
-        stats.skipped++; 
-        if (isAuto) consecutiveOld++;
-      }
-      else { 
-        stats.errors++; 
-        if (isAuto) consecutiveOld = 0;
+      } else {
+        stats.errors++;
       }
     }
   }

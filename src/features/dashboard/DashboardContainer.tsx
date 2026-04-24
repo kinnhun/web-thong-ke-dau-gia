@@ -97,12 +97,18 @@ export function DashboardContainer() {
       {statsLoading ? (
         <LoadingBlock className="h-24" />
       ) : (
-        <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
+        <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           <KpiCard
-            label="Tài sản đang theo dõi"
+            label="Thông báo đấu giá"
             value={(stats?.totalAuctions ?? 0).toLocaleString("vi-VN")}
             icon={Layers}
             hint={`${(stats?.newIn72h ?? 0).toLocaleString("vi-VN")} mới trong 72h`}
+          />
+          <KpiCard
+            label="Lựa chọn tổ chức"
+            value={(stats?.totalOrg ?? 0).toLocaleString("vi-VN")}
+            icon={FileBarChart}
+            hint="thông báo lựa chọn tổ chức ĐG"
           />
           <KpiCard
             label="Đang giảm giá"
@@ -124,6 +130,12 @@ export function DashboardContainer() {
             icon={Wallet}
             accent="new"
             hint="trên toàn thị trường"
+          />
+          <KpiCard
+            label="Mới 7 ngày"
+            value={(stats?.recentCount ?? 0).toLocaleString("vi-VN")}
+            icon={Activity}
+            hint="thông báo đấu giá mới"
           />
         </section>
       )}

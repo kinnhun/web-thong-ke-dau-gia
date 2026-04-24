@@ -233,26 +233,31 @@ async function fetchAuctionItemDetail(sourceId) {
   const updates = {};
   let files = [];
 
+  // ⚡ Gọi 3 API song song thay vì tuần tự
+  const [propResult, viewResult, pubResult] = await Promise.allSettled([
+    fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId }),
+    fetchAPI('/portal/viewDetailAuctionInfo', { auctionInfoId: sourceId }),
+    fetchPublishHistory(sourceId),
+  ]);
+
   // 1. propertyInfo → giá, địa chỉ, danh sách tài sản
-  try {
-    const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
-    if (json && json.items && json.items.length > 0) {
+  if (propResult.status === 'fulfilled' && propResult.value) {
+    const json = propResult.value;
+    if (json.items && json.items.length > 0) {
       const allItems = json.items;
-      const prop = allItems[0]; // Lấy thông tin chung từ item đầu
+      const prop = allItems[0];
       if (prop.propertyPlace) updates.address = prop.propertyPlace;
       if (prop.fileCost) updates.applicationFee = prop.fileCost;
       if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
       if (prop.propertyQuality) updates.quality = prop.propertyQuality;
 
       if (allItems.length === 1) {
-        // Bài đăng 1 tài sản → lưu giá bình thường
         if (prop.propertyStartPrice) {
           updates.initialPrice = prop.propertyStartPrice;
           updates.currentPrice = prop.propertyStartPrice;
         }
         if (prop.deposit) updates.deposit = prop.deposit;
       } else {
-        // Bài đăng NHIỀU tài sản → lưu chi tiết từng item + tổng giá
         const properties = allItems.map(p => ({
           name: p.propertyName || p.propertyDesc || '',
           amount: p.propertyAmount || '01',
@@ -262,7 +267,6 @@ async function fetchAuctionItemDetail(sourceId) {
           quality: p.propertyQuality || '',
         }));
         updates.properties = properties;
-        // Tổng giá = sum tất cả tài sản
         const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
         const totalDeposit = properties.reduce((s, p) => s + (p.deposit || 0), 0);
         updates.initialPrice = totalPrice;
@@ -270,12 +274,12 @@ async function fetchAuctionItemDetail(sourceId) {
         updates.deposit = totalDeposit;
       }
     }
-  } catch (e) {}
+  }
 
   // 2. viewDetailAuctionInfo → files
-  try {
-    const viewDetail = await fetchAPI('/portal/viewDetailAuctionInfo', { auctionInfoId: sourceId });
-    if (viewDetail && Array.isArray(viewDetail.listFile) && viewDetail.listFile.length > 0) {
+  if (viewResult.status === 'fulfilled' && viewResult.value) {
+    const viewDetail = viewResult.value;
+    if (Array.isArray(viewDetail.listFile) && viewDetail.listFile.length > 0) {
       files = viewDetail.listFile
         .filter(f => f.linkFile)
         .map(f => ({
@@ -283,13 +287,12 @@ async function fetchAuctionItemDetail(sourceId) {
           url: `https://dgts.moj.gov.vn/portal/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
         }));
     }
-  } catch (e) {}
+  }
 
   // 3. pageAuctionInfoPublish2 → đăng lần mấy
-  try {
-    const publishInfo = await fetchPublishHistory(sourceId);
-    Object.assign(updates, publishInfo);
-  } catch (e) {}
+  if (pubResult.status === 'fulfilled' && pubResult.value) {
+    Object.assign(updates, pubResult.value);
+  }
 
   return { updates, files };
 }
@@ -302,10 +305,16 @@ async function fetchOrgItemDetail(sourceId) {
   const updates = {};
   let files = [];
 
-  // 1. propertyInfo → giá, địa chỉ, danh sách tài sản
-  try {
-    const json = await fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId });
-    if (json && json.items && json.items.length > 0) {
+  // ⚡ Gọi 2 API song song
+  const [propResult, editResult] = await Promise.allSettled([
+    fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId }),
+    fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId }),
+  ]);
+
+  // 1. propertyInfo → giá, địa chỉ
+  if (propResult.status === 'fulfilled' && propResult.value) {
+    const json = propResult.value;
+    if (json.items && json.items.length > 0) {
       const allItems = json.items;
       const prop = allItems[0];
       if (prop.propertyPlace) updates.address = prop.propertyPlace;
@@ -326,44 +335,42 @@ async function fetchOrgItemDetail(sourceId) {
         updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
       }
     }
-  } catch (e) {}
+  }
 
   // 2. getInfoEditNotice → files
-  try {
-    const editNotice = await fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId });
-    if (editNotice) {
-      if (Array.isArray(editNotice.listFileNotice)) {
-        editNotice.listFileNotice.forEach(f => {
-          if (f.linkFile) {
-            files.push({
-              name: f.fileName,
-              url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
-            });
-          }
-        });
-      }
-      if (Array.isArray(editNotice.property)) {
-        editNotice.property.forEach(p => {
-          if (Array.isArray(p.listFile)) {
-            p.listFile.forEach(f => {
-              if (f.linkFile) {
-                files.push({
-                  name: f.fileName,
-                  url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
-                });
-              }
-            });
-          }
-          if (p.propertyName && !updates.assetDescription) {
-            updates.assetDescription = p.propertyName;
-          }
-        });
-      }
-      if (editNotice.notice && editNotice.notice.content) {
-        updates.requirements = editNotice.notice.content.substring(0, 2000);
-      }
+  if (editResult.status === 'fulfilled' && editResult.value) {
+    const editNotice = editResult.value;
+    if (Array.isArray(editNotice.listFileNotice)) {
+      editNotice.listFileNotice.forEach(f => {
+        if (f.linkFile) {
+          files.push({
+            name: f.fileName,
+            url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
+          });
+        }
+      });
     }
-  } catch (e) {}
+    if (Array.isArray(editNotice.property)) {
+      editNotice.property.forEach(p => {
+        if (Array.isArray(p.listFile)) {
+          p.listFile.forEach(f => {
+            if (f.linkFile) {
+              files.push({
+                name: f.fileName,
+                url: `https://dgts.moj.gov.vn/ThongTin/downloadFile?linkFile=${encodeURIComponent(f.linkFile)}`
+              });
+            }
+          });
+        }
+        if (p.propertyName && !updates.assetDescription) {
+          updates.assetDescription = p.propertyName;
+        }
+      });
+    }
+    if (editNotice.notice && editNotice.notice.content) {
+      updates.requirements = editNotice.notice.content.substring(0, 2000);
+    }
+  }
 
   return { updates, files };
 }
