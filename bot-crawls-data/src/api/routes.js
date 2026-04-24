@@ -39,7 +39,7 @@ router.get('/auctions', async (req, res, next) => {
 
 router.get('/auctions/stats', async (req, res, next) => {
   try {
-    const [total, byType, byProvince, byStatus, recentCount, totalAuctionDuplicates, totalOrgDuplicates, priceDropCount] = await Promise.all([
+    const [total, byType, byProvince, byStatus, recentCount, totalAuctionDuplicates, totalOrgDuplicates, priceDropCount, pendingAuctionDetail, pendingOrgDetail, totalOrg] = await Promise.all([
       AuctionNotice.countDocuments(),
       AuctionNotice.aggregate([{ $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
       AuctionNotice.aggregate([
@@ -52,10 +52,14 @@ router.get('/auctions/stats', async (req, res, next) => {
       Duplicate.countDocuments({ type: 'auction' }),
       Duplicate.countDocuments({ type: 'org' }),
       Duplicate.countDocuments({ isPriceDrop: true }),
+      AuctionNotice.countDocuments({ detailScraped: { $ne: true } }),
+      OrgSelection.countDocuments({ detailScraped: { $ne: true } }),
+      OrgSelection.countDocuments(),
     ]);
     res.json({
-      total, recentCount, 
+      total, recentCount, totalOrg,
       totalAuctionDuplicates, totalOrgDuplicates, priceDropCount,
+      pendingAuctionDetail, pendingOrgDetail,
       byType: byType.map(t => ({ type: t._id, count: t.count })),
       byProvince: byProvince.map(p => ({ province: p._id, count: p.count })),
       byStatus: byStatus.map(s => ({ status: s._id, count: s.count })),

@@ -336,9 +336,13 @@ async function crawlDetails(options = {}) {
     type: 'detail', startedAt: new Date(),
     itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
   });
-  let stats = { updated: 0, errors: 0 };
-  const items = await AuctionNotice.find({ detailScraped: { $ne: true } })
+  let stats = { updated: 0, skipped: 0, errors: 0 };
+  // Lấy N bài mới nhất, rồi lọc bỏ bài đã cào
+  const allRecent = await AuctionNotice.find()
     .sort({ publishedAt: -1 }).limit(maxItems);
+  const items = allRecent.filter(i => i.detailScraped !== true);
+  stats.skipped = allRecent.length - items.length;
+  console.log(`[Detail Auction] ${allRecent.length} bài mới nhất → ${items.length} chưa cào, ${stats.skipped} đã bỏ qua`);
 
   // Xử lý song song bằng chunks
   const concurrency = config.crawl.concurrency || 3;
@@ -381,7 +385,7 @@ async function crawlDetails(options = {}) {
     }
   }
   log.status = 'completed'; log.finishedAt = new Date();
-  log.itemsUpdated = stats.updated; log.pagesProcessed = items.length;
+  log.itemsUpdated = stats.updated; log.itemsSkipped = stats.skipped; log.pagesProcessed = allRecent.length;
   await log.save();
   return stats;
 }
@@ -392,9 +396,13 @@ async function crawlOrgDetails(options = {}) {
     type: 'org_detail', startedAt: new Date(),
     itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
   });
-  let stats = { updated: 0, errors: 0 };
-  const items = await OrgSelection.find({ detailScraped: { $ne: true } })
+  let stats = { updated: 0, skipped: 0, errors: 0 };
+  // Lấy N bài mới nhất, rồi lọc bỏ bài đã cào
+  const allRecent = await OrgSelection.find()
     .sort({ publishedAt: -1 }).limit(maxItems);
+  const items = allRecent.filter(i => i.detailScraped !== true);
+  stats.skipped = allRecent.length - items.length;
+  console.log(`[Detail Org] ${allRecent.length} bài mới nhất → ${items.length} chưa cào, ${stats.skipped} đã bỏ qua`);
 
   // Xử lý song song bằng chunks
   const concurrency = config.crawl.concurrency || 3;
@@ -437,7 +445,7 @@ async function crawlOrgDetails(options = {}) {
     }
   }
   log.status = 'completed'; log.finishedAt = new Date();
-  log.itemsUpdated = stats.updated; log.pagesProcessed = items.length;
+  log.itemsUpdated = stats.updated; log.itemsSkipped = stats.skipped; log.pagesProcessed = allRecent.length;
   await log.save();
   return stats;
 }

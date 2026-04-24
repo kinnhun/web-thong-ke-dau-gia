@@ -176,7 +176,10 @@ createApp({
 
     // ══ TRIGGERS ══
     async triggerDetailCrawl(type = 'all') {
-      const input = prompt('Số lượng bài cào chi tiết (mặc định 30):', '30');
+      const pendingA = this.stats.pendingAuctionDetail || 0;
+      const pendingO = this.stats.pendingOrgDetail || 0;
+      const pendingLabel = type === 'auction' ? `ĐG: ${pendingA}` : type === 'org' ? `TC: ${pendingO}` : `ĐG: ${pendingA}, TC: ${pendingO}`;
+      const input = prompt(`Quét bao nhiêu bài mới nhất?\n(Bỏ qua bài đã có chi tiết, chỉ cào bài chưa có)\n\nChờ cào: ĐG ${pendingA} / TC ${pendingO}\nSố bài quét (mặc định 100):`, '100');
       if (input === null) return;
       this.triggering = true;
       try {
@@ -185,7 +188,7 @@ createApp({
           body: JSON.stringify({ limit: parseInt(input) || 30, type }),
         });
         const data = await res.json();
-        if (data.success) alert('Đã kích hoạt bot cào chi tiết!');
+        if (data.success) alert('Đã kích hoạt bot cào chi tiết! Chỉ cào bài chưa có data.');
         setTimeout(() => this.refreshData(), 3000);
       } catch (e) { alert('Lỗi: ' + e.message); }
       finally { this.triggering = false; }

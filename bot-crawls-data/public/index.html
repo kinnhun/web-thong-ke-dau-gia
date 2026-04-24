@@ -81,8 +81,9 @@
           <button class="btn btn-ghost" @click="triggerListCrawl(activeTab)" :disabled="triggeringList">
             <i class="fa-solid fa-list"></i> Cào DS
           </button>
-          <button class="btn btn-purple" @click="triggerDetailCrawl(activeTab)" :disabled="triggering">
+          <button class="btn btn-purple" @click="triggerDetailCrawl(activeTab)" :disabled="triggering" :title="'Chưa cào: ĐG ' + (stats.pendingAuctionDetail||0) + ' / TC ' + (stats.pendingOrgDetail||0)">
             <i class="fa-solid fa-robot" :class="{'animate-spin':triggering}"></i> Cào chi tiết
+            <span v-if="(stats.pendingAuctionDetail||0)+(stats.pendingOrgDetail||0) > 0" class="tag tag-red" style="margin-left:2px;font-size:.6rem">{{ (stats.pendingAuctionDetail||0)+(stats.pendingOrgDetail||0) }}</span>
           </button>
           <button class="btn btn-green" @click="triggerDuplicateScan()" :disabled="triggeringDuplicate">
             <i class="fa-solid fa-rotate" :class="{'animate-spin':triggeringDuplicate}"></i> Quét trùng
