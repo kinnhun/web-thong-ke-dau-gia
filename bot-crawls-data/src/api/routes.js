@@ -37,32 +37,19 @@ router.get('/auctions', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+const StatCache = require('../models/StatCache');
+
 router.get('/auctions/stats', async (req, res, next) => {
   try {
-    const [total, byType, byProvince, byStatus, recentCount, totalAuctionDuplicates, totalOrgDuplicates, priceDropCount, pendingAuctionDetail, pendingOrgDetail, totalOrg] = await Promise.all([
-      AuctionNotice.countDocuments(),
-      AuctionNotice.aggregate([{ $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
-      AuctionNotice.aggregate([
-        { $match: { province: { $ne: '' } } },
-        { $group: { _id: '$province', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }, { $limit: 20 },
-      ]),
-      AuctionNotice.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-      AuctionNotice.countDocuments({ publishedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } }),
-      Duplicate.countDocuments({ type: 'auction' }),
-      Duplicate.countDocuments({ type: 'org' }),
-      Duplicate.countDocuments({ isPriceDrop: true }),
-      AuctionNotice.countDocuments({ detailScraped: { $ne: true } }),
-      OrgSelection.countDocuments({ detailScraped: { $ne: true } }),
-      OrgSelection.countDocuments(),
-    ]);
-    res.json({
-      total, recentCount, totalOrg,
-      totalAuctionDuplicates, totalOrgDuplicates, priceDropCount,
-      pendingAuctionDetail, pendingOrgDetail,
-      byType: byType.map(t => ({ type: t._id, count: t.count })),
-      byProvince: byProvince.map(p => ({ province: p._id, count: p.count })),
-      byStatus: byStatus.map(s => ({ status: s._id, count: s.count })),
+    const stat = await StatCache.findOne({ key: 'auctions-stats' }).lean();
+    if (stat && stat.data) {
+      return res.json(stat.data);
+    }
+    return res.json({
+      total: 0, recentCount: 0, totalOrg: 0,
+      totalAuctionDuplicates: 0, totalOrgDuplicates: 0, priceDropCount: 0,
+      pendingAuctionDetail: 0, pendingOrgDetail: 0,
+      byType: [], byProvince: [], byStatus: []
     });
   } catch (err) { next(err); }
 });
@@ -169,7 +156,7 @@ router.get('/duplicates', async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = {};
     if (req.query.type) filter.type = req.query.type;
-    if (req.query.search) filter.name = { $regex: req.query.search, $options: 'i' };
+    if (req.query.search) filter.$text = { $search: req.query.search };
     if (req.query.priceDrop === 'true') filter.isPriceDrop = true;
 
     const sort = {};

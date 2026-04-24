@@ -5,113 +5,27 @@ const Duplicate = require('../models/Duplicate');
 
 const router = Router();
 
-// ⚡ Simple in-memory cache (60s TTL)
-const cache = new Map();
-function cached(key, ttlMs, fn) {
-  return async (req, res, next) => {
-    const cacheKey = key + (req.url || '');
-    const hit = cache.get(cacheKey);
-    if (hit && Date.now() - hit.ts < ttlMs) {
-      return res.json(hit.data);
-    }
-    try {
-      const data = await fn(req);
-      cache.set(cacheKey, { data, ts: Date.now() });
-      res.json(data);
-    } catch (err) { next(err); }
-  };
-}
+const StatCache = require('../models/StatCache');
+
+// ... (other cached definitions removed since we use DB cache)
 
 /**
  * GET /api/dashboard/stats
  * KPI tổng hợp cho trang Dashboard
  */
-router.get('/stats', cached('dashboard-stats', 60000, async () => {
-  const now = new Date();
-  const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000);
-  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-
-  const [
-    totalAuctions,
-    totalOrg,
-    recentCount,
-    newIn72h,
-    byType,
-    byProvince,
-    byStatus,
-    discountStats,
-    maxDiscountDoc,
-  ] = await Promise.all([
-    AuctionNotice.countDocuments(),
-    OrgSelection.countDocuments(),
-    AuctionNotice.countDocuments({ publishedAt: { $gte: sevenDaysAgo } }),
-    AuctionNotice.countDocuments({ publishedAt: { $gte: threeDaysAgo } }),
-    AuctionNotice.aggregate([
-      { $group: { _id: '$type', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]),
-    AuctionNotice.aggregate([
-      { $match: { province: { $ne: '' } } },
-      { $group: { _id: '$province', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 20 },
-    ]),
-    AuctionNotice.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } },
-    ]),
-    Duplicate.aggregate([
-       {
-        $match: {
-          isPriceDrop: true,
-          type: 'auction',
-          priceDropPercent: { $gt: 0 },
-          $expr: { $lt: ['$latestPrice', '$firstPrice'] },
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          count: { $sum: 1 },
-          maxPct: { $max: '$priceDropPercent' },
-          totalReduced: {
-            $sum: { $subtract: ['$firstPrice', '$latestPrice'] },
-          },
-        },
-      },
-    ]),
-    Duplicate.aggregate([
-      {
-        $match: {
-          isPriceDrop: true,
-          type: 'auction',
-          priceDropPercent: { $gt: 0 },
-          $expr: { $lt: ['$latestPrice', '$firstPrice'] },
-        },
-      },
-      { $sort: { priceDropPercent: -1 } },
-      { $limit: 1 },
-      { $project: { name: 1, priceDropPercent: 1, sourceIds: 1 } },
-    ]).then((docs) => docs[0] || null),
-  ]);
-
-  const ds = discountStats[0] || { count: 0, maxPct: 0, totalReduced: 0 };
-
-  return {
-    totalAuctions,
-    totalOrg,
-    recentCount,
-    newIn72h,
-    totalDiscounted: ds.count,
-    maxDiscountPercent: ds.maxPct || 0,
-    maxDiscountItem: maxDiscountDoc
-      ? { name: maxDiscountDoc.name, sourceId: maxDiscountDoc.sourceIds?.[0] }
-      : null,
-    totalReducedValue: ds.totalReduced || 0,
-    byType: byType.map((t) => ({ type: t._id, count: t.count })),
-    byProvince: byProvince.map((p) => ({ province: p._id, count: p.count })),
-    byStatus: byStatus.map((s) => ({ status: s._id, count: s.count })),
-  };
-}));
+router.get('/stats', async (req, res, next) => {
+  try {
+    const stat = await StatCache.findOne({ key: 'dashboard-stats' }).lean();
+    if (stat && stat.data) {
+      return res.json(stat.data);
+    }
+    return res.json({
+      totalAuctions: 0, totalOrg: 0, recentCount: 0, newIn72h: 0,
+      totalDiscounted: 0, maxDiscountPercent: 0, maxDiscountItem: null, totalReducedValue: 0,
+      byType: [], byProvince: [], byStatus: []
+    });
+  } catch (err) { next(err); }
+});
 
 /**
  * GET /api/dashboard/trend?days=14
@@ -128,7 +42,6 @@ router.get('/trend', async (req, res, next) => {
           isPriceDrop: true,
           type: 'auction',
           priceDropPercent: { $gt: 0 },
-          $expr: { $lt: ['$latestPrice', '$firstPrice'] },
         },
       },
       // Lấy publishedAt từ entry cuối cùng (lần đăng mới nhất)
@@ -176,7 +89,6 @@ router.get('/top-discounted', async (req, res, next) => {
           isPriceDrop: true,
           type: 'auction',
           priceDropPercent: { $gt: 0 },
-          $expr: { $lt: ['$latestPrice', '$firstPrice'] },
         },
       },
       { $sort: { priceDropPercent: -1 } },

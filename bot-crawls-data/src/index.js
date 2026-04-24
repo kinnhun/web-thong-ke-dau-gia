@@ -18,6 +18,7 @@ const { closeBrowser } = require('./browser');
 const { crawlAuctionNotices } = require('./scrapers/auctionNotice.scraper');
 const { crawlOrgSelections } = require('./scrapers/orgSelection.scraper');
 const config = require('./config');
+const { refreshStats } = require('./services/stats.service');
 
 let isCrawling = false; // Tránh chạy chồng lấn
 
@@ -38,6 +39,9 @@ async function runAutoCrawl() {
 
     // Cào lựa chọn tổ chức (list + detail + sample, all-in-one)
     await crawlOrgSelections({ isAuto: true });
+
+    // Cập nhật thống kê vào bảng tạm
+    await refreshStats();
 
     // Đóng browser sau mỗi đợt để giải phóng RAM
     await closeBrowser();
@@ -89,6 +93,9 @@ async function main() {
   // Chạy lần đầu sau 5 giây
   console.log(`\n🚀 Crawl lần đầu sau 5 giây...`);
   setTimeout(runAutoCrawl, 5000);
+
+  // Tính toán stats ban đầu
+  setTimeout(refreshStats, 2000);
 
   // Graceful shutdown
   process.on('SIGINT', async () => {
