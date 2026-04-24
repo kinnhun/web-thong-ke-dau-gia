@@ -49,7 +49,8 @@ function SidebarNavLink({ href, end, icon: Icon, title }: { href: string; end?: 
           href={href}
           onClick={() => isMobile && setOpenMobile(false)}
           className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+            "flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-all duration-200",
+            collapsed ? "justify-center px-0" : "px-3",
             isActive
               ? "bg-primary/10 text-primary shadow-sm"
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -82,8 +83,8 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       {/* Logo */}
-      <SidebarHeader className="border-b border-sidebar-border px-3 py-4">
-        <Link href="/" className="flex items-center gap-3 group">
+      <SidebarHeader className={cn("border-b border-sidebar-border py-4", collapsed ? "px-0 justify-center" : "px-3")}>
+        <Link href="/" className={cn("flex items-center gap-3 group", collapsed && "justify-center")}>
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-md transition-transform group-hover:scale-105">
             <Gavel className="h-5 w-5" />
             <div className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-discount-deep ring-2 ring-sidebar-background" />
@@ -147,7 +148,7 @@ export function AppSidebar() {
             </div>
           </Link>
         ) : (
-          <SidebarMenu>
+          <SidebarMenu className="items-center">
             <SidebarNavLink href="/login" icon={LogIn} title="Đăng nhập" />
           </SidebarMenu>
         )}

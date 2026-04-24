@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const SIDEBAR_WIDTH = "16rem";
-const SIDEBAR_WIDTH_ICON = "3rem";
+const SIDEBAR_WIDTH_ICON = "4rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 
 type SidebarContext = {
@@ -83,35 +83,33 @@ export function SidebarProvider({
   );
 }
 
-export function Sidebar({
-  side = "left",
-  variant = "sidebar",
-  collapsible = "offcanvas",
-  className,
-  children,
-  ...props
-}: React.ComponentProps<"div"> & {
-  side?: "left" | "right";
-  variant?: "sidebar" | "floating" | "inset";
-  collapsible?: "offcanvas" | "icon" | "none";
-}) {
+export const Sidebar = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<"div"> & {
+    side?: "left" | "right";
+    variant?: "sidebar" | "floating" | "inset";
+    collapsible?: "offcanvas" | "icon" | "none";
+  }
+>(({ side = "left", variant = "sidebar", collapsible = "offcanvas", className, children, ...props }, ref) => {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
 
   if (collapsible === "none") {
     return (
-      <div className={cn("flex h-full w-[--sidebar-width] flex-col bg-sidebar text-sidebar-foreground", className)} {...props}>
+      <div
+        className={cn("flex h-full w-[var(--sidebar-width)] flex-col bg-sidebar text-sidebar-foreground", className)}
+        {...props}
+      >
         {children}
       </div>
     );
   }
 
-  // Mobile: render as a sheet/drawer
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile}>
         <SheetContent
           side="left"
-          className="w-[--sidebar-width-mobile] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-[var(--sidebar-width-mobile)] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={{ "--sidebar-width": SIDEBAR_WIDTH_MOBILE } as React.CSSProperties}
         >
           <SheetTitle className="sr-only">Menu</SheetTitle>
@@ -121,34 +119,37 @@ export function Sidebar({
     );
   }
 
-  // Desktop
   return (
     <div
-      className="group peer hidden md:block text-sidebar-foreground"
+      ref={ref}
+      className={cn(
+        "group peer hidden md:block text-sidebar-foreground transition-[width] duration-200 ease-linear",
+        state === "collapsed" ? "w-[var(--sidebar-width-icon)]" : "w-[var(--sidebar-width)]",
+        className
+      )}
       data-state={state}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
       data-side={side}
     >
+      {/* Placeholder div to push content */}
       <div
         className={cn(
-          "duration-200 relative h-svh w-[--sidebar-width] bg-transparent transition-[width] ease-linear",
-          "group-data-[collapsible=offcanvas]:w-0",
-          "group-data-[side=right]:rotate-180",
-          variant === "floating" || variant === "inset"
-            ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-            : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
+          "duration-200 relative h-svh bg-transparent transition-[width] ease-linear",
+          state === "collapsed" ? "w-[var(--sidebar-width-icon)]" : "w-[var(--sidebar-width)]",
+          collapsible === "offcanvas" && state === "collapsed" && "w-0"
         )}
       />
+      {/* Actual fixed sidebar */}
       <div
         className={cn(
-          "duration-200 fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] ease-linear md:flex",
-          side === "left"
-            ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-            : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+          "duration-200 fixed inset-y-0 z-10 hidden h-svh transition-[left,right,width] ease-linear md:flex",
+          state === "collapsed" ? "w-[var(--sidebar-width-icon)]" : "w-[var(--sidebar-width)]",
+          side === "left" ? "left-0" : "right-0",
+          collapsible === "offcanvas" && state === "collapsed" && (side === "left" ? "-left-[var(--sidebar-width)]" : "-right-[var(--sidebar-width)]"),
           variant === "floating" || variant === "inset"
-            ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-            : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
+            ? "p-2 group-data-[state=collapsed]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
+            : "group-data-[side=left]:border-r group-data-[side=right]:border-l",
           className
         )}
         {...props}
@@ -162,7 +163,8 @@ export function Sidebar({
       </div>
     </div>
   );
-}
+});
+Sidebar.displayName = "Sidebar";
 
 export function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar, isMobile } = useSidebar();
