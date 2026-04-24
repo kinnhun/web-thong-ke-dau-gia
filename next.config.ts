@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   // Tối ưu RAM cho Production Server
   output: 'standalone',
   productionBrowserSourceMaps: false,
-  
+
   // Tối ưu build time memory
   experimental: {
     optimizePackageImports: ['lucide-react', 'antd', '@ant-design/icons'],

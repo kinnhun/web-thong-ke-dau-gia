@@ -65,7 +65,7 @@ async function initBrowser() {
 
   // Navigate to main page - FEC challenge sẽ tự pass trong visible mode
   console.log('🔑 Đang truy cập trang web...');
-  
+
   try {
     await page.goto(`${config.baseUrl}/thong-bao-cong-khai-viec-dau-gia.html`, {
       waitUntil: 'networkidle2',
@@ -105,11 +105,11 @@ async function initBrowser() {
     // Thử lại - có thể FEC cần thêm thời gian
     console.log('  ⏳ Đợi thêm 10s cho FEC hoàn thành...');
     await new Promise(r => setTimeout(r, 10000));
-    
+
     // Reload
     await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
     await waitForRealPage(page);
-    
+
     isReady = true;
     console.log('✅ Browser sẵn sàng (fallback)');
   }
@@ -122,23 +122,23 @@ async function initBrowser() {
  */
 async function waitForRealPage(p, maxWait = 30000) {
   const start = Date.now();
-  
+
   while (Date.now() - start < maxWait) {
     const hasFEC = await p.evaluate(() => {
-      return document.body.innerHTML.includes('fec_wrapper') || 
-             document.body.innerHTML.includes('_fec_sbu') ||
-             document.title.includes('403');
+      return document.body.innerHTML.includes('fec_wrapper') ||
+        document.body.innerHTML.includes('_fec_sbu') ||
+        document.title.includes('403');
     });
-    
+
     if (!hasFEC) {
       const title = await p.title();
       console.log(`  📋 Trang đã load: "${title}"`);
       return true;
     }
-    
+
     await new Promise(r => setTimeout(r, 2000));
   }
-  
+
   console.log('  ⚠️ Timeout chờ FEC');
   return false;
 }
