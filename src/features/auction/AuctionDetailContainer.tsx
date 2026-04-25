@@ -225,11 +225,21 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <InfoRow icon={Calendar} label="Hạn đăng ký" value={auction.registrationEnd ? formatDate(auction.registrationEnd) : "—"} />
           <InfoRow icon={Calendar} label="Ngày tổ chức đấu giá" value={auction.auctionDate ? formatDate(auction.auctionDate) : "—"} />
 
-          {/* Bảng tài sản đấu giá */}
-          {auction.properties && auction.properties.length > 0 && (
-            <>
-              <Separator className="my-5" />
-              <h3 className="font-medium mb-3 text-sm">Thông tin việc đấu giá · Danh mục tài sản</h3>
+          {/* Bảng tài sản đấu giá — luôn hiển thị */}
+          <Separator className="my-5" />
+          <h3 className="font-medium mb-3 text-sm">Thông tin việc đấu giá · Danh mục tài sản</h3>
+          {(() => {
+            const rows = auction.properties && auction.properties.length > 0
+              ? auction.properties
+              : [{
+                  name: auction.name || auction.shortDescription || '',
+                  amount: auction.propertyAmount || '01',
+                  startPrice: auction.initialPrice || 0,
+                  deposit: auction.deposit || 0,
+                  place: auction.address || '',
+                  quality: '',
+                }];
+            return (
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-sm">
                   <thead>
@@ -238,12 +248,12 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                       <th className="px-3 py-2.5 text-left font-medium text-xs min-w-[200px] border-r">Tên tài sản</th>
                       <th className="px-3 py-2.5 text-center font-medium text-xs w-20 border-r">Số lượng</th>
                       <th className="px-3 py-2.5 text-left font-medium text-xs min-w-[120px] border-r">Nơi có tài sản</th>
-                      <th className="px-3 py-2.5 text-right font-medium text-xs w-32 border-r">Giá khởi điểm</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-xs w-36 border-r">Giá khởi điểm</th>
                       <th className="px-3 py-2.5 text-right font-medium text-xs w-32">Tiền đặt trước</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {auction.properties.map((p, i) => (
+                    {rows.map((p, i) => (
                       <tr key={i} className="border-t hover:bg-secondary/20">
                         <td className="px-3 py-2.5 text-center text-muted-foreground num border-r">{i + 1}</td>
                         <td className="px-3 py-2.5 border-r">
@@ -256,22 +266,18 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                         <td className="px-3 py-2.5 text-right num">{p.deposit ? formatVND(p.deposit) : "—"}</td>
                       </tr>
                     ))}
-                    {auction.properties.length > 1 && (
+                    {rows.length > 1 && (
                       <tr className="border-t bg-secondary/30 font-medium">
                         <td colSpan={4} className="px-3 py-2.5 text-right text-xs">Tổng cộng</td>
-                        <td className="px-3 py-2.5 text-right num border-r">{formatVND(auction.properties.reduce((s, p) => s + (p.startPrice || 0), 0))}</td>
-                        <td className="px-3 py-2.5 text-right num">{formatVND(auction.properties.reduce((s, p) => s + (p.deposit || 0), 0))}</td>
+                        <td className="px-3 py-2.5 text-right num border-r">{formatVND(rows.reduce((s, p) => s + (p.startPrice || 0), 0))}</td>
+                        <td className="px-3 py-2.5 text-right num">{formatVND(rows.reduce((s, p) => s + (p.deposit || 0), 0))}</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </>
-          )}
-
-          <Separator className="my-5" />
-          <h3 className="font-medium mb-2 text-sm">Mô tả chi tiết</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{auction.shortDescription || "Chưa có mô tả."}</p>
+            );
+          })()}
         </div>
 
         <aside className="space-y-4">
