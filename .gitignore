@@ -11,6 +11,7 @@
 !.yarn/versions
 
 bot-crawls-data/node_modules
+bot-crawls-data/.env
 
 # testing
 /coverage
