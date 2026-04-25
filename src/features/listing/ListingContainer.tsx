@@ -233,7 +233,7 @@ export function ListingContainer() {
                         Thông báo việc đấu giá đối với danh mục tài sản: {name}
                       </Link>
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <StatusBadge status={status} />
+                        <StatusBadge status={status as import("@/domains/auction").AuctionStatus} />
                         {province && (
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <MapPin className="h-3 w-3" />{province}
