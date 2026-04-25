@@ -203,30 +203,44 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <InfoRow icon={Calendar} label="Hạn đăng ký" value={auction.registrationEnd ? formatDate(auction.registrationEnd) : "—"} />
           <InfoRow icon={Calendar} label="Ngày tổ chức đấu giá" value={auction.auctionDate ? formatDate(auction.auctionDate) : "—"} />
 
-          {/* Multi-asset properties table */}
+          {/* Bảng tài sản đấu giá */}
           {auction.properties && auction.properties.length > 0 && (
             <>
               <Separator className="my-5" />
-              <h3 className="font-medium mb-3 text-sm">Danh sách tài sản ({auction.properties.length})</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="text-muted-foreground border-b">
-                    <tr>
-                      <th className="py-2 text-left font-medium">Tài sản</th>
-                      <th className="py-2 text-right font-medium">Giá khởi điểm</th>
-                      <th className="py-2 text-right font-medium">Đặt cọc</th>
-                      <th className="py-2 text-left font-medium">Nơi có TS</th>
+              <h3 className="font-medium mb-3 text-sm">Thông tin việc đấu giá · Danh mục tài sản</h3>
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-secondary/50">
+                      <th className="px-3 py-2.5 text-center font-medium text-xs w-12 border-r">STT</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-xs min-w-[200px] border-r">Tên tài sản</th>
+                      <th className="px-3 py-2.5 text-center font-medium text-xs w-20 border-r">Số lượng</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-xs min-w-[120px] border-r">Nơi có tài sản</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-xs w-32 border-r">Giá khởi điểm</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-xs w-32">Tiền đặt trước</th>
                     </tr>
                   </thead>
                   <tbody>
                     {auction.properties.map((p, i) => (
-                      <tr key={i} className="border-b last:border-0">
-                        <td className="py-2">{p.name || "—"}</td>
-                        <td className="py-2 text-right num">{p.startPrice ? formatVND(p.startPrice) : "—"}</td>
-                        <td className="py-2 text-right num">{p.deposit ? formatVND(p.deposit) : "—"}</td>
-                        <td className="py-2 text-muted-foreground">{p.place || "—"}</td>
+                      <tr key={i} className="border-t hover:bg-secondary/20">
+                        <td className="px-3 py-2.5 text-center text-muted-foreground num border-r">{i + 1}</td>
+                        <td className="px-3 py-2.5 border-r">
+                          <div className="leading-relaxed">{p.name || "—"}</div>
+                          {p.quality && <div className="text-xs text-muted-foreground mt-0.5">Chất lượng: {p.quality}</div>}
+                        </td>
+                        <td className="px-3 py-2.5 text-center num border-r">{p.amount || "01"}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground text-xs border-r">{p.place || "—"}</td>
+                        <td className="px-3 py-2.5 text-right num font-medium border-r">{p.startPrice ? formatVND(p.startPrice) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right num">{p.deposit ? formatVND(p.deposit) : "—"}</td>
                       </tr>
                     ))}
+                    {auction.properties.length > 1 && (
+                      <tr className="border-t bg-secondary/30 font-medium">
+                        <td colSpan={4} className="px-3 py-2.5 text-right text-xs">Tổng cộng</td>
+                        <td className="px-3 py-2.5 text-right num border-r">{formatVND(auction.properties.reduce((s, p) => s + (p.startPrice || 0), 0))}</td>
+                        <td className="px-3 py-2.5 text-right num">{formatVND(auction.properties.reduce((s, p) => s + (p.deposit || 0), 0))}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

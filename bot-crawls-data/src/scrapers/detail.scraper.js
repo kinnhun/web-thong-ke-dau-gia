@@ -258,28 +258,22 @@ async function fetchAuctionItemDetail(sourceId) {
         .join('; ');
       if (assetName) updates.name = assetName;
 
-      if (allItems.length === 1) {
-        if (prop.propertyStartPrice) {
-          updates.initialPrice = prop.propertyStartPrice;
-          updates.currentPrice = prop.propertyStartPrice;
-        }
-        if (prop.deposit) updates.deposit = prop.deposit;
-      } else {
-        const properties = allItems.map(p => ({
-          name: p.propertyName || p.propertyDesc || '',
-          amount: p.propertyAmount || '01',
-          startPrice: p.propertyStartPrice || 0,
-          deposit: p.deposit || 0,
-          place: p.propertyPlace || '',
-          quality: p.propertyQuality || '',
-        }));
-        updates.properties = properties;
-        const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
-        const totalDeposit = properties.reduce((s, p) => s + (p.deposit || 0), 0);
-        updates.initialPrice = totalPrice;
-        updates.currentPrice = totalPrice;
-        updates.deposit = totalDeposit;
-      }
+      // ★ FIX: Luôn tạo properties array (kể cả 1 tài sản) để frontend hiển thị bảng
+      const properties = allItems.map(p => ({
+        name: p.propertyName || p.propertyDesc || '',
+        amount: p.propertyAmount || '01',
+        startPrice: p.propertyStartPrice || 0,
+        deposit: p.deposit || 0,
+        place: p.propertyPlace || '',
+        quality: p.propertyQuality || '',
+      }));
+      updates.properties = properties;
+
+      const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      const totalDeposit = properties.reduce((s, p) => s + (p.deposit || 0), 0);
+      updates.initialPrice = totalPrice || undefined;
+      updates.currentPrice = totalPrice || undefined;
+      updates.deposit = totalDeposit || undefined;
     }
   }
 
@@ -344,20 +338,17 @@ async function fetchOrgItemDetail(sourceId) {
         .join('; ');
       if (assetName) updates.name = assetName;
 
-      if (allItems.length === 1) {
-        if (prop.propertyStartPrice) updates.startingPrice = prop.propertyStartPrice;
-      } else {
-        const properties = allItems.map(p => ({
-          name: p.propertyName || p.propertyDesc || '',
-          amount: p.propertyAmount || '01',
-          startPrice: p.propertyStartPrice || 0,
-          deposit: p.deposit || 0,
-          place: p.propertyPlace || '',
-          quality: p.propertyQuality || '',
-        }));
-        updates.properties = properties;
-        updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
-      }
+      // ★ FIX: Luôn tạo properties array
+      const properties = allItems.map(p => ({
+        name: p.propertyName || p.propertyDesc || '',
+        amount: p.propertyAmount || '01',
+        startPrice: p.propertyStartPrice || 0,
+        deposit: p.deposit || 0,
+        place: p.propertyPlace || '',
+        quality: p.propertyQuality || '',
+      }));
+      updates.properties = properties;
+      updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
     }
   }
 
