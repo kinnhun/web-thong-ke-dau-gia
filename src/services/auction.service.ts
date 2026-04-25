@@ -159,3 +159,13 @@ export async function triggerDuplicateScan() {
   const { data } = await httpClient.post('/api/trigger-duplicate-scan');
   return data;
 }
+
+export async function triggerRecrawlItem(sourceId: number, type = 'auction') {
+  const { data } = await httpClient.post('/api/trigger-recrawl-item', { sourceId, type });
+  return data;
+}
+
+export async function triggerRecrawlMissingProperties(limit = 50, type = 'auction') {
+  const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { limit, type });
+  return data;
+}

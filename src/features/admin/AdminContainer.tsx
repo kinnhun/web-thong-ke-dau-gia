@@ -13,6 +13,7 @@ import {
   triggerListCrawl,
   triggerDetailCrawl,
   triggerDuplicateScan,
+  triggerRecrawlMissingProperties,
 } from "@/services/auction.service";
 
 const statusBadge = (s: string) => {
@@ -72,6 +73,7 @@ export function AdminContainer() {
     { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm bài đăng lại", fn: () => triggerDuplicateScan() },
     { icon: GitMerge, title: "Crawl tổ chức", desc: "Crawl thông báo lựa chọn", fn: () => triggerListCrawl(5, "org") },
     { icon: Eye, title: "Chi tiết tổ chức", desc: "Detail org selection", fn: () => triggerDetailCrawl(20, "org") },
+    { icon: Split, title: "Cào lại tài sản", desc: "Cào lại items thiếu bảng tài sản", fn: () => triggerRecrawlMissingProperties(100, "auction") },
   ];
 
   return (

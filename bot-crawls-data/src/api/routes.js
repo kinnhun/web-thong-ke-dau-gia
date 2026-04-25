@@ -318,6 +318,83 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Force re-crawl detail cho 1 item cụ thể (bỏ qua detailScraped)
+router.post('/trigger-recrawl-item', async (req, res, next) => {
+  try {
+    const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+    const sourceId = parseInt(req.body?.sourceId);
+    const type = req.body?.type || 'auction'; // 'auction' or 'org'
+    if (!sourceId) return res.status(400).json({ error: true, message: 'sourceId is required' });
+
+    (async () => {
+      try {
+        const Model = type === 'org' ? OrgSelection : AuctionNotice;
+        const item = await Model.findOne({ sourceId });
+        if (!item) { console.error(`[RECRAWL] Item ${sourceId} not found`); return; }
+
+        const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+        const { updates, files } = await fetchFn(sourceId);
+        updates.detailScraped = true;
+        updates.lastCrawledAt = new Date();
+        if (files && files.length > 0) updates.files = files;
+        await Model.updateOne({ _id: item._id }, { $set: updates });
+        console.log(`[RECRAWL] ✅ ${type} #${sourceId} updated — properties: ${(updates.properties || []).length}`);
+      } catch (err) {
+        console.error(`[RECRAWL] ❌ ${sourceId}:`, err.message);
+      }
+    })();
+    res.json({ success: true, message: `Re-crawl detail for ${type} #${sourceId}` });
+  } catch (err) { next(err); }
+});
+
+// Batch re-crawl tất cả items thiếu properties (migration cho dữ liệu cũ)
+router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
+  try {
+    const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+    const limit = parseInt(req.body?.limit) || 50;
+    const type = req.body?.type || 'auction';
+    const delay = ms => new Promise(r => setTimeout(r, ms));
+
+    (async () => {
+      try {
+        const Model = type === 'org' ? OrgSelection : AuctionNotice;
+        const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+        
+        // Tìm items đã cào detail nhưng chưa có properties
+        const items = await Model.find({
+          detailScraped: true,
+          $or: [
+            { properties: { $exists: false } },
+            { properties: { $size: 0 } },
+          ],
+        }).sort({ publishedAt: -1 }).limit(limit);
+
+        console.log(`[RECRAWL-PROPS] Tìm thấy ${items.length} ${type} thiếu properties`);
+        let ok = 0, fail = 0;
+
+        for (const item of items) {
+          try {
+            await delay(300);
+            const { updates, files } = await fetchFn(item.sourceId);
+            updates.lastCrawledAt = new Date();
+            if (files && files.length > 0) updates.files = files;
+            await Model.updateOne({ _id: item._id }, { $set: updates });
+            ok++;
+            if (ok % 10 === 0) console.log(`[RECRAWL-PROPS] ${ok}/${items.length}...`);
+          } catch (err) {
+            fail++;
+            console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
+          }
+        }
+        console.log(`[RECRAWL-PROPS] ✅ Hoàn thành: ${ok} OK, ${fail} lỗi`);
+      } catch (err) {
+        console.error('[RECRAWL-PROPS] Error:', err);
+      }
+    })();
+    res.json({ success: true, message: `Re-crawling ${type} items missing properties (limit: ${limit})` });
+  } catch (err) { next(err); }
+});
+
 router.post('/trigger-list-crawl', async (req, res, next) => {
   try {
     const { crawlAuctionNotices } = require('../scrapers/auctionNotice.scraper');

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -10,12 +11,14 @@ import {
   Loader2,
   MapPin,
   Printer,
+  RefreshCw,
   Share2,
   Star,
   TrendingDown,
   User,
   Wallet,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { DiscountBadge } from "@/components/auction/DiscountBadge";
@@ -26,6 +29,7 @@ import { formatDate, formatVND } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useWatchlist } from "@/domains/watchlist/watchlist.hooks";
+import { triggerRecrawlItem } from "@/services/auction.service";
 
 interface AuctionDetailContainerProps {
   id: string;
@@ -33,10 +37,24 @@ interface AuctionDetailContainerProps {
 
 export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: auction, isLoading, error } = useAuctionDetail(id);
   const { toggleWatch, isWatched } = useWatchlist();
+  const [recrawling, setRecrawling] = useState(false);
 
   const watched = auction ? isWatched(auction.sourceId) : false;
+
+  const handleRecrawl = async () => {
+    if (!auction) return;
+    setRecrawling(true);
+    try {
+      await triggerRecrawlItem(auction.sourceId, 'auction');
+      // Wait a bit for the background job to finish
+      await new Promise(r => setTimeout(r, 3000));
+      queryClient.invalidateQueries({ queryKey: ['auction', id] });
+    } catch { /* ignore */ }
+    setRecrawling(false);
+  };
 
   if (isLoading) {
     return (
@@ -144,6 +162,10 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <Button variant="outline" size="sm"><Bell className="h-4 w-4" />Thông Báo</Button>
           <Button variant="outline" size="sm"><Share2 className="h-4 w-4" /></Button>
           <Button variant="outline" size="sm"><Printer className="h-4 w-4" /></Button>
+          <Button variant="outline" size="sm" onClick={handleRecrawl} disabled={recrawling}>
+            {recrawling ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {recrawling ? "Đang cào..." : "Cào lại"}
+          </Button>
           {auction.sourceUrl && (
             <Button size="sm" asChild>
               <a href={auction.sourceUrl} target="_blank" rel="noopener noreferrer">
