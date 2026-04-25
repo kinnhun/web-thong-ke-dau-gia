@@ -33,7 +33,7 @@ async function crawlOrgSelections(options = {}) {
   console.log(`\n🚀 Cào Lựa Chọn Tổ Chức ĐG từ trang ${startPage}...`);
 
   try {
-    const firstRes = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize });
+    const firstRes = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize, typeOrder: 2 });
     if (!firstRes || !firstRes.items) throw new Error('Không thể fetch trang đầu');
 
     totalPages = firstRes.pageCount || 1;
@@ -49,7 +49,7 @@ async function crawlOrgSelections(options = {}) {
     while (currentPage <= totalPages && !earlyStop) {
       await delay(config.crawl.delayMs);
       try {
-        const res = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize });
+        const res = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize, typeOrder: 2 });
         if (res && res.items) {
           const r2 = await processItems(res.items, stats, { isAuto, prevOld: consecutiveOld });
           consecutiveOld = r2.consecutiveOld;
