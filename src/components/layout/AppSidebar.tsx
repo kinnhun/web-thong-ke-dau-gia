@@ -3,6 +3,7 @@ import {
   Bell,
   ChevronRight,
   Database,
+  FileText,
   Gavel,
   LayoutDashboard,
   LogIn,
@@ -29,6 +30,7 @@ import {
 
 const mainItems = [
   { title: "Tổng quan", url: "/", icon: LayoutDashboard, end: true },
+  { title: "Thông báo đấu giá", url: "/listing", icon: FileText },
   { title: "Danh sách theo dõi", url: "/watchlist", icon: Star },
   { title: "Tài sản giảm giá", url: "/discounts", icon: TrendingDown },
   { title: "Tài sản đăng lại", url: "/relisted", icon: History },
