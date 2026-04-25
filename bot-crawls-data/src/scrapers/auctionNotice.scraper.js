@@ -161,7 +161,7 @@ async function processItems(items, stats, options = {}) {
 }
 
 function buildAuctionData(item) {
-  const name = item.propertyName || item.subPropertyName || '';
+  const name = item.propertyName || item.subPropertyName || item.titleName || '';
   const shortDescription = item.subPropertyName || '';
   const propertyTypeName = item.propertyTypeName || '';
   const type = mapAssetType(propertyTypeName, name);

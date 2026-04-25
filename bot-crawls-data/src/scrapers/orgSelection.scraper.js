@@ -156,7 +156,7 @@ async function processItems(items, stats, options = {}) {
 }
 
 function buildOrgData(item) {
-  const name = item.propertyName || '';
+  const name = item.propertyName || item.subPropertyName || item.titleName || '';
   const shortDescription = item.subPropertyName || '';
   const slug = slugify(shortDescription || name);
   const province = extractProvince(name + ' ' + shortDescription);

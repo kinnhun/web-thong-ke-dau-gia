@@ -240,7 +240,7 @@ async function fetchAuctionItemDetail(sourceId) {
     fetchPublishHistory(sourceId),
   ]);
 
-  // 1. propertyInfo → giá, địa chỉ, danh sách tài sản
+  // 1. propertyInfo → tên tài sản, giá, địa chỉ, danh sách tài sản
   if (propResult.status === 'fulfilled' && propResult.value) {
     const json = propResult.value;
     if (json.items && json.items.length > 0) {
@@ -250,6 +250,13 @@ async function fetchAuctionItemDetail(sourceId) {
       if (prop.fileCost) updates.applicationFee = prop.fileCost;
       if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
       if (prop.propertyQuality) updates.quality = prop.propertyQuality;
+
+      // ★ FIX: Lấy tên tài sản từ propertyInfo (list API thường không có)
+      const assetName = allItems
+        .map(p => p.propertyName || p.propertyDesc || '')
+        .filter(Boolean)
+        .join('; ');
+      if (assetName) updates.name = assetName;
 
       if (allItems.length === 1) {
         if (prop.propertyStartPrice) {
@@ -276,9 +283,19 @@ async function fetchAuctionItemDetail(sourceId) {
     }
   }
 
-  // 2. viewDetailAuctionInfo → files
+  // 2. viewDetailAuctionInfo → tên tài sản (fallback) + files
   if (viewResult.status === 'fulfilled' && viewResult.value) {
     const viewDetail = viewResult.value;
+
+    // ★ FIX: Fallback lấy tên tài sản từ viewDetail nếu propertyInfo không có
+    if (!updates.name && viewDetail.subPropertyName) {
+      updates.name = viewDetail.subPropertyName;
+    }
+    // Lấy shortDescription nếu có
+    if (viewDetail.subPropertyName) {
+      updates.shortDescription = viewDetail.subPropertyName;
+    }
+
     if (Array.isArray(viewDetail.listFile) && viewDetail.listFile.length > 0) {
       files = viewDetail.listFile
         .filter(f => f.linkFile)
@@ -311,7 +328,7 @@ async function fetchOrgItemDetail(sourceId) {
     fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId }),
   ]);
 
-  // 1. propertyInfo → giá, địa chỉ
+  // 1. propertyInfo → tên tài sản, giá, địa chỉ
   if (propResult.status === 'fulfilled' && propResult.value) {
     const json = propResult.value;
     if (json.items && json.items.length > 0) {
@@ -319,6 +336,13 @@ async function fetchOrgItemDetail(sourceId) {
       const prop = allItems[0];
       if (prop.propertyPlace) updates.address = prop.propertyPlace;
       if (prop.propertyQuality) updates.propertyTypeName = prop.propertyQuality;
+
+      // ★ FIX: Lấy tên tài sản từ propertyInfo
+      const assetName = allItems
+        .map(p => p.propertyName || p.propertyDesc || '')
+        .filter(Boolean)
+        .join('; ');
+      if (assetName) updates.name = assetName;
 
       if (allItems.length === 1) {
         if (prop.propertyStartPrice) updates.startingPrice = prop.propertyStartPrice;
