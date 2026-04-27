@@ -109,6 +109,26 @@ export function DiscountsContainer() {
 
   const provincesList = filterOpts?.provinces || [];
   const organizersList = filterOpts?.organizers || [];
+  const typeOptions = useMemo(
+    () => [
+      { label: "Tất cả", value: "all" },
+      ...Object.entries(assetTypeLabel).map(([key, label]) => ({
+        label,
+        value: key,
+      })),
+    ],
+    []
+  );
+  const organizerOptions = useMemo(
+    () => [
+      { label: "Tất cả", value: "all" },
+      ...organizersList.map((item) => ({
+        label: item,
+        value: item,
+      })),
+    ],
+    [organizersList]
+  );
 
   return (
     <div className="container mx-auto max-w-[1500px] space-y-4 sm:space-y-6 px-3 sm:px-6 py-5 sm:py-8">
@@ -147,15 +167,20 @@ export function DiscountsContainer() {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Loại tài sản</Label>
-            <Select value={type} onValueChange={(v) => { setType(v as AssetType | "all"); setPage(1); }}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                {Object.entries(assetTypeLabel).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <AntdSelect
+              id="discounts-asset-type-select"
+              allowClear
+              showSearch
+              value={type}
+              placeholder="Chọn loại tài sản"
+              options={typeOptions}
+              optionFilterProp="label"
+              onChange={(value) => {
+                setType((value as AssetType | "all") ?? "all");
+                setPage(1);
+              }}
+              className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Tỉnh / thành</Label>
@@ -178,13 +203,20 @@ export function DiscountsContainer() {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Tổ chức đấu giá</Label>
-            <Select value={organizer} onValueChange={(v) => { setOrganizer(v); setPage(1); }}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                {organizersList.map((p) => <SelectItem key={p} value={p}>{p.length > 35 ? p.slice(0, 35) + "…" : p}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AntdSelect
+              id="discounts-organizer-select"
+              allowClear
+              showSearch
+              value={organizer}
+              placeholder="Chọn tổ chức đấu giá"
+              options={organizerOptions}
+              optionFilterProp="label"
+              onChange={(value) => {
+                setOrganizer((value as string) ?? "all");
+                setPage(1);
+              }}
+              className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">% giảm tối thiểu</Label>

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select as AntdSelect } from "antd";
 import {
   Select,
   SelectContent,
@@ -53,13 +54,21 @@ const sortMap: Record<SortKey, { sort: string; order: string }> = {
 export function ListingContainer() {
   const [keyword, setKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [province, setProvince] = useState("all");
+  const [province, setProvince] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
   const pageSize = 20;
 
   const { data: filterOpts } = useFilterOptions();
+  const provinceOptions = useMemo(
+    () =>
+      (filterOpts?.provinces || []).map((item) => ({
+        label: item,
+        value: item,
+      })),
+    [filterOpts?.provinces]
+  );
 
   const params = useMemo(() => {
     const s = sortMap[sortKey];
@@ -70,7 +79,7 @@ export function ListingContainer() {
       order: s.order,
     };
     if (keyword) p.search = keyword;
-    if (province !== "all") p.province = province;
+    if (province.length > 0) p.province = province.join(",");
     return p;
   }, [page, pageSize, sortKey, keyword, province]);
 
@@ -89,7 +98,7 @@ export function ListingContainer() {
   const handleClear = () => {
     setSearchInput("");
     setKeyword("");
-    setProvince("all");
+    setProvince([]);
     setSortKey("newest");
     setPage(1);
   };
@@ -148,17 +157,22 @@ export function ListingContainer() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Tỉnh/Thành phố</label>
-              <Select value={province} onValueChange={(v) => { setProvince(v); setPage(1); }}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Tất cả" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
-                  {(filterOpts?.provinces || []).map((p) => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <AntdSelect
+                id="listing-province-select"
+                mode="multiple"
+                allowClear
+                showSearch
+                maxTagCount="responsive"
+                value={province}
+                placeholder="Chọn tỉnh/thành phố"
+                options={provinceOptions}
+                optionFilterProp="label"
+                onChange={(values) => {
+                  setProvince(values);
+                  setPage(1);
+                }}
+                className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Sắp xếp theo</label>
