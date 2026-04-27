@@ -6,6 +6,24 @@ const CrawlLog = require('../models/CrawlLog');
 
 const router = Router();
 
+function buildProvinceFilter(provinceQuery) {
+  if (!provinceQuery) return null;
+
+  const provinces = String(provinceQuery)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (provinces.length === 0) return null;
+  if (provinces.length === 1) {
+    return { $regex: provinces[0], $options: 'i' };
+  }
+
+  return {
+    $in: provinces.map((province) => new RegExp(province, 'i')),
+  };
+}
+
 // ═══════════════════════════════════
 // AUCTION NOTICES
 // ═══════════════════════════════════
@@ -17,7 +35,8 @@ router.get('/auctions', async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = {};
     if (req.query.type) filter.type = req.query.type;
-    if (req.query.province) filter.province = { $regex: req.query.province, $options: 'i' };
+    const provinceFilter = buildProvinceFilter(req.query.province);
+    if (provinceFilter) filter.province = provinceFilter;
     if (req.query.status) filter.status = req.query.status;
     if (req.query.search) filter.$text = { $search: req.query.search };
     if (req.query.minPrice || req.query.maxPrice) {
