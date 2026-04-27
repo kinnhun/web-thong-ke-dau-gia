@@ -151,9 +151,9 @@ export function DiscountsContainer() {
       </header>
 
       {/* Filters */}
-      <div className="rounded-xl border bg-card p-3 sm:p-4">
-        <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-          <div className="col-span-2 space-y-1.5">
+      <div className="rounded-2xl border bg-card p-3 sm:p-4 lg:p-5 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label className="text-xs">Từ khóa</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -161,7 +161,7 @@ export function DiscountsContainer() {
                 placeholder="Tên, địa chỉ, biển số…"
                 value={keyword}
                 onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
-                className="pl-8 h-9"
+                className="h-10 pl-8"
               />
             </div>
           </div>
@@ -179,26 +179,7 @@ export function DiscountsContainer() {
                 setType((value as AssetType | "all") ?? "all");
                 setPage(1);
               }}
-              className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Tỉnh / thành</Label>
-            <AntdSelect
-              id="discounts-province-select"
-              mode="multiple"
-              allowClear
-              showSearch
-              maxTagCount="responsive"
-              value={province}
-              placeholder="Chọn tỉnh/thành"
-              options={provinceOptions}
-              optionFilterProp="label"
-              onChange={(values) => {
-                setProvince(values);
-                setPage(1);
-              }}
-              className="h-9 [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
+              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
           <div className="space-y-1.5">
@@ -215,21 +196,40 @@ export function DiscountsContainer() {
                 setOrganizer((value as string) ?? "all");
                 setPage(1);
               }}
-              className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
+            <Label className="text-xs">Tỉnh / thành</Label>
+            <AntdSelect
+              id="discounts-province-select"
+              mode="multiple"
+              allowClear
+              showSearch
+              maxTagCount="responsive"
+              value={province}
+              placeholder="Chọn một hoặc nhiều tỉnh/thành"
+              options={provinceOptions}
+              optionFilterProp="label"
+              onChange={(values) => {
+                setProvince(values);
+                setPage(1);
+              }}
+              className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">% giảm tối thiểu</Label>
-            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => { setMinDiscount(e.target.value); setPage(1); }} className="h-9" />
+            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => { setMinDiscount(e.target.value); setPage(1); }} className="h-10" />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Giá tối đa (tỷ)</Label>
-            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }} className="h-9" />
+            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }} className="h-10" />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Số lần ĐG</Label>
             <Select value={rounds} onValueChange={(v) => { setRounds(v); setPage(1); }}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả</SelectItem>
                 <SelectItem value="2">≥ 2 lần</SelectItem>
@@ -238,10 +238,10 @@ export function DiscountsContainer() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5 lg:col-span-1 xl:col-span-1">
+          <div className="space-y-1.5">
             <Label className="text-xs">Sắp xếp</Label>
             <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {Object.entries(sortLabel).map(([k, v]) => (
                   <SelectItem key={k} value={k}>{v}</SelectItem>
@@ -250,11 +250,11 @@ export function DiscountsContainer() {
             </Select>
           </div>
         </div>
-        <div className="mt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-t pt-3">
+        <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Filter className="h-3.5 w-3.5" />Lọc nâng cao có thể được lưu để sử dụng lại
+            <Filter className="h-3.5 w-3.5" />Tìm kiếm nhanh hơn với bộ lọc nhiều tỉnh/thành và danh sách có search
           </div>
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5" />Đặt lại</Button>
           </div>
         </div>

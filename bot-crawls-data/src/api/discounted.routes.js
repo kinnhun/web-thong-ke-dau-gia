@@ -4,6 +4,24 @@ const Duplicate = require('../models/Duplicate');
 
 const router = Router();
 
+function buildProvinceFilter(provinceQuery) {
+  if (!provinceQuery) return null;
+
+  const provinces = String(provinceQuery)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (provinces.length === 0) return null;
+  if (provinces.length === 1) {
+    return { $regex: provinces[0], $options: 'i' };
+  }
+
+  return {
+    $in: provinces.map((province) => new RegExp(province, 'i')),
+  };
+}
+
 /**
  * GET /api/discounted?page=1&limit=20&type=land&province=...&minDiscount=20&maxPrice=5000000000&sort=discount_pct&search=keyword&organizer=...&minRounds=2
  * Danh sách tài sản giảm giá với filter/sort/pagination
@@ -77,8 +95,9 @@ router.get('/', async (req, res, next) => {
 
     // Post-lookup filters (province, type, organizer, maxPrice)
     const postFilter = {};
-    if (req.query.province) {
-      postFilter['latestNotice.province'] = { $regex: req.query.province, $options: 'i' };
+    const provinceFilter = buildProvinceFilter(req.query.province);
+    if (provinceFilter) {
+      postFilter['latestNotice.province'] = provinceFilter;
     }
     if (req.query.type) {
       postFilter['latestNotice.type'] = req.query.type;
