@@ -37,8 +37,8 @@ async function runAutoCrawl() {
     // Cào thông báo đấu giá (list + detail + sample, all-in-one)
     await crawlAuctionNotices({ isAuto: true });
 
-    // Cào lựa chọn tổ chức (list + detail + sample, all-in-one)
-    await crawlOrgSelections({ isAuto: true });
+    // Đã decommission luồng lựa chọn tổ chức đấu giá để hệ thống chỉ tập trung vào auction notice.
+    // await crawlOrgSelections({ isAuto: true });
 
     // Cập nhật thống kê vào bảng tạm
     await refreshStats();

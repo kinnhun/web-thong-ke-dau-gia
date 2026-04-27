@@ -193,11 +193,12 @@ export function RelistedContainer() {
         </div>
       ) : view === "table" ? (
         <div className="rounded-xl border bg-card overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[1180px]">
             <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
               <tr>
                 <th className="px-4 py-2.5 w-8"><Checkbox /></th>
-                <th className="px-4 py-2.5 text-left font-medium">Tài sản</th>
+                <th className="px-4 py-2.5 text-left font-medium min-w-[360px]">Tài sản</th>
+                <th className="px-4 py-2.5 text-left font-medium min-w-[240px]">Thông tin tài sản</th>
                 <th className="px-4 py-2.5 text-left font-medium">Khu vực</th>
                 <th className="px-4 py-2.5 text-center font-medium">Lần ĐG</th>
                 <th className="px-4 py-2.5 text-right font-medium">Giá đầu</th>
@@ -209,77 +210,100 @@ export function RelistedContainer() {
               </tr>
             </thead>
             <tbody>
-              {items.map((a) => (
-                <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40">
-                  <td className="px-4 py-3"><Checkbox /></td>
-                  <td className="px-4 py-3">
-                    <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group max-w-md">
-                      <AssetTypeIcon type={a.type} className="mt-0.5 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <div className="font-medium group-hover:text-primary line-clamp-1">{a.name}</div>
-                        <div className="text-xs text-muted-foreground">{assetTypeLabel[a.type] || a.type}{a.organizer ? ` · ${a.organizer.slice(0, 30)}…` : ""}</div>
-                      </div>
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    <div className="font-medium text-foreground">{a.province}</div>
-                  </td>
-                  <td className="px-4 py-3 text-center num text-foreground font-semibold">
-                    <span className="px-2 py-1 bg-muted rounded">Lần {a.relistCount}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-muted-foreground line-through num text-xs">
-                    {a.priceDropPercent > 0 ? formatVNDShort(a.firstPrice) : "-"}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
-                  <td className="px-4 py-3 text-right num">
-                    {a.priceDropPercent > 0 ? (
-                        <div className="flex flex-col items-end">
-                            <span className="text-discount-deep text-xs font-medium">−{formatVNDShort(a.firstPrice - a.latestPrice)}</span>
-                            <DiscountBadge percent={a.priceDropPercent} />
+              {items.map((a) => {
+                const displayTitle = a.shortDescription?.trim() || a.name;
+
+                return (
+                  <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40 align-top">
+                    <td className="px-4 py-3"><Checkbox /></td>
+                    <td className="px-4 py-3">
+                      <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group min-w-[360px] max-w-[460px]">
+                        <AssetTypeIcon type={a.type} className="mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">{displayTitle}</div>
+                          <div className="mt-1 text-xs text-muted-foreground whitespace-normal break-words">
+                            Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
+                          </div>
                         </div>
-                    ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </td>
-                  
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{a.publishedAt ? formatDate(a.publishedAt) : "—"}</td>
-                  <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <Link href={`/auction/${a.sourceId}`}><Eye className="h-3.5 w-3.5" /></Link>
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground min-w-[240px]">
+                      <div className="space-y-1.5">
+                        <div className="font-medium text-foreground whitespace-normal break-words">{assetTypeLabel[a.type] || a.type}</div>
+                        {a.organizer && (
+                          <div className="whitespace-normal break-words">
+                            Đơn vị: <span className="text-foreground/80">{a.organizer}</span>
+                          </div>
+                        )}
+                        <div className="whitespace-normal break-words">
+                          Công khai: <span className="text-foreground/80">{a.publishedAt ? formatDate(a.publishedAt) : "—"}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      <div className="font-medium text-foreground">{a.province || "Chưa cập nhật"}</div>
+                    </td>
+                    <td className="px-4 py-3 text-center num text-foreground font-semibold">
+                      <span className="px-2 py-1 bg-muted rounded">Lần {a.relistCount}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground line-through num text-xs">
+                      {a.priceDropPercent > 0 ? formatVNDShort(a.firstPrice) : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
+                    <td className="px-4 py-3 text-right num">
+                      {a.priceDropPercent > 0 ? (
+                          <div className="flex flex-col items-end">
+                              <span className="text-discount-deep text-xs font-medium">−{formatVNDShort(a.firstPrice - a.latestPrice)}</span>
+                              <DiscountBadge percent={a.priceDropPercent} />
+                          </div>
+                      ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{a.publishedAt ? formatDate(a.publishedAt) : "—"}</td>
+                    <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                          <Link href={`/auction/${a.sourceId}`}><Eye className="h-3.5 w-3.5" /></Link>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {items.length === 0 && (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
+                <tr><td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
               )}
             </tbody>
           </table>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {items.map((a) => (
-            <Link key={a._id} href={`/auction/${a.sourceId}`} className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary"><AssetTypeIcon type={a.type} /></div>
-                <div className="px-2 py-1 bg-muted rounded text-xs font-semibold num">Lần {a.relistCount}</div>
-              </div>
-              <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary min-h-[2.5rem]">{a.name}</h3>
-              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><span>{a.province}</span></div>
-              <div className="mt-3 pt-3 border-t">
-                {a.priceDropPercent > 0 && <div className="text-xs text-muted-foreground line-through num">{formatVND(a.firstPrice)}</div>}
-                <div className="font-semibold num text-base flex items-center justify-between">
-                    {formatVND(a.latestPrice)}
-                    {a.priceDropPercent > 0 && <DiscountBadge percent={a.priceDropPercent} />}
+          {items.map((a) => {
+            const displayTitle = a.shortDescription?.trim() || a.name;
+
+            return (
+              <Link key={a._id} href={`/auction/${a.sourceId}`} className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary"><AssetTypeIcon type={a.type} /></div>
+                  <div className="px-2 py-1 bg-muted rounded text-xs font-semibold num">Lần {a.relistCount}</div>
                 </div>
-              </div>
-              <div className="mt-3"><StatusBadge status={a.status} /></div>
-            </Link>
-          ))}
+                <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary min-h-[2.5rem]">{displayTitle}</h3>
+                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><span>{a.province}</span></div>
+                <div className="mt-3 pt-3 border-t">
+                  {a.priceDropPercent > 0 && <div className="text-xs text-muted-foreground line-through num">{formatVND(a.firstPrice)}</div>}
+                  <div className="font-semibold num text-base flex items-center justify-between">
+                      {formatVND(a.latestPrice)}
+                      {a.priceDropPercent > 0 && <DiscountBadge percent={a.priceDropPercent} />}
+                  </div>
+                </div>
+                <div className="mt-3"><StatusBadge status={a.status} /></div>
+              </Link>
+            );
+          })}
         </div>
       )}
 

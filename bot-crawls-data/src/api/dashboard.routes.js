@@ -124,6 +124,7 @@ router.get('/top-discounted', async (req, res, next) => {
           priceDropPercent: 1,
           relistCount: 1,
           updatedAt: 1,
+          shortDescription: '$latestNotice.shortDescription',
           sourceId: '$latestNotice.sourceId',
           type: '$latestNotice.type',
           province: '$latestNotice.province',
@@ -132,6 +133,7 @@ router.get('/top-discounted', async (req, res, next) => {
           status: '$latestNotice.status',
           initialPrice: '$latestNotice.initialPrice',
           currentPrice: '$latestNotice.currentPrice',
+          properties: '$latestNotice.properties',
         },
       },
     ]);
@@ -198,6 +200,7 @@ router.get('/newly-reduced', async (req, res, next) => {
           priceDropPercent: 1,
           relistCount: 1,
           updatedAt: 1,
+          shortDescription: '$latestNotice.shortDescription',
           sourceId: '$latestNotice.sourceId',
           type: '$latestNotice.type',
           province: '$latestNotice.province',
@@ -205,6 +208,7 @@ router.get('/newly-reduced', async (req, res, next) => {
           status: '$latestNotice.status',
           initialPrice: '$latestNotice.initialPrice',
           currentPrice: '$latestNotice.currentPrice',
+          properties: '$latestNotice.properties',
         },
       },
     ]);
@@ -269,6 +273,7 @@ router.get('/top-relisted', async (req, res, next) => {
           priceDropPercent: 1,
           relistCount: 1,
           updatedAt: 1,
+          shortDescription: '$latestNotice.shortDescription',
           sourceId: '$latestNotice.sourceId',
           type: '$latestNotice.type',
           province: '$latestNotice.province',
@@ -276,6 +281,7 @@ router.get('/top-relisted', async (req, res, next) => {
           status: '$latestNotice.status',
           initialPrice: '$latestNotice.initialPrice',
           currentPrice: '$latestNotice.currentPrice',
+          properties: '$latestNotice.properties',
         },
       },
     ]);

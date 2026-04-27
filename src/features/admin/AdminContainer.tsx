@@ -1,14 +1,13 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import {
-  AlertCircle, CheckCircle2, Database, Download, Eye, GitMerge,
+  AlertCircle, CheckCircle2, Database, Eye, GitMerge,
   Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
   TrendingDown, Layers, FileBarChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCrawlLogs, useAuctions, useDashboardStats } from "@/domains/auction";
-import { formatDate, formatVNDShort } from "@/lib/format";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { formatDate } from "@/lib/format";
 import {
   triggerListCrawl,
   triggerDetailCrawl,
@@ -37,21 +36,13 @@ const statusBadge = (s: string) => {
 export function AdminContainer() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"raw" | "logs">("raw");
   const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
   const { data: stats } = useDashboardStats();
 
   const rawRecords = rawAuctions?.items || [];
   const logs = (crawlLogs || []).slice(0, 15);
-
-  const parentRef = useRef<HTMLDivElement>(null);
-  
-  const rowVirtualizer = useVirtualizer({
-    count: rawRecords.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 53,
-    overscan: 5,
-  });
 
   const handleAction = async (name: string, fn: () => Promise<unknown>) => {
     setActionLoading(name);
@@ -94,7 +85,6 @@ export function AdminContainer() {
         </div>
       )}
 
-      {/* Tổng quan dữ liệu */}
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <div className="rounded-xl border bg-card p-3 sm:p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
@@ -145,7 +135,7 @@ export function AdminContainer() {
         ))}
       </section>
 
-      <Tabs defaultValue="raw" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "raw" | "logs")} className="space-y-4">
         <TabsList>
           <TabsTrigger value="raw">Dữ liệu gần đây</TabsTrigger>
           <TabsTrigger value="logs">Nhật ký crawl</TabsTrigger>
@@ -153,53 +143,55 @@ export function AdminContainer() {
 
         <TabsContent value="raw">
           <div className="rounded-xl border bg-card overflow-x-auto">
-            <div className="w-full min-w-[950px] text-sm">
-              <div className="flex text-xs text-muted-foreground border-b bg-secondary/30 font-medium">
-                <div className="px-4 py-2.5 w-24">Source ID</div>
-                <div className="px-4 py-2.5 flex-1 min-w-[250px]">Tên tài sản</div>
+            <div className="w-full min-w-[1200px] text-sm">
+              <div className="hidden lg:flex items-center border-b bg-secondary/30 text-xs font-medium text-muted-foreground">
+                <div className="px-4 py-2.5 w-24">Mã</div>
+                <div className="px-4 py-2.5 flex-1 min-w-[360px]">Tài sản</div>
+                <div className="px-4 py-2.5 w-[260px]">Thông tin tài sản</div>
                 <div className="px-4 py-2.5 w-32">Tỉnh</div>
                 <div className="px-4 py-2.5 w-32">Ngày đăng</div>
                 <div className="px-4 py-2.5 w-20 text-center">% giảm</div>
                 <div className="px-4 py-2.5 w-32">Trạng thái</div>
                 <div className="px-4 py-2.5 w-24 text-right">Thao tác</div>
               </div>
-              
-              <div ref={parentRef} className="h-[500px] overflow-auto">
-                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative", width: "100%" }}>
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const r = rawRecords[virtualRow.index];
-                    return (
-                      <div
-                        key={r._id}
-                        className="flex items-center border-b last:border-0 hover:bg-secondary/40 absolute top-0 left-0 w-full"
-                        style={{
-                          height: `${virtualRow.size}px`,
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <div className="px-4 py-3 w-24 font-mono text-xs">{r.sourceId}</div>
-                        <div className="px-4 py-3 flex-1 min-w-[250px]">
-                          <div className="line-clamp-1" title={r.name}>{r.name}</div>
-                        </div>
-                        <div className="px-4 py-3 w-32 text-muted-foreground">{r.province || "—"}</div>
-                        <div className="px-4 py-3 w-32 text-muted-foreground text-xs">{r.publishedAt ? formatDate(r.publishedAt) : "—"}</div>
-                        <div className="px-4 py-3 w-20 text-center num text-discount-deep font-medium">
-                          {r.priceDropPercent > 0 ? `−${r.priceDropPercent.toFixed(1)}%` : "—"}
-                        </div>
-                        <div className="px-4 py-3 w-32">{statusBadge(r.status || "ok")}</div>
-                        <div className="px-4 py-3 w-24 text-right">
-                          <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7"><Pencil className="h-3.5 w-3.5" /></Button>
+
+              <div className="max-h-[500px] overflow-auto">
+                {rawLoading ? (
+                  <div className="px-4 py-8 text-center text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin inline" />
+                  </div>
+                ) : rawRecords.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-muted-foreground">Chưa có dữ liệu</div>
+                ) : (
+                  rawRecords.map((r) => (
+                    <div key={r._id} className="flex items-start border-b last:border-0 hover:bg-secondary/40">
+                      <div className="px-4 py-3 w-24 font-mono text-xs">{r.sourceId}</div>
+                      <div className="px-4 py-3 flex-1 min-w-[360px]">
+                        <div className="font-medium leading-6 whitespace-normal break-words" title={r.name}>{r.name}</div>
+                      </div>
+                      <div className="px-4 py-3 w-[260px] text-xs text-muted-foreground">
+                        <div className="space-y-1.5">
+                          <div className="whitespace-normal break-words">
+                            Phân loại: <span className="text-foreground/80">{r.type || "—"}</span>
+                          </div>
+                          <div className="whitespace-normal break-words">
+                            Đơn vị: <span className="text-foreground/80">{r.organizer || "—"}</span>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                  {rawRecords.length === 0 && (
-                    <div className="px-4 py-8 text-center text-muted-foreground">
-                      {logsLoading ? <Loader2 className="h-5 w-5 animate-spin inline" /> : "Chưa có dữ liệu"}
+                      <div className="px-4 py-3 w-32 text-muted-foreground">{r.province || "—"}</div>
+                      <div className="px-4 py-3 w-32 text-muted-foreground text-xs">{r.publishedAt ? formatDate(r.publishedAt) : "—"}</div>
+                      <div className="px-4 py-3 w-20 text-center num text-discount-deep font-medium">
+                        {r.priceDropPercent > 0 ? `−${r.priceDropPercent.toFixed(1)}%` : "—"}
+                      </div>
+                      <div className="px-4 py-3 w-32">{statusBadge(r.status || "ok")}</div>
+                      <div className="px-4 py-3 w-24 text-right">
+                        <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7"><Pencil className="h-3.5 w-3.5" /></Button>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

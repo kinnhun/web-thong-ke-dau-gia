@@ -9,134 +9,271 @@ const config = require('./config');
 let browser = null;
 let page = null;
 let isReady = false;
+let requestChain = Promise.resolve();
 
-/**
- * Khởi tạo browser và pass FEC challenge
- */
-async function initBrowser() {
-  if (browser && isReady) return page;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  console.log('🌐 Đang khởi tạo browser (headless mode)...');
-  browser = await puppeteer.launch({
-    headless: 'new', // Chrome headless mới — nhanh hơn, vẫn pass FEC
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage', // Ngăn OOM memory
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process', // Giảm RAM rất nhiều
-      '--disable-blink-features=AutomationControlled',
-      '--window-size=1280,900',
-    ],
-    defaultViewport: null,
-  });
+function isRecoverablePageError(error) {
+  const message = error?.message || '';
+  return [
+    'detached Frame',
+    'Attempted to use detached Frame',
+    'Execution context was destroyed',
+    'Cannot find context with specified id',
+    'Target closed',
+    'Session closed',
+    'Protocol error',
+  ].some((token) => message.includes(token));
+}
 
-  page = (await browser.pages())[0] || await browser.newPage();
+async function isPageUsable(targetPage) {
+  if (!targetPage) return false;
 
-  // Block hình ảnh, css, font để tiết kiệm RAM tối đa
-  await page.setRequestInterception(true);
-  page.on('request', (req) => {
+  try {
+    if (targetPage.isClosed()) return false;
+    await targetPage.title();
+    return true;
+  } catch (error) {
+    return !isRecoverablePageError(error) ? false : false;
+  }
+}
+
+async function cleanupPage(targetPage) {
+  if (!targetPage) return;
+
+  try {
+    if (!targetPage.isClosed()) {
+      await targetPage.close();
+    }
+  } catch (error) {
+    if (!isRecoverablePageError(error)) {
+      console.warn(`⚠️ Không thể đóng page cũ: ${error.message}`);
+    }
+  }
+}
+
+async function cleanupBrowser() {
+  if (!browser) return;
+
+  try {
+    await browser.close();
+  } catch (error) {
+    console.warn(`⚠️ Không thể đóng browser cũ: ${error.message}`);
+  }
+
+  browser = null;
+  page = null;
+  isReady = false;
+}
+
+async function createManagedPage() {
+  const existingPages = await browser.pages();
+
+  await Promise.allSettled(existingPages.map(async (existingPage) => {
+    try {
+      if (!existingPage.isClosed()) {
+        await existingPage.close();
+      }
+    } catch (error) {
+      console.warn(`⚠️ Không thể đóng startup page: ${error.message}`);
+    }
+  }));
+
+  const nextPage = await browser.newPage();
+
+  await nextPage.setRequestInterception(true);
+  nextPage.on('request', (req) => {
     const type = req.resourceType();
     if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
-      req.abort();
-    } else {
-      req.continue();
+      req.abort().catch(() => {});
+      return;
+    }
+
+    req.continue().catch(() => {});
+  });
+
+  nextPage.on('close', () => {
+    if (page === nextPage) {
+      isReady = false;
     }
   });
 
-  // Ẩn webdriver flag
-  await page.evaluateOnNewDocument(() => {
+  await nextPage.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    // Override plugins
     Object.defineProperty(navigator, 'plugins', {
       get: () => [1, 2, 3, 4, 5],
     });
-    // Override languages
     Object.defineProperty(navigator, 'languages', {
       get: () => ['vi-VN', 'vi', 'en-US', 'en'],
     });
   });
 
-  await page.setUserAgent(
+  await nextPage.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
   );
 
-  // Navigate to main page - FEC challenge sẽ tự pass trong visible mode
-  console.log('🔑 Đang truy cập trang web...');
+  page = nextPage;
+  return nextPage;
+}
 
-  try {
-    await page.goto(`${config.baseUrl}/thong-bao-cong-khai-viec-dau-gia.html`, {
-      waitUntil: 'networkidle2',
-      timeout: 60000,
-    });
-  } catch (e) {
-    console.log('  ⏳ Trang tải lâu, đợi thêm...');
+async function ensureBrowserContext(forceReset = false) {
+  if (forceReset) {
+    await cleanupPage(page);
+    page = null;
+    isReady = false;
   }
 
-  // Wait for page to stabilize after FEC challenge
-  await waitForRealPage(page);
+  if (!browser) {
+    console.log('🌐 Đang khởi tạo browser (headless mode)...');
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-blink-features=AutomationControlled',
+        '--window-size=1280,900',
+      ],
+      defaultViewport: null,
+    });
+  }
 
-  // Test API
-  const testResult = await page.evaluate(async (baseUrl) => {
-    try {
-      const res = await fetch(`${baseUrl}/portal/search/auction-notice?p=1&numberPerPage=1`, {
-        headers: {
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-      });
-      if (!res.ok) return { ok: false, status: res.status };
-      const data = await res.json();
-      return { ok: true, total: data.totalItem, fields: data.items?.[0] ? Object.keys(data.items[0]) : [] };
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-  }, config.baseUrl);
-
-  console.log(`  🧪 API test: ${JSON.stringify(testResult)}`);
-
-  if (testResult.ok) {
-    isReady = true;
-    console.log(`✅ Browser sẵn sàng! Tổng ${testResult.total} thông báo đấu giá`);
-  } else {
-    // Thử lại - có thể FEC cần thêm thời gian
-    console.log('  ⏳ Đợi thêm 10s cho FEC hoàn thành...');
-    await new Promise(r => setTimeout(r, 10000));
-
-    // Reload
-    await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
-    await waitForRealPage(page);
-
-    isReady = true;
-    console.log('✅ Browser sẵn sàng (fallback)');
+  if (!(await isPageUsable(page))) {
+    await cleanupPage(page);
+    page = await createManagedPage();
+    isReady = false;
   }
 
   return page;
 }
 
+async function evaluateWithRecovery(executor, label, retries = 2) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+    try {
+      const activePage = await ensureBrowserContext(attempt > 1);
+      return await executor(activePage);
+    } catch (error) {
+      lastError = error;
+
+      if (!isRecoverablePageError(error) || attempt > retries) {
+        throw error;
+      }
+
+      console.warn(`⚠️ ${label} lỗi page lifecycle (lần ${attempt}/${retries + 1}): ${error.message}`);
+      await cleanupPage(page);
+      page = null;
+      isReady = false;
+      await sleep(1500 * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+async function runSerialized(executor) {
+  const nextTask = requestChain.then(executor, executor);
+  requestChain = nextTask.catch(() => {});
+  return nextTask;
+}
+
+/**
+ * Khởi tạo browser và pass FEC challenge
+ */
+async function initBrowser() {
+  if (browser && isReady && await isPageUsable(page)) {
+    return page;
+  }
+
+  return runSerialized(async () => {
+    if (browser && isReady && await isPageUsable(page)) {
+      return page;
+    }
+
+    const readyPage = await evaluateWithRecovery(async (activePage) => {
+      console.log('🔑 Đang truy cập trang web...');
+
+      try {
+        await activePage.goto(`${config.baseUrl}/thong-bao-cong-khai-viec-dau-gia.html`, {
+          waitUntil: 'networkidle2',
+          timeout: 60000,
+        });
+      } catch (error) {
+        console.log('  ⏳ Trang tải lâu, đợi thêm...');
+      }
+
+      await waitForRealPage(activePage);
+
+      const testResult = await activePage.evaluate(async (baseUrl) => {
+        try {
+          const res = await fetch(`${baseUrl}/portal/search/auction-notice?p=1&numberPerPage=1`, {
+            headers: {
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+          });
+          if (!res.ok) return { ok: false, status: res.status };
+          const data = await res.json();
+          return { ok: true, total: data.totalItem, fields: data.items?.[0] ? Object.keys(data.items[0]) : [] };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      }, config.baseUrl);
+
+      console.log(`  🧪 API test: ${JSON.stringify(testResult)}`);
+
+      if (!testResult.ok) {
+        console.log('  ⏳ Đợi thêm 10s cho FEC hoàn thành...');
+        await sleep(10000);
+        await activePage.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+        await waitForRealPage(activePage);
+      }
+
+      return activePage;
+    }, 'Khởi tạo browser', 2);
+
+    page = readyPage;
+    isReady = true;
+    console.log('✅ Browser sẵn sàng!');
+    return page;
+  });
+}
+
 /**
  * Đợi cho trang thật sự load (không còn FEC challenge)
  */
-async function waitForRealPage(p, maxWait = 30000) {
+async function waitForRealPage(targetPage, maxWait = 30000) {
   const start = Date.now();
 
   while (Date.now() - start < maxWait) {
-    const hasFEC = await p.evaluate(() => {
-      return document.body.innerHTML.includes('fec_wrapper') ||
-        document.body.innerHTML.includes('_fec_sbu') ||
-        document.title.includes('403');
-    });
+    const hasFEC = await evaluateWithRecovery(
+      async (activePage) => activePage.evaluate(() => {
+        return document.body.innerHTML.includes('fec_wrapper') ||
+          document.body.innerHTML.includes('_fec_sbu') ||
+          document.title.includes('403');
+      }),
+      'Kiểm tra FEC',
+      1
+    );
 
     if (!hasFEC) {
-      const title = await p.title();
+      const title = await evaluateWithRecovery((activePage) => activePage.title(), 'Đọc title', 1);
       console.log(`  📋 Trang đã load: "${title}"`);
       return true;
     }
 
-    await new Promise(r => setTimeout(r, 2000));
+    if (!(await isPageUsable(targetPage))) {
+      throw new Error('Browser page closed during FEC wait');
+    }
+
+    await sleep(2000);
   }
 
   console.log('  ⚠️ Timeout chờ FEC');
@@ -147,93 +284,93 @@ async function waitForRealPage(p, maxWait = 30000) {
  * Fetch JSON từ API thông qua browser (bypass FEC)
  */
 async function fetchAPI(endpoint, params = {}) {
-  const p = await initBrowser();
+  await initBrowser();
 
   const queryString = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
     .join('&');
 
-  const url = `${config.baseUrl}${endpoint}${queryString ? '?' + queryString : ''}`;
+  const url = `${config.baseUrl}${endpoint}${queryString ? `?${queryString}` : ''}`;
 
-  const result = await p.evaluate(async (fetchUrl) => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(fetchUrl, {
-        headers: {
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        return { error: true, status: res.status, message: `HTTP ${res.status}` };
-      }
-
-      const text = await res.text();
+  return runSerialized(async () => {
+    const result = await evaluateWithRecovery(async (activePage) => activePage.evaluate(async (fetchUrl) => {
       try {
-        const data = JSON.parse(text);
-        return { error: false, data };
-      } catch (e) {
-        return { error: true, message: 'Invalid JSON: ' + text.substring(0, 200) };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(fetchUrl, {
+          headers: {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          return { error: true, status: res.status, message: `HTTP ${res.status}` };
+        }
+
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          return { error: false, data };
+        } catch (error) {
+          return { error: true, message: `Invalid JSON: ${text.substring(0, 200)}` };
+        }
+      } catch (error) {
+        return { error: true, message: error.message };
       }
-    } catch (err) {
-      return { error: true, message: err.message };
+    }, url), `Fetch API ${endpoint}`, 2);
+
+    if (result.error) {
+      throw new Error(`API Error: ${result.message || result.status}`);
     }
-  }, url);
 
-  if (result.error) {
-    throw new Error(`API Error: ${result.message || result.status}`);
-  }
-
-  return result.data;
+    return result.data;
+  });
 }
 
 /**
  * Fetch HTML detail page thông qua browser
  */
 async function fetchDetailHTML(url) {
-  const p = await initBrowser();
+  await initBrowser();
 
-  const result = await p.evaluate(async (fetchUrl) => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(fetchUrl, {
-        headers: { 'Accept': 'text/html' },
-        credentials: 'same-origin',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (!res.ok) return { error: true, status: res.status };
-      const html = await res.text();
-      return { error: false, html };
-    } catch (err) {
-      return { error: true, message: err.message };
+  return runSerialized(async () => {
+    const result = await evaluateWithRecovery(async (activePage) => activePage.evaluate(async (fetchUrl) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(fetchUrl, {
+          headers: { 'Accept': 'text/html' },
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) return { error: true, status: res.status };
+        const html = await res.text();
+        return { error: false, html };
+      } catch (error) {
+        return { error: true, message: error.message };
+      }
+    }, url), 'Fetch detail HTML', 2);
+
+    if (result.error) {
+      throw new Error(`Detail fetch error: ${result.message || result.status}`);
     }
-  }, url);
 
-  if (result.error) {
-    throw new Error(`Detail fetch error: ${result.message || result.status}`);
-  }
-
-  return result.html;
+    return result.html;
+  });
 }
 
 /**
  * Đóng browser
  */
 async function closeBrowser() {
-  if (browser) {
-    await browser.close();
-    browser = null;
-    page = null;
-    isReady = false;
-    console.log('🔒 Browser đã đóng');
-  }
+  requestChain = Promise.resolve();
+  await cleanupBrowser();
+  console.log('🔒 Browser đã đóng');
 }
 
 module.exports = { initBrowser, fetchAPI, fetchDetailHTML, closeBrowser };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -15,6 +15,7 @@ import {
   Share2,
   TrendingDown,
 } from "lucide-react";
+import { Select as AntdSelect } from "antd";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,7 @@ import {
   type AssetType,
 } from "@/domains/auction";
 import { formatVND, formatVNDShort, formatDate } from "@/lib/format";
+import { getAuctionDisplayTitle, getAuctionPropertyLines } from "@/utils/auction-display";
 
 type SortKey = "discount_pct" | "discount_amt" | "newest" | "price_asc" | "rounds_desc";
 type ViewMode = "table" | "card";
@@ -61,7 +63,7 @@ export function DiscountsContainer() {
   const [sortKey, setSortKey] = useState<SortKey>("discount_pct");
   const [keyword, setKeyword] = useState("");
   const [type, setType] = useState<AssetType | "all">("all");
-  const [province, setProvince] = useState<string>("all");
+  const [province, setProvince] = useState<string[]>([]);
   const [organizer, setOrganizer] = useState<string>("all");
   const [minDiscount, setMinDiscount] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
@@ -71,12 +73,23 @@ export function DiscountsContainer() {
 
   const { data: filterOpts } = useFilterOptions();
 
+  const provinceOptions = useMemo(
+    () =>
+      (filterOpts?.provinces || []).map((item) => ({
+        label: item,
+        value: item,
+      })),
+    [filterOpts?.provinces]
+  );
+
+  const provinceQueryValue = province.length > 0 ? province.join(",") : undefined;
+
   const { data, isLoading, isFetching } = useDiscountedAuctions({
     page,
     limit: pageSize,
     search: keyword || undefined,
     type: type !== "all" ? type : undefined,
-    province: province !== "all" ? province : undefined,
+    province: provinceQueryValue,
     organizer: organizer !== "all" ? organizer : undefined,
     minDiscount: minDiscount || undefined,
     maxPrice: maxPrice ? String(parseFloat(maxPrice) * 1_000_000_000) : undefined,
@@ -90,7 +103,7 @@ export function DiscountsContainer() {
   const total = pagination?.total ?? 0;
 
   const reset = () => {
-    setKeyword(""); setType("all"); setProvince("all"); setOrganizer("all");
+    setKeyword(""); setType("all"); setProvince([]); setOrganizer("all");
     setMinDiscount(""); setMaxPrice(""); setRounds("all"); setPage(1);
   };
 
@@ -146,13 +159,22 @@ export function DiscountsContainer() {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Tỉnh / thành</Label>
-            <Select value={province} onValueChange={(v) => { setProvince(v); setPage(1); }}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                {provincesList.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AntdSelect
+              id="discounts-province-select"
+              mode="multiple"
+              allowClear
+              showSearch
+              maxTagCount="responsive"
+              value={province}
+              placeholder="Chọn tỉnh/thành"
+              options={provinceOptions}
+              optionFilterProp="label"
+              onChange={(values) => {
+                setProvince(values);
+                setPage(1);
+              }}
+              className="h-9 [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Tổ chức đấu giá</Label>
@@ -228,11 +250,12 @@ export function DiscountsContainer() {
         </div>
       ) : view === "table" ? (
         <div className="rounded-xl border bg-card overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[1220px]">
             <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
               <tr>
                 <th className="px-4 py-2.5 w-8"><Checkbox /></th>
-                <th className="px-4 py-2.5 text-left font-medium">Tài sản</th>
+                <th className="px-4 py-2.5 text-left font-medium min-w-[360px]">Tài sản</th>
+                <th className="px-4 py-2.5 text-left font-medium min-w-[240px]">Thông tin tài sản</th>
                 <th className="px-4 py-2.5 text-left font-medium">Khu vực</th>
                 <th className="px-4 py-2.5 text-right font-medium">Giá đầu</th>
                 <th className="px-4 py-2.5 text-right font-medium">Giá hiện tại</th>
@@ -245,67 +268,97 @@ export function DiscountsContainer() {
               </tr>
             </thead>
             <tbody>
-              {items.map((a) => (
-                <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40">
-                  <td className="px-4 py-3"><Checkbox /></td>
-                  <td className="px-4 py-3">
-                    <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group max-w-md">
-                      <AssetTypeIcon type={a.type} className="mt-0.5 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <div className="font-medium group-hover:text-primary line-clamp-1">{a.name}</div>
-                        <div className="text-xs text-muted-foreground">{assetTypeLabel[a.type] || a.type}{a.organizer ? ` · ${a.organizer.slice(0, 30)}…` : ""}</div>
+              {items.map((a) => {
+                const displayTitle = getAuctionDisplayTitle(a);
+                const propertyLines = getAuctionPropertyLines(a);
+
+                return (
+                  <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40 align-top">
+                    <td className="px-4 py-3"><Checkbox /></td>
+                    <td className="px-4 py-3">
+                      <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group min-w-[360px] max-w-[460px]">
+                        <AssetTypeIcon type={a.type} className="mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">{displayTitle}</div>
+                          <div className="mt-1 text-xs text-muted-foreground whitespace-normal break-words">
+                            Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
+                          </div>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground min-w-[240px]">
+                      <div className="space-y-1.5">
+                        <div className="space-y-1 whitespace-normal break-words">
+                          {propertyLines.map((line, index) => (
+                            <div key={`${a._id}-property-${index}`} className="font-medium text-foreground whitespace-normal break-words">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                        {a.organizer && (
+                          <div className="whitespace-normal break-words">
+                            Đơn vị: <span className="text-foreground/80">{a.organizer}</span>
+                          </div>
+                        )}
+                        <div className="whitespace-normal break-words">
+                          Tình trạng: <span className="text-foreground/80">{a.status}</span>
+                        </div>
                       </div>
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    <div className="font-medium text-foreground">{a.province || "Chưa cập nhật"}</div>
-                    {a.district && <div>{a.district}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-right text-muted-foreground line-through num text-xs">{formatVNDShort(a.firstPrice)}</td>
-                  <td className="px-4 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
-                  <td className="px-4 py-3 text-right num text-discount-deep text-xs font-medium">−{formatVNDShort(a.firstPrice - a.latestPrice)}</td>
-                  <td className="px-4 py-3 text-center"><DiscountBadge percent={a.priceDropPercent} /></td>
-                  <td className="px-4 py-3 text-center num text-muted-foreground">{a.relistCount}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{a.auctionDate ? formatDate(a.auctionDate) : "—"}</td>
-                  <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <Link href={`/auction/${a.sourceId}`}><Eye className="h-3.5 w-3.5" /></Link>
-                      </Button>
-                      {a.sourceUrl && (
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      <div className="font-medium text-foreground">{a.province || "Chưa cập nhật"}</div>
+                      {a.district && <div>{a.district}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground line-through num text-xs">{formatVNDShort(a.firstPrice)}</td>
+                    <td className="px-4 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
+                    <td className="px-4 py-3 text-right num text-discount-deep text-xs font-medium">−{formatVNDShort(a.firstPrice - a.latestPrice)}</td>
+                    <td className="px-4 py-3 text-center"><DiscountBadge percent={a.priceDropPercent} /></td>
+                    <td className="px-4 py-3 text-center num text-muted-foreground">{a.relistCount}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{a.auctionDate ? formatDate(a.auctionDate) : "—"}</td>
+                    <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
                         <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                          <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
+                          <Link href={`/auction/${a.sourceId}`}><Eye className="h-3.5 w-3.5" /></Link>
                         </Button>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {a.sourceUrl && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                            <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {items.length === 0 && (
-                <tr><td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
+                <tr><td colSpan={12} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
               )}
             </tbody>
           </table>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {items.map((a) => (
-            <Link key={a._id} href={`/auction/${a.sourceId}`} className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary"><AssetTypeIcon type={a.type} /></div>
-                <DiscountBadge percent={a.priceDropPercent} size="lg" />
-              </div>
-              <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary min-h-[2.5rem]">{a.name}</h3>
-              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><span>{a.province || "Không rõ"}</span>·<span>{a.relistCount} lần ĐG</span></div>
-              <div className="mt-3 pt-3 border-t">
-                <div className="text-xs text-muted-foreground line-through num">{formatVND(a.firstPrice)}</div>
-                <div className="font-semibold num text-base">{formatVND(a.latestPrice)}</div>
-              </div>
-              <div className="mt-3"><StatusBadge status={a.status} /></div>
-            </Link>
-          ))}
+          {items.map((a) => {
+            const displayTitle = getAuctionDisplayTitle(a);
+
+            return (
+              <Link key={a._id} href={`/auction/${a.sourceId}`} className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary"><AssetTypeIcon type={a.type} /></div>
+                  <DiscountBadge percent={a.priceDropPercent} size="lg" />
+                </div>
+                <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary min-h-[2.5rem]">{displayTitle}</h3>
+                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><span>{a.province || "Không rõ"}</span>·<span>{a.relistCount} lần ĐG</span></div>
+                <div className="mt-3 pt-3 border-t">
+                  <div className="text-xs text-muted-foreground line-through num">{formatVND(a.firstPrice)}</div>
+                  <div className="font-semibold num text-base">{formatVND(a.latestPrice)}</div>
+                </div>
+                <div className="mt-3"><StatusBadge status={a.status} /></div>
+              </Link>
+            );
+          })}
         </div>
       )}
 

@@ -29,6 +29,7 @@ import {
   type AssetType,
 } from "@/domains/auction";
 import { formatVND, formatVNDShort, formatRelativeDays } from "@/lib/format";
+import { getAuctionDisplayTitle, getAuctionPropertyLines } from "@/utils/auction-display";
 import { useState } from "react";
 
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
@@ -213,11 +214,12 @@ export function DashboardContainer() {
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
+          <table className="w-full text-sm min-w-[1040px]">
             <thead className="text-xs text-muted-foreground border-b">
               <tr>
                 <th className="px-5 py-2.5 text-left font-medium w-10">#</th>
-                <th className="px-5 py-2.5 text-left font-medium">Tài sản</th>
+                <th className="px-5 py-2.5 text-left font-medium min-w-[320px]">Tài sản</th>
+                <th className="px-5 py-2.5 text-left font-medium min-w-[220px]">Thông tin tài sản</th>
                 <th className="px-5 py-2.5 text-left font-medium">Khu vực</th>
                 <th className="px-5 py-2.5 text-right font-medium">Giá ban đầu</th>
                 <th className="px-5 py-2.5 text-right font-medium">Giá hiện tại</th>
@@ -228,36 +230,59 @@ export function DashboardContainer() {
               </tr>
             </thead>
             <tbody>
-              {(top10 || []).map((a, i) => (
-                <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40">
-                  <td className="px-5 py-3 text-muted-foreground num">{i + 1}</td>
-                  <td className="px-5 py-3">
-                    <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group">
-                      <AssetTypeIcon type={a.type} className="mt-0.5 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium group-hover:text-primary line-clamp-1">{a.name}</div>
-                        <div className="text-xs text-muted-foreground">{assetTypeLabel[a.type] || a.type}</div>
+              {(top10 || []).map((a, i) => {
+                const displayTitle = getAuctionDisplayTitle(a);
+                const propertyLines = getAuctionPropertyLines(a);
+
+                return (
+                  <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40 align-top">
+                    <td className="px-5 py-3 text-muted-foreground num">{i + 1}</td>
+                    <td className="px-5 py-3">
+                      <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group min-w-[320px] max-w-[420px]">
+                        <AssetTypeIcon type={a.type} className="mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">{displayTitle}</div>
+                          <div className="mt-1 text-xs text-muted-foreground whitespace-normal break-words">
+                            Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
+                          </div>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground min-w-[220px]">
+                      <div className="space-y-1.5">
+                        <div className="space-y-1 whitespace-normal break-words">
+                          {propertyLines.map((line, index) => (
+                            <div key={`${a._id}-property-${index}`} className="font-medium text-foreground whitespace-normal break-words">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                        {a.organizer && (
+                          <div className="whitespace-normal break-words">
+                            Đơn vị: <span className="text-foreground/80">{a.organizer}</span>
+                          </div>
+                        )}
                       </div>
-                    </Link>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{a.province}</td>
-                  <td className="px-5 py-3 text-right text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</td>
-                  <td className="px-5 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
-                  <td className="px-5 py-3 text-center">
-                    <DiscountBadge percent={a.priceDropPercent} />
-                  </td>
-                  <td className="px-5 py-3 text-center num text-muted-foreground">{a.relistCount}</td>
-                  <td className="px-5 py-3 text-xs text-muted-foreground">
-                    {a.publishedAt ? formatRelativeDays(a.publishedAt) : "—"}
-                  </td>
-                  <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">{a.province}</td>
+                    <td className="px-5 py-3 text-right text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</td>
+                    <td className="px-5 py-3 text-right font-semibold num">{formatVNDShort(a.latestPrice)}</td>
+                    <td className="px-5 py-3 text-center">
+                      <DiscountBadge percent={a.priceDropPercent} />
+                    </td>
+                    <td className="px-5 py-3 text-center num text-muted-foreground">{a.relistCount}</td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground">
+                      {a.publishedAt ? formatRelativeDays(a.publishedAt) : "—"}
+                    </td>
+                    <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
+                  </tr>
+                );
+              })}
               {!top10 && (
-                <tr><td colSpan={9}><LoadingBlock className="py-8" /></td></tr>
+                <tr><td colSpan={10}><LoadingBlock className="py-8" /></td></tr>
               )}
               {top10 && top10.length === 0 && (
-                <tr><td colSpan={9} className="px-5 py-12 text-center text-muted-foreground">Chưa có dữ liệu giảm giá</td></tr>
+                <tr><td colSpan={10} className="px-5 py-12 text-center text-muted-foreground">Chưa có dữ liệu giảm giá</td></tr>
               )}
             </tbody>
           </table>
@@ -273,32 +298,36 @@ export function DashboardContainer() {
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {(newest || []).map((a) => (
-            <Link
-              key={a._id}
-              href={`/auction/${a.sourceId}`}
-              className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary">
-                  <AssetTypeIcon type={a.type} />
+          {(newest || []).map((a) => {
+            const displayTitle = getAuctionDisplayTitle(a);
+
+            return (
+              <Link
+                key={a._id}
+                href={`/auction/${a.sourceId}`}
+                className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary">
+                    <AssetTypeIcon type={a.type} />
+                  </div>
+                  <DiscountBadge percent={a.priceDropPercent} />
                 </div>
-                <DiscountBadge percent={a.priceDropPercent} />
-              </div>
-              <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary">{a.name}</h3>
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                {a.province}
-              </p>
-              <div className="mt-3 pt-3 border-t flex items-end justify-between">
-                <div>
-                  <div className="text-xs text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</div>
-                  <div className="font-semibold num">{formatVND(a.latestPrice)}</div>
+                <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary">{displayTitle}</h3>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {a.province}
+                </p>
+                <div className="mt-3 pt-3 border-t flex items-end justify-between">
+                  <div>
+                    <div className="text-xs text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</div>
+                    <div className="font-semibold num">{formatVND(a.latestPrice)}</div>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
                 </div>
-                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
           {!newest && <LoadingBlock className="col-span-full py-12" />}
         </div>
       </section>
@@ -312,34 +341,38 @@ export function DashboardContainer() {
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {(topRelisted || []).map((a) => (
-            <Link
-              key={a._id}
-              href={`/auction/${a.sourceId}`}
-              className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary">
-                  <AssetTypeIcon type={a.type} />
+          {(topRelisted || []).map((a) => {
+            const displayTitle = getAuctionDisplayTitle(a);
+
+            return (
+              <Link
+                key={a._id}
+                href={`/auction/${a.sourceId}`}
+                className="group rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary">
+                    <AssetTypeIcon type={a.type} />
+                  </div>
+                  <div className="px-2 py-1 bg-muted rounded text-xs font-semibold num">
+                    Lần {a.relistCount}
+                  </div>
                 </div>
-                <div className="px-2 py-1 bg-muted rounded text-xs font-semibold num">
-                  Lần {a.relistCount}
+                <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary">{displayTitle}</h3>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {a.province}
+                </p>
+                <div className="mt-3 pt-3 border-t flex items-end justify-between">
+                  <div>
+                    {a.priceDropPercent > 0 && <div className="text-xs text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</div>}
+                    <div className="font-semibold num">{formatVND(a.latestPrice)}</div>
+                  </div>
+                  {a.priceDropPercent > 0 && <DiscountBadge percent={a.priceDropPercent} />}
                 </div>
-              </div>
-              <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary">{a.name}</h3>
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                {a.province}
-              </p>
-              <div className="mt-3 pt-3 border-t flex items-end justify-between">
-                <div>
-                  {a.priceDropPercent > 0 && <div className="text-xs text-muted-foreground line-through num">{formatVNDShort(a.firstPrice)}</div>}
-                  <div className="font-semibold num">{formatVND(a.latestPrice)}</div>
-                </div>
-                {a.priceDropPercent > 0 && <DiscountBadge percent={a.priceDropPercent} />}
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
           {!topRelisted && <LoadingBlock className="col-span-full py-12" />}
           {topRelisted && topRelisted.length === 0 && <div className="col-span-full text-center text-muted-foreground py-8">Chưa có dữ liệu</div>}
         </div>

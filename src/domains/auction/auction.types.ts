@@ -75,6 +75,7 @@ export interface TrendPoint {
 export interface DiscountedAuction {
   _id: string;
   name: string;
+  shortDescription?: string;
   firstPrice: number;
   latestPrice: number;
   priceDropPercent: number;
@@ -93,6 +94,14 @@ export interface DiscountedAuction {
   initialPrice: number;
   currentPrice: number;
   sourceUrl?: string;
+  properties?: Array<{
+    name: string;
+    amount?: string;
+    place?: string;
+    startPrice?: number;
+    deposit?: number;
+    quality?: string;
+  }>;
 }
 
 /** Auction detail (from /api/auctions/:id) */
