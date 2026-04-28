@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'daugia-frontend',
       script: 'npm',
-      args: 'run start -- -p 1234',
+      args: 'run start',
       cwd: '/var/www/web-thong-ke-dau-gia',
       instances: 1,
       autorestart: true,
@@ -11,6 +11,8 @@ module.exports = {
       max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production',
+        PORT: 1234,
+        NEXT_DEPLOYMENT_ID: process.env.NEXT_DEPLOYMENT_ID,
       }
     },
     {

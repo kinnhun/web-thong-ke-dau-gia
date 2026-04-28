@@ -8,6 +8,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      NEXT_DEPLOYMENT_ID: ${{ github.sha }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -31,8 +33,14 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT }}
           script: |
+            set -e
+            export NEXT_DEPLOYMENT_ID="${{ github.sha }}"
+            export GITHUB_SHA="${{ github.sha }}"
             cd /var/www/web-thong-ke-dau-gia
-            npm install
+            rm -rf .next
+            npm ci
             npm run build
-            pm2 startOrRestart ecosystem.config.js
+            pm2 delete daugia-frontend || true
+            pm2 delete daugia-backend || true
+            pm2 start ecosystem.config.js --update-env
             pm2 save
