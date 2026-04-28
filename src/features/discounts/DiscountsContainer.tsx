@@ -294,6 +294,7 @@ export function DiscountsContainer() {
                 <th className="px-4 py-2.5 text-right font-medium">Giảm</th>
                 <th className="px-4 py-2.5 text-center font-medium">% giảm</th>
                 <th className="px-4 py-2.5 text-center font-medium">Lần ĐG</th>
+                <th className="px-4 py-2.5 text-left font-medium">Thời gian công khai</th>
                 <th className="px-4 py-2.5 text-left font-medium">Ngày ĐG</th>
                 <th className="px-4 py-2.5 text-left font-medium">Trạng thái</th>
                 <th className="px-4 py-2.5 text-right font-medium">Thao tác</th>
@@ -346,6 +347,7 @@ export function DiscountsContainer() {
                     <td className="px-4 py-3 text-right num text-discount-deep text-xs font-medium">−{formatVNDShort(a.firstPrice - a.latestPrice)}</td>
                     <td className="px-4 py-3 text-center"><DiscountBadge percent={a.priceDropPercent} /></td>
                     <td className="px-4 py-3 text-center num text-muted-foreground">{a.relistCount}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{a.publishedAt ? formatDate(a.publishedAt) : "—"}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{a.auctionDate ? formatDate(a.auctionDate) : "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
                     <td className="px-4 py-3">
@@ -365,7 +367,7 @@ export function DiscountsContainer() {
                 );
               })}
               {items.length === 0 && (
-                <tr><td colSpan={12} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
+                <tr><td colSpan={13} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
               )}
             </tbody>
           </table>
