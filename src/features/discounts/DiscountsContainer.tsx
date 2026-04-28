@@ -165,24 +165,7 @@ export function DiscountsContainer() {
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Loại tài sản</Label>
-            <AntdSelect
-              id="discounts-asset-type-select"
-              allowClear
-              showSearch
-              value={type}
-              placeholder="Chọn loại tài sản"
-              options={typeOptions}
-              optionFilterProp="label"
-              onChange={(value) => {
-                setType((value as AssetType | "all") ?? "all");
-                setPage(1);
-              }}
-              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
-            />
-          </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label className="text-xs">Tổ chức đấu giá</Label>
             <AntdSelect
               id="discounts-organizer-select"
@@ -196,7 +179,7 @@ export function DiscountsContainer() {
                 setOrganizer((value as string) ?? "all");
                 setPage(1);
               }}
-              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+              className="h-11 w-full [&_.ant-select-selector]:!min-h-11 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
@@ -219,12 +202,21 @@ export function DiscountsContainer() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">% giảm tối thiểu</Label>
-            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => { setMinDiscount(e.target.value); setPage(1); }} className="h-10" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Giá tối đa (tỷ)</Label>
-            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }} className="h-10" />
+            <Label className="text-xs">Loại tài sản</Label>
+            <AntdSelect
+              id="discounts-asset-type-select"
+              allowClear
+              showSearch
+              value={type}
+              placeholder="Chọn loại tài sản"
+              options={typeOptions}
+              optionFilterProp="label"
+              onChange={(value) => {
+                setType((value as AssetType | "all") ?? "all");
+                setPage(1);
+              }}
+              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Số lần ĐG</Label>
@@ -239,6 +231,14 @@ export function DiscountsContainer() {
             </Select>
           </div>
           <div className="space-y-1.5">
+            <Label className="text-xs">% giảm tối thiểu</Label>
+            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => { setMinDiscount(e.target.value); setPage(1); }} className="h-10" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Giá tối đa (tỷ)</Label>
+            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }} className="h-10" />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label className="text-xs">Sắp xếp</Label>
             <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
               <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
