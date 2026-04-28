@@ -21,12 +21,12 @@ async function crawlAuctionNotices(options = {}) {
 
   const log = await CrawlLog.create({
     type: 'auction_notice', startedAt: new Date(),
-    itemsInserted: 0, itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [],
+    itemsInserted: 0, itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, errorMessages: [], recentNotices: [],
   });
 
   let currentPage = startPage;
   let totalPages = 1;
-  let stats = { inserted: 0, updated: 0, skipped: 0, errors: 0, detailOk: 0, duplicates: 0 };
+  let stats = { inserted: 0, updated: 0, skipped: 0, errors: 0, detailOk: 0, duplicates: 0, recentNotices: [] };
   let consecutiveOld = 0;
   let earlyStop = false;
 
@@ -78,6 +78,7 @@ async function crawlAuctionNotices(options = {}) {
   log.itemsInserted = stats.inserted;
   log.itemsUpdated = stats.updated;
   log.itemsSkipped = stats.skipped;
+  log.recentNotices = stats.recentNotices;
   await log.save();
   return stats;
 }
@@ -138,6 +139,13 @@ async function processItems(items, stats, options = {}) {
         try {
           await AuctionNotice.create(data);
           stats.inserted++;
+          stats.recentNotices.unshift({
+            sourceId,
+            name: data.name,
+            province: data.province || '',
+            publishedAt: data.publishedAt || null,
+          });
+          stats.recentNotices = stats.recentNotices.slice(0, 8);
           if (hasDetail) stats.detailOk++;
 
           if (relatedIds && relatedIds.length > 0) {

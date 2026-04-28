@@ -312,7 +312,8 @@ router.get('/duplicates/:id', async (req, res, next) => {
 router.get('/crawl-logs', async (req, res, next) => {
   try {
     const logs = await CrawlLog.find().sort({ createdAt: -1 }).limit(20).lean();
-    res.json(logs);
+    const hasRunningDuplicateScan = logs.some((log) => log.type === 'duplicate_scan' && log.status === 'running');
+    res.json({ logs, hasRunningDuplicateScan });
   } catch (err) { next(err); }
 });
 
@@ -434,64 +435,53 @@ router.post('/trigger-list-crawl', async (req, res, next) => {
 
 router.post('/trigger-duplicate-scan', async (req, res, next) => {
   try {
-    const { handleDuplicate, recoverMissingDuplicates, rebuildAllDuplicateEntries } = require('../scrapers/detail.scraper');
-    
-    // Run in background
+    const { runFullDuplicateScan } = require('../scrapers/detail.scraper');
+    const staleThresholdMs = 30 * 60 * 1000;
+
+    const runningLog = await CrawlLog.findOne({
+      type: 'duplicate_scan',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Tiến trình quét cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép chạy lại.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: 'Đang có một tiến trình quét trùng lặp chạy nền. Vui lòng chờ hoàn tất.',
+          logId: runningLog._id,
+          startedAt: runningLog.startedAt || runningLog.createdAt,
+          updatedAt: runningLog.updatedAt,
+        });
+      }
+    }
+
+    let startedLogId = null;
     (async () => {
       try {
-        console.log('[TRIGGER] Starting full duplicate scan...');
-        
-        // Scan AuctionNotice by relatedIds
-        const auctions = await AuctionNotice.find({ relatedIds: { $exists: true, $not: { $size: 0 } } }).select('sourceId name relatedIds');
-        for (const item of auctions) {
-          if (item.relatedIds && item.relatedIds.length > 0) {
-            await handleDuplicate(item.sourceId, item.name, item.relatedIds, 'auction');
-          }
-        }
-        
-        // Scan AuctionNotice by identical Name
-        const nameGroupsAuction = await AuctionNotice.aggregate([
-          { $group: { _id: "$name", ids: { $push: "$sourceId" }, count: { $sum: 1 } } },
-          { $match: { count: { $gte: 2 } } }
-        ]);
-        for (const group of nameGroupsAuction) {
-          if (group._id && group._id.trim() !== '') {
-            await handleDuplicate(group.ids[0], group._id, group.ids.slice(1), 'auction');
-          }
-        }
-        
-        // Scan OrgSelection by relatedIds
-        const orgs = await OrgSelection.find({ relatedIds: { $exists: true, $not: { $size: 0 } } }).select('sourceId name relatedIds');
-        for (const item of orgs) {
-          if (item.relatedIds && item.relatedIds.length > 0) {
-            await handleDuplicate(item.sourceId, item.name, item.relatedIds, 'org');
-          }
-        }
-
-        // Scan OrgSelection by identical Name
-        const nameGroupsOrg = await OrgSelection.aggregate([
-          { $group: { _id: "$name", ids: { $push: "$sourceId" }, count: { $sum: 1 } } },
-          { $match: { count: { $gte: 2 } } }
-        ]);
-        for (const group of nameGroupsOrg) {
-          if (group._id && group._id.trim() !== '') {
-            await handleDuplicate(group.ids[0], group._id, group.ids.slice(1), 'org');
-          }
-        }
-        
-        // Recover missing duplicates
-        await recoverMissingDuplicates();
-        
-        // Rebuild entries + price info cho tất cả
-        await rebuildAllDuplicateEntries();
-        
-        console.log('[TRIGGER] Full duplicate scan and recovery completed.');
+        const result = await runFullDuplicateScan();
+        startedLogId = result?.logId || null;
       } catch (err) {
-        console.error('[TRIGGER] Error in duplicate scan:', err);
+        console.error('[TRIGGER] Error starting duplicate scan:', err);
       }
     })();
-    
-    res.json({ success: true, message: 'Đã bắt đầu quét và cập nhật lại nhóm trùng lặp toàn bộ Database.' });
+
+    res.json({
+      success: true,
+      message: 'Đã bắt đầu quét và cập nhật lại nhóm trùng lặp toàn bộ Database.',
+      logId: startedLogId,
+    });
   } catch (err) { next(err); }
 });
 
@@ -509,6 +499,58 @@ router.post('/trigger-rebuild-duplicates', async (req, res, next) => {
     })();
     
     res.json({ success: true, message: 'Đã bắt đầu rebuild entries + price cho tất cả nhóm Duplicate.' });
+  } catch (err) { next(err); }
+});
+
+router.post('/trigger-kill-duplicate-scan', async (req, res, next) => {
+  try {
+    const { requestDuplicateScanCancel, getDuplicateScanState } = require('../scrapers/detail.scraper');
+
+    const runningLog = await CrawlLog.findOne({
+      type: 'duplicate_scan',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    const cancelled = requestDuplicateScanCancel();
+
+    if (!runningLog && !cancelled) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hiện không có tiến trình quét trùng lặp nào đang chạy.',
+        state: getDuplicateScanState(),
+      });
+    }
+
+    if (runningLog) {
+      const existingMessages = Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : [];
+      const stopMessage = cancelled
+        ? 'Đã nhận yêu cầu dừng tiến trình quét duplicate từ quản trị viên.'
+        : 'Đã đóng tiến trình quét duplicate bị treo sau khi backend mất trạng thái runtime.';
+
+      runningLog.status = cancelled ? 'failed' : 'early_stopped';
+      runningLog.finishedAt = new Date();
+      runningLog.errorMessages = [
+        ...existingMessages.slice(-4),
+        stopMessage,
+      ];
+      await runningLog.save();
+
+      return res.json({
+        success: true,
+        message: cancelled
+          ? 'Đã gửi yêu cầu dừng tiến trình quét trùng lặp.'
+          : 'Đã đóng tiến trình quét trùng lặp bị treo để bạn có thể chạy lại.',
+        state: getDuplicateScanState(),
+        logId: runningLog._id,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Đã gửi yêu cầu dừng tiến trình quét trùng lặp.',
+      state: getDuplicateScanState(),
+      logId: null,
+    });
   } catch (err) { next(err); }
 });
 

@@ -13,6 +13,7 @@ import {
   triggerDetailCrawl,
   triggerDuplicateScan,
   triggerRecrawlMissingProperties,
+  triggerKillDuplicateScan,
 } from "@/services/auction.service";
 
 const statusBadge = (s: string) => {
@@ -42,7 +43,10 @@ export function AdminContainer() {
   const { data: stats } = useDashboardStats();
 
   const rawRecords = rawAuctions?.items || [];
-  const logs = (crawlLogs || []).slice(0, 15);
+  const crawlLogPayload = crawlLogs;
+  const logs = (crawlLogPayload?.logs || []).slice(0, 15);
+  const duplicateScanLog = logs.find((log) => log.type === "duplicate_scan");
+  const hasRunningDuplicateScan = Boolean(crawlLogPayload?.hasRunningDuplicateScan);
 
   const handleAction = async (name: string, fn: () => Promise<unknown>) => {
     setActionLoading(name);
@@ -52,7 +56,13 @@ export function AdminContainer() {
       setActionResult(`✅ ${name} thành công`);
       refetchLogs();
     } catch (err) {
-      setActionResult(`❌ ${name} thất bại: ${err instanceof Error ? err.message : "Unknown"}`);
+      const message = err instanceof Error ? err.message : "Unknown";
+      if (name === "Quét trùng lặp" && message.includes("Đang có một tiến trình quét trùng lặp chạy nền")) {
+        setActionResult("ℹ️ Quét trùng lặp đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
+        refetchLogs();
+      } else {
+        setActionResult(`❌ ${name} thất bại: ${message}`);
+      }
     } finally {
       setActionLoading(null);
     }
@@ -62,6 +72,7 @@ export function AdminContainer() {
     { icon: RefreshCw, title: "Crawl danh sách", desc: "Thu thập tin mới", fn: () => triggerListCrawl(5, "auction") },
     { icon: Database, title: "Crawl chi tiết", desc: "Lấy thông tin chi tiết", fn: () => triggerDetailCrawl(20, "auction") },
     { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm bài đăng lại", fn: () => triggerDuplicateScan() },
+    { icon: XCircle, title: "Kill duplicate", desc: "Dừng quét trùng lặp đang chạy", fn: () => triggerKillDuplicateScan() },
     { icon: GitMerge, title: "Crawl tổ chức", desc: "Crawl thông báo lựa chọn", fn: () => triggerListCrawl(5, "org") },
     { icon: Eye, title: "Chi tiết tổ chức", desc: "Detail org selection", fn: () => triggerDetailCrawl(20, "org") },
     { icon: Split, title: "Cào lại tài sản", desc: "Cào lại items thiếu bảng tài sản", fn: () => triggerRecrawlMissingProperties(100, "auction") },
@@ -117,23 +128,55 @@ export function AdminContainer() {
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
-        {actions.map((item) => (
-          <button
-            key={item.title}
-            onClick={() => handleAction(item.title, item.fn)}
-            disabled={!!actionLoading}
-            className="rounded-xl border bg-card p-3 sm:p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {actionLoading === item.title ? (
-              <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2 animate-spin" />
-            ) : (
-              <item.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2" />
-            )}
-            <div className="font-medium text-[13px] sm:text-sm">{item.title}</div>
-            <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{item.desc}</div>
-          </button>
-        ))}
+        {actions.map((item) => {
+          const isDuplicateAction = item.title === "Quét trùng lặp";
+          const isKillDuplicateAction = item.title === "Kill duplicate";
+          const isDisabled = !!actionLoading || (isDuplicateAction && hasRunningDuplicateScan) || (isKillDuplicateAction && !hasRunningDuplicateScan);
+
+          return (
+            <button
+              key={item.title}
+              onClick={() => handleAction(item.title, item.fn)}
+              disabled={isDisabled}
+              className="rounded-xl border bg-card p-3 sm:p-4 text-left hover:border-foreground/20 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {actionLoading === item.title ? (
+                <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2 animate-spin" />
+              ) : (
+                <item.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary mb-2" />
+              )}
+              <div className="font-medium text-[13px] sm:text-sm">{item.title}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{item.desc}</div>
+              {isDuplicateAction && hasRunningDuplicateScan && (
+                <div className="mt-2 text-[10px] sm:text-xs text-watch-badge">Đang có tiến trình chạy nền...</div>
+              )}
+              {isKillDuplicateAction && !hasRunningDuplicateScan && (
+                <div className="mt-2 text-[10px] sm:text-xs text-muted-foreground">Không có tiến trình để dừng</div>
+              )}
+            </button>
+          );
+        })}
       </section>
+
+      {duplicateScanLog && (
+        <section className="rounded-xl border bg-card px-4 py-3 sm:px-5 sm:py-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+            <span className="font-semibold">Tiến trình quét trùng lặp</span>
+            {statusBadge(String(duplicateScanLog.status || "unknown"))}
+            {duplicateScanLog.pagesProcessed !== undefined && (
+              <span className="text-muted-foreground">Đã xử lý: <strong className="num text-foreground">{String(duplicateScanLog.pagesProcessed)}</strong></span>
+            )}
+            {duplicateScanLog.itemsUpdated !== undefined && (
+              <span className="text-muted-foreground"> · Cập nhật: <strong className="num text-foreground">{String(duplicateScanLog.itemsUpdated)}</strong></span>
+            )}
+          </div>
+          {Array.isArray(duplicateScanLog.errorMessages) && duplicateScanLog.errorMessages.length > 0 && (
+            <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
+              {String(duplicateScanLog.errorMessages[duplicateScanLog.errorMessages.length - 1] || "")}
+            </div>
+          )}
+        </section>
+      )}
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "raw" | "logs")} className="space-y-4">
         <TabsList>
@@ -223,7 +266,7 @@ export function AdminContainer() {
                     : null;
 
                   return (
-                    <div key={i} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-5 py-3">
+                    <div key={String(l._id || `${type}-${String(l.startedAt || i)}`)} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-5 py-3">
                       <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${color}`} />
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
@@ -238,6 +281,19 @@ export function AdminContainer() {
                           {l.itemsSkipped !== undefined && <span> · Bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}
                           {l.pagesProcessed !== undefined && <span> · Trang: <strong className="num">{String(l.pagesProcessed)}</strong></span>}
                         </div>
+                        {Array.isArray(l.recentNotices) && l.recentNotices.length > 0 && (
+                          <div className="mt-2 space-y-1 rounded-lg border border-border/60 bg-secondary/20 p-2">
+                            <div className="text-[10px] sm:text-xs font-medium text-muted-foreground">Notice đã lưu</div>
+                            {(l.recentNotices as Array<Record<string, unknown>>).slice(0, 5).map((notice, noticeIndex) => (
+                              <div key={`${String(notice.sourceId || noticeIndex)}-${noticeIndex}`} className="text-xs leading-relaxed text-foreground/90">
+                                <span className="font-mono text-muted-foreground">#{String(notice.sourceId || "?")}</span>
+                                <span className="mx-1.5">·</span>
+                                <span>{String(notice.name || "Không có tên")}</span>
+                                {notice.province && <span className="text-muted-foreground"> ({String(notice.province)})</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {Array.isArray(l.errorMessages) && l.errorMessages.length > 0 && (
                           <div className="text-xs text-destructive mt-1">{(l.errorMessages as string[]).slice(0, 2).join("; ")}</div>
                         )}

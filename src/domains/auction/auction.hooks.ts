@@ -181,6 +181,10 @@ export function useCrawlLogs() {
   return useQuery({
     queryKey: auctionKeys.crawlLogs(),
     queryFn: fetchCrawlLogs,
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const payload = query.state.data as { hasRunningDuplicateScan?: boolean } | undefined;
+      return payload?.hasRunningDuplicateScan ? 5000 : false;
+    },
   });
 }

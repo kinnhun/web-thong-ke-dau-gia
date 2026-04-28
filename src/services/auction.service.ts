@@ -62,7 +62,7 @@ export async function fetchDiscountedAuctions(
 
 export async function fetchAuctions(
   params: Record<string, string | number>
-): Promise<{ items: any[]; pagination: Pagination }> {
+): Promise<{ items: Record<string, unknown>[]; pagination: Pagination }> {
   const { data } = await httpClient.get('/api/auctions', { params });
   return data;
 }
@@ -140,7 +140,7 @@ export async function fetchReportTopDiscount(by: 'percent' | 'amount', limit: nu
 // ADMIN
 // ═══════════════════════════════════
 
-export async function fetchCrawlLogs() {
+export async function fetchCrawlLogs(): Promise<{ logs: Record<string, unknown>[]; hasRunningDuplicateScan: boolean }> {
   const { data } = await httpClient.get('/api/crawl-logs');
   return data;
 }
@@ -167,5 +167,10 @@ export async function triggerRecrawlItem(sourceId: number, type = 'auction') {
 
 export async function triggerRecrawlMissingProperties(limit = 50, type = 'auction') {
   const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { limit, type });
+  return data;
+}
+
+export async function triggerKillDuplicateScan() {
+  const { data } = await httpClient.post('/api/trigger-kill-duplicate-scan');
   return data;
 }

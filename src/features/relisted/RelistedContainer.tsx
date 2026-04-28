@@ -57,7 +57,7 @@ const sortLabel: Record<SortKey, string> = {
 
 export function RelistedContainer() {
   const [view, setView] = useState<ViewMode>("table");
-  const [sortKey, setSortKey] = useState<SortKey>("rounds_desc");
+  const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [keyword, setKeyword] = useState("");
   const [type, setType] = useState<AssetType | "all">("all");
   const [province, setProvince] = useState<string>("all");
