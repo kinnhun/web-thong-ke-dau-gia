@@ -49,9 +49,8 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
     setRecrawling(true);
     try {
       await triggerRecrawlItem(auction.sourceId, 'auction');
-      // Wait a bit for the background job to finish
-      await new Promise(r => setTimeout(r, 3000));
-      queryClient.invalidateQueries({ queryKey: ['auction', id] });
+      await queryClient.invalidateQueries({ queryKey: ['auction', 'detail', id] });
+      await queryClient.invalidateQueries({ queryKey: ['auction', 'duplicates'] });
     } catch { /* ignore */ }
     setRecrawling(false);
   };

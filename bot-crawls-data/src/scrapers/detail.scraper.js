@@ -425,9 +425,26 @@ async function searchDuplicatesByExactName(sourceId, name, type) {
   return relatedIds;
 }
 
-// ═══════════════════════════════════════════════════════
-// HELPER: Chi tiết THÔNG BÁO ĐẤU GIÁ
-// ═══════════════════════════════════════════════════════
+function normalizePropertyRows(allItems) {
+  const rows = Array.isArray(allItems) ? allItems : [];
+
+  return rows.map((p) => {
+    const startPrice = Number(p.propertyStartPrice) || 0;
+    const rawDeposit = Number(p.deposit) || 0;
+    const deposit = p.depositUnit === 1 && rawDeposit > 0 && rawDeposit <= 100
+      ? Math.round((startPrice * rawDeposit) / 100)
+      : rawDeposit;
+
+    return {
+      name: p.propertyName || p.propertyDesc || '',
+      amount: p.propertyAmount || '01',
+      startPrice,
+      deposit,
+      place: p.propertyPlace || '',
+      quality: p.propertyQuality || '',
+    };
+  });
+}
 
 async function fetchAuctionItemDetail(sourceId) {
   const updates = {};
@@ -458,15 +475,7 @@ async function fetchAuctionItemDetail(sourceId) {
         .join('; ');
       if (assetName) updates.name = assetName;
 
-      // ★ FIX: Luôn tạo properties array (kể cả 1 tài sản) để frontend hiển thị bảng
-      const properties = allItems.map(p => ({
-        name: p.propertyName || p.propertyDesc || '',
-        amount: p.propertyAmount || '01',
-        startPrice: p.propertyStartPrice || 0,
-        deposit: p.deposit || 0,
-        place: p.propertyPlace || '',
-        quality: p.propertyQuality || '',
-      }));
+      const properties = normalizePropertyRows(allItems);
       updates.properties = properties;
 
       const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
@@ -538,15 +547,7 @@ async function fetchOrgItemDetail(sourceId) {
         .join('; ');
       if (assetName) updates.name = assetName;
 
-      // ★ FIX: Luôn tạo properties array
-      const properties = allItems.map(p => ({
-        name: p.propertyName || p.propertyDesc || '',
-        amount: p.propertyAmount || '01',
-        startPrice: p.propertyStartPrice || 0,
-        deposit: p.deposit || 0,
-        place: p.propertyPlace || '',
-        quality: p.propertyQuality || '',
-      }));
+      const properties = normalizePropertyRows(allItems);
       updates.properties = properties;
       updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
     }

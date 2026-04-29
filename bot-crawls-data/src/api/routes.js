@@ -341,29 +341,43 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
 // Force re-crawl detail cho 1 item cụ thể (bỏ qua detailScraped)
 router.post('/trigger-recrawl-item', async (req, res, next) => {
   try {
-    const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+    const { fetchAuctionItemDetail, fetchOrgItemDetail, handleDuplicate, searchDuplicatesByExactName } = require('../scrapers/detail.scraper');
     const sourceId = parseInt(req.body?.sourceId);
     const type = req.body?.type || 'auction'; // 'auction' or 'org'
     if (!sourceId) return res.status(400).json({ error: true, message: 'sourceId is required' });
 
-    (async () => {
-      try {
-        const Model = type === 'org' ? OrgSelection : AuctionNotice;
-        const item = await Model.findOne({ sourceId });
-        if (!item) { console.error(`[RECRAWL] Item ${sourceId} not found`); return; }
+    const Model = type === 'org' ? OrgSelection : AuctionNotice;
+    const item = await Model.findOne({ sourceId });
+    if (!item) {
+      return res.status(404).json({ error: true, message: `Không tìm thấy ${type} #${sourceId}` });
+    }
 
-        const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
-        const { updates, files } = await fetchFn(sourceId);
-        updates.detailScraped = true;
-        updates.lastCrawledAt = new Date();
-        if (files && files.length > 0) updates.files = files;
-        await Model.updateOne({ _id: item._id }, { $set: updates });
-        console.log(`[RECRAWL] ✅ ${type} #${sourceId} updated — properties: ${(updates.properties || []).length}`);
-      } catch (err) {
-        console.error(`[RECRAWL] ❌ ${sourceId}:`, err.message);
+    const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+    const { updates, files } = await fetchFn(sourceId);
+    updates.detailScraped = true;
+    updates.lastCrawledAt = new Date();
+    if (files && files.length > 0) updates.files = files;
+
+    await Model.updateOne({ _id: item._id }, { $set: updates });
+
+    if (type === 'auction') {
+      const exactNameRelatedIds = await searchDuplicatesByExactName(sourceId, updates.name || item.name, 'auction');
+      const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+      if (allRelatedIds.length > 0) {
+        await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
       }
-    })();
-    res.json({ success: true, message: `Re-crawl detail for ${type} #${sourceId}` });
+    }
+
+    const properties = updates.properties || [];
+    console.log(`[RECRAWL] ✅ ${type} #${sourceId} updated — properties: ${properties.length}`);
+    res.json({
+      success: true,
+      message: `Đã cào lại chi tiết ${type} #${sourceId}`,
+      sourceId,
+      propertiesCount: properties.length,
+      totalPrice: properties.reduce((sum, property) => sum + (property.startPrice || 0), 0),
+      filesCount: (updates.files || files || []).length,
+    });
   } catch (err) { next(err); }
 });
 
