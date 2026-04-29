@@ -116,6 +116,7 @@ export interface AuctionDetail {
   initialPrice: number;
   currentPrice: number;
   deposit: number;
+  depositPercent?: string;
   applicationFee: number;
   publishRound: number;
   publishRoundLabel: string;
