@@ -90,9 +90,13 @@ async function main() {
   console.log(`\n⏰ Auto-crawl schedule: ${schedule} (mỗi 5 phút)`);
   console.log(`🔄 Skip threshold: ${config.crawl.skipThreshold} bản cũ liên tiếp → dừng sớm`);
 
-  // Chạy lần đầu sau 5 giây
-  console.log(`\n🚀 Crawl lần đầu sau 5 giây...`);
-  setTimeout(runAutoCrawl, 5000);
+  // Chạy lần đầu sau 5 giây (có thể tắt khi debug/restart server)
+  if (process.env.DISABLE_STARTUP_AUTO_CRAWL === 'true') {
+    console.log(`\n⏸️ Bỏ qua crawl khởi động do DISABLE_STARTUP_AUTO_CRAWL=true`);
+  } else {
+    console.log(`\n🚀 Crawl lần đầu sau 5 giây...`);
+    setTimeout(runAutoCrawl, 5000);
+  }
 
   // Tính toán stats ban đầu
   setTimeout(refreshStats, 2000);

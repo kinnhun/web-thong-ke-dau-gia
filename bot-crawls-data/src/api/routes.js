@@ -389,6 +389,7 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
   const type = req.body?.type || 'auction';
   const delay = ms => new Promise(r => setTimeout(r, ms));
+  const staleThresholdMs = 30 * 60 * 1000;
 
   const Model = type === 'org' ? OrgSelection : AuctionNotice;
   const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
@@ -405,179 +406,210 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
     { [field]: 0 },
   ]);
 
-  let log = null;
+  const missingDetailQuery = type === 'org'
+    ? {
+        $or: [
+          { detailScraped: { $ne: true } },
+          { properties: { $exists: false } },
+          { properties: { $size: 0 } },
+          ...isMissingString('name'),
+          ...isMissingString('shortDescription'),
+          ...isMissingString('owner'),
+          ...isMissingString('address'),
+          ...isMissingString('province'),
+          ...isMissingString('assetDescription'),
+          ...isMissingString('requirements'),
+          ...isMissingNumber('startingPrice'),
+          { receiveTimeStart: { $exists: false } },
+          { receiveTimeStart: null },
+          { receiveTimeEnd: { $exists: false } },
+          { receiveTimeEnd: null },
+        ],
+      }
+    : {
+        $or: [
+          { detailScraped: { $ne: true } },
+          { properties: { $exists: false } },
+          { properties: { $size: 0 } },
+          ...isMissingString('name'),
+          ...isMissingString('shortDescription'),
+          ...isMissingString('type'),
+          ...isMissingString('province'),
+          ...isMissingString('address'),
+          ...isMissingString('organizer'),
+          ...isMissingString('owner'),
+          ...isMissingString('quality'),
+          ...isMissingString('propertyTypeName'),
+          ...isMissingString('propertyAmount'),
+          ...isMissingNumber('initialPrice'),
+          ...isMissingNumber('currentPrice'),
+          ...isMissingNumber('deposit'),
+          ...isMissingNumber('applicationFee'),
+          { auctionDate: { $exists: false } },
+          { auctionDate: null },
+          { registrationStart: { $exists: false } },
+          { registrationStart: null },
+          { registrationEnd: { $exists: false } },
+          { registrationEnd: null },
+        ],
+      };
 
   try {
-    log = await CrawlLog.create({
+    const runningLog = await CrawlLog.findOne({
+      type: 'recrawl_missing_properties',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Tiến trình cào lại tài sản cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép chạy lại.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: 'Đang có tiến trình cào lại tài sản chạy nền. Vui lòng theo dõi trong Nhật ký crawl.',
+          logId: runningLog._id,
+          startedAt: runningLog.startedAt || runningLog.createdAt,
+          updatedAt: runningLog.updatedAt,
+        });
+      }
+    }
+
+    const totalScanned = await Model.countDocuments();
+    const matchedCount = await Model.countDocuments(missingDetailQuery);
+    const effectiveMatchedCount = limit > 0 ? Math.min(matchedCount, limit) : matchedCount;
+    const skippedCompleteCount = Math.max(totalScanned - effectiveMatchedCount, 0);
+
+    const log = await CrawlLog.create({
       type: 'recrawl_missing_properties',
       startedAt: new Date(),
       status: 'running',
-      totalPages: limit,
+      totalPages: effectiveMatchedCount,
       pagesProcessed: 0,
+      itemsInserted: totalScanned,
       itemsUpdated: 0,
-      itemsSkipped: 0,
+      itemsSkipped: skippedCompleteCount,
       errorMessages: [],
       recentNotices: [],
     });
 
-    const missingDetailQuery = type === 'org'
-      ? {
-          $or: [
-            { detailScraped: { $ne: true } },
-            { properties: { $exists: false } },
-            { properties: { $size: 0 } },
-            ...isMissingString('name'),
-            ...isMissingString('shortDescription'),
-            ...isMissingString('owner'),
-            ...isMissingString('address'),
-            ...isMissingString('province'),
-            ...isMissingString('assetDescription'),
-            ...isMissingString('requirements'),
-            ...isMissingNumber('startingPrice'),
-            { receiveTimeStart: { $exists: false } },
-            { receiveTimeStart: null },
-            { receiveTimeEnd: { $exists: false } },
-            { receiveTimeEnd: null },
-          ],
-        }
-      : {
-          $or: [
-            { detailScraped: { $ne: true } },
-            { properties: { $exists: false } },
-            { properties: { $size: 0 } },
-            ...isMissingString('name'),
-            ...isMissingString('shortDescription'),
-            ...isMissingString('type'),
-            ...isMissingString('province'),
-            ...isMissingString('address'),
-            ...isMissingString('organizer'),
-            ...isMissingString('owner'),
-            ...isMissingString('quality'),
-            ...isMissingString('propertyTypeName'),
-            ...isMissingString('propertyAmount'),
-            ...isMissingNumber('initialPrice'),
-            ...isMissingNumber('currentPrice'),
-            ...isMissingNumber('deposit'),
-            ...isMissingNumber('applicationFee'),
-            { auctionDate: { $exists: false } },
-            { auctionDate: null },
-            { registrationStart: { $exists: false } },
-            { registrationStart: null },
-            { registrationEnd: { $exists: false } },
-            { registrationEnd: null },
-          ],
-        };
+    (async () => {
+      let cursor = null;
 
-    const totalScanned = await Model.countDocuments();
-    const itemsQuery = Model.find(missingDetailQuery)
-      .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 });
-
-    if (limit > 0) {
-      itemsQuery.limit(limit);
-    }
-
-    const items = await itemsQuery;
-    const skippedCompleteCount = Math.max(totalScanned - items.length, 0);
-
-    console.log(`[RECRAWL-PROPS] Đã quét ${totalScanned} ${type}, tìm thấy ${items.length} thiếu dữ liệu detail`);
-
-    let ok = 0;
-    let fail = 0;
-    const updatedItems = [];
-    const failedItems = [];
-    const recentNotices = [];
-
-    log.totalPages = items.length;
-    log.pagesProcessed = 0;
-    log.itemsInserted = totalScanned;
-    log.itemsSkipped = skippedCompleteCount;
-    await log.save();
-
-    for (const [index, item] of items.entries()) {
       try {
-        await delay(250);
-        const { updates, files } = await fetchFn(item.sourceId);
-        updates.detailScraped = true;
-        updates.lastCrawledAt = new Date();
-        if (files && files.length > 0) updates.files = files;
+        const query = Model.find(missingDetailQuery)
+          .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
+          .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 })
+          .lean();
 
-        await Model.updateOne({ _id: item._id }, { $set: updates });
-
-        const propertyCount = Array.isArray(updates.properties) ? updates.properties.length : 0;
-        updatedItems.push({
-          sourceId: item.sourceId,
-          propertyCount,
-        });
-
-        if (recentNotices.length < 5) {
-          recentNotices.push({
-            sourceId: item.sourceId,
-            name: updates.name || item.name,
-            province: updates.province || item.province,
-            publishedAt: updates.publishedAt || item.publishedAt,
-          });
+        if (limit > 0) {
+          query.limit(limit);
         }
 
-        ok++;
-      } catch (err) {
-        fail++;
-        failedItems.push({
-          sourceId: item.sourceId,
-          message: err.message,
-        });
-        console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
-      }
+        cursor = query.cursor();
+        const failedItems = [];
+        const recentNotices = [];
+        let ok = 0;
+        let fail = 0;
+        let processed = 0;
 
-      log.pagesProcessed = index + 1;
-      log.itemsUpdated = ok;
-      log.itemsSkipped = skippedCompleteCount;
-      log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
-      log.recentNotices = recentNotices;
+        console.log(`[RECRAWL-PROPS] Đã quét ${totalScanned} ${type}, tìm thấy ${effectiveMatchedCount} thiếu dữ liệu detail`);
 
-      if ((index + 1) % 10 === 0 || index === items.length - 1) {
+        for await (const item of cursor) {
+          try {
+            await delay(250);
+            const { updates, files } = await fetchFn(item.sourceId);
+            updates.detailScraped = true;
+            updates.lastCrawledAt = new Date();
+            if (files && files.length > 0) updates.files = files;
+
+            await Model.updateOne({ _id: item._id }, { $set: updates });
+
+            if (recentNotices.length < 5) {
+              recentNotices.push({
+                sourceId: item.sourceId,
+                name: updates.name || item.name,
+                province: updates.province || item.province,
+                publishedAt: updates.publishedAt || item.publishedAt,
+              });
+            }
+
+            ok++;
+          } catch (err) {
+            fail++;
+            failedItems.push({
+              sourceId: item.sourceId,
+              message: err.message,
+            });
+            console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
+          }
+
+          processed += 1;
+          log.pagesProcessed = processed;
+          log.itemsUpdated = ok;
+          log.itemsSkipped = skippedCompleteCount;
+          log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+          log.recentNotices = recentNotices;
+
+          if (processed % 10 === 0 || processed === effectiveMatchedCount) {
+            await log.save();
+            console.log(`[RECRAWL-PROPS] ${processed}/${effectiveMatchedCount}... recrawl OK: ${ok}, lỗi: ${fail}, bỏ qua đủ dữ liệu: ${skippedCompleteCount}`);
+          }
+        }
+
+        log.status = 'completed';
+        log.finishedAt = new Date();
+        log.itemsInserted = totalScanned;
+        log.itemsUpdated = ok;
+        log.itemsSkipped = skippedCompleteCount;
+        log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+        log.recentNotices = recentNotices;
         await log.save();
-        console.log(`[RECRAWL-PROPS] ${index + 1}/${items.length}... recrawl OK: ${ok}, lỗi: ${fail}, bỏ qua đủ dữ liệu: ${skippedCompleteCount}`);
+
+        console.log(`[RECRAWL-PROPS] ✅ Hoàn thành: quét ${totalScanned}, recrawl ${ok}, lỗi ${fail}, bỏ qua ${skippedCompleteCount}`);
+      } catch (err) {
+        try {
+          log.status = 'failed';
+          log.finishedAt = new Date();
+          log.errorMessages = [
+            ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
+            err.message,
+          ].slice(-10);
+          await log.save();
+        } catch (saveErr) {
+          console.error('[RECRAWL-PROPS] Failed to persist crawl log error:', saveErr.message);
+        }
+
+        console.error('[RECRAWL-PROPS] Background job failed:', err.message);
+      } finally {
+        if (cursor) {
+          try {
+            await cursor.close();
+          } catch (closeErr) {
+            console.error('[RECRAWL-PROPS] Cursor close failed:', closeErr.message);
+          }
+        }
       }
-    }
+    })();
 
-    log.status = 'completed';
-    log.finishedAt = new Date();
-    log.itemsInserted = totalScanned;
-    log.itemsUpdated = ok;
-    log.itemsSkipped = skippedCompleteCount;
-    log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
-    log.recentNotices = recentNotices;
-    await log.save();
-
-    console.log(`[RECRAWL-PROPS] ✅ Hoàn thành: quét ${totalScanned}, recrawl ${ok}, lỗi ${fail}, bỏ qua ${skippedCompleteCount}`);
-
-    res.json({
+    return res.json({
       success: true,
-      message: `Đã cào lại ${ok}/${items.length} ${type} thiếu dữ liệu detail`,
+      message: `Đã bắt đầu cào lại ${effectiveMatchedCount} ${type} thiếu dữ liệu detail trong nền`,
       scannedCount: totalScanned,
       skippedCompleteCount,
-      totalMatched: items.length,
-      successCount: ok,
-      failedCount: fail,
-      updatedItems: updatedItems.slice(0, 20),
-      failedItems: failedItems.slice(0, 20),
+      totalMatched: effectiveMatchedCount,
       logId: log._id,
     });
   } catch (err) {
-    if (log) {
-      try {
-        log.status = 'failed';
-        log.finishedAt = new Date();
-        log.errorMessages = [
-          ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
-          err.message,
-        ].slice(-10);
-        await log.save();
-      } catch (saveErr) {
-        console.error('[RECRAWL-PROPS] Failed to persist crawl log error:', saveErr.message);
-      }
-    }
-
     next(err);
   }
 });

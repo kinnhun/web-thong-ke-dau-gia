@@ -67,13 +67,32 @@ export function AdminContainer() {
     setActionLoading(name);
     setActionResult(null);
     try {
-      await fn();
-      setActionResult(`✅ ${name} thành công`);
+      const result = await fn();
+      const payload = result as {
+        message?: string;
+        totalMatched?: number;
+        scannedCount?: number;
+        skippedCompleteCount?: number;
+      };
+
+      if (name === "Cào lại tài sản") {
+        const scannedLabel = payload.scannedCount !== undefined ? `Đã quét ${payload.scannedCount} item` : null;
+        const matchedLabel = payload.totalMatched !== undefined ? `cần recrawl ${payload.totalMatched} item` : null;
+        const skippedLabel = payload.skippedCompleteCount !== undefined ? `bỏ qua ${payload.skippedCompleteCount} item đủ dữ liệu` : null;
+        const summary = [scannedLabel, matchedLabel, skippedLabel].filter(Boolean).join(" · ");
+        setActionResult(`✅ ${payload.message || `${name} đã chạy nền`}${summary ? ` — ${summary}` : ""}. Theo dõi tiến trình trong Nhật ký crawl.`);
+      } else {
+        setActionResult(`✅ ${name} thành công`);
+      }
+
       refetchLogs();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown";
       if (name === "Quét trùng lặp" && message.includes("Đang có một tiến trình quét trùng lặp chạy nền")) {
         setActionResult("ℹ️ Quét trùng lặp đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
+        refetchLogs();
+      } else if (name === "Cào lại tài sản" && message.includes("Đang có tiến trình cào lại tài sản chạy nền")) {
+        setActionResult("ℹ️ Cào lại tài sản đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
         refetchLogs();
       } else {
         setActionResult(`❌ ${name} thất bại: ${message}`);
