@@ -313,7 +313,8 @@ router.get('/crawl-logs', async (req, res, next) => {
   try {
     const logs = await CrawlLog.find().sort({ createdAt: -1 }).limit(20).lean();
     const hasRunningDuplicateScan = logs.some((log) => log.type === 'duplicate_scan' && log.status === 'running');
-    res.json({ logs, hasRunningDuplicateScan });
+    const hasRunningCrawl = logs.some((log) => log.status === 'running');
+    res.json({ logs, hasRunningDuplicateScan, hasRunningCrawl });
   } catch (err) { next(err); }
 });
 
@@ -383,50 +384,202 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
 
 // Batch re-crawl tất cả items thiếu properties (migration cho dữ liệu cũ)
 router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
-  try {
-    const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
-    const limit = parseInt(req.body?.limit) || 50;
-    const type = req.body?.type || 'auction';
-    const delay = ms => new Promise(r => setTimeout(r, ms));
+  const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+  const rawLimit = Number(req.body?.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
+  const type = req.body?.type || 'auction';
+  const delay = ms => new Promise(r => setTimeout(r, ms));
 
-    (async () => {
-      try {
-        const Model = type === 'org' ? OrgSelection : AuctionNotice;
-        const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
-        
-        // Tìm items đã cào detail nhưng chưa có properties
-        const items = await Model.find({
-          detailScraped: true,
+  const Model = type === 'org' ? OrgSelection : AuctionNotice;
+  const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+
+  const isMissingString = (field) => ([
+    { [field]: { $exists: false } },
+    { [field]: null },
+    { [field]: '' },
+  ]);
+
+  const isMissingNumber = (field) => ([
+    { [field]: { $exists: false } },
+    { [field]: null },
+    { [field]: 0 },
+  ]);
+
+  let log = null;
+
+  try {
+    log = await CrawlLog.create({
+      type: 'recrawl_missing_properties',
+      startedAt: new Date(),
+      status: 'running',
+      totalPages: limit,
+      pagesProcessed: 0,
+      itemsUpdated: 0,
+      itemsSkipped: 0,
+      errorMessages: [],
+      recentNotices: [],
+    });
+
+    const missingDetailQuery = type === 'org'
+      ? {
           $or: [
+            { detailScraped: { $ne: true } },
             { properties: { $exists: false } },
             { properties: { $size: 0 } },
+            ...isMissingString('name'),
+            ...isMissingString('shortDescription'),
+            ...isMissingString('owner'),
+            ...isMissingString('address'),
+            ...isMissingString('province'),
+            ...isMissingString('assetDescription'),
+            ...isMissingString('requirements'),
+            ...isMissingNumber('startingPrice'),
+            { receiveTimeStart: { $exists: false } },
+            { receiveTimeStart: null },
+            { receiveTimeEnd: { $exists: false } },
+            { receiveTimeEnd: null },
           ],
-        }).sort({ publishedAt: -1 }).limit(limit);
-
-        console.log(`[RECRAWL-PROPS] Tìm thấy ${items.length} ${type} thiếu properties`);
-        let ok = 0, fail = 0;
-
-        for (const item of items) {
-          try {
-            await delay(300);
-            const { updates, files } = await fetchFn(item.sourceId);
-            updates.lastCrawledAt = new Date();
-            if (files && files.length > 0) updates.files = files;
-            await Model.updateOne({ _id: item._id }, { $set: updates });
-            ok++;
-            if (ok % 10 === 0) console.log(`[RECRAWL-PROPS] ${ok}/${items.length}...`);
-          } catch (err) {
-            fail++;
-            console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
-          }
         }
-        console.log(`[RECRAWL-PROPS] ✅ Hoàn thành: ${ok} OK, ${fail} lỗi`);
+      : {
+          $or: [
+            { detailScraped: { $ne: true } },
+            { properties: { $exists: false } },
+            { properties: { $size: 0 } },
+            ...isMissingString('name'),
+            ...isMissingString('shortDescription'),
+            ...isMissingString('type'),
+            ...isMissingString('province'),
+            ...isMissingString('address'),
+            ...isMissingString('organizer'),
+            ...isMissingString('owner'),
+            ...isMissingString('quality'),
+            ...isMissingString('propertyTypeName'),
+            ...isMissingString('propertyAmount'),
+            ...isMissingNumber('initialPrice'),
+            ...isMissingNumber('currentPrice'),
+            ...isMissingNumber('deposit'),
+            ...isMissingNumber('applicationFee'),
+            { auctionDate: { $exists: false } },
+            { auctionDate: null },
+            { registrationStart: { $exists: false } },
+            { registrationStart: null },
+            { registrationEnd: { $exists: false } },
+            { registrationEnd: null },
+          ],
+        };
+
+    const totalScanned = await Model.countDocuments();
+    const itemsQuery = Model.find(missingDetailQuery)
+      .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 });
+
+    if (limit > 0) {
+      itemsQuery.limit(limit);
+    }
+
+    const items = await itemsQuery;
+    const skippedCompleteCount = Math.max(totalScanned - items.length, 0);
+
+    console.log(`[RECRAWL-PROPS] Đã quét ${totalScanned} ${type}, tìm thấy ${items.length} thiếu dữ liệu detail`);
+
+    let ok = 0;
+    let fail = 0;
+    const updatedItems = [];
+    const failedItems = [];
+    const recentNotices = [];
+
+    log.totalPages = items.length;
+    log.pagesProcessed = 0;
+    log.itemsInserted = totalScanned;
+    log.itemsSkipped = skippedCompleteCount;
+    await log.save();
+
+    for (const [index, item] of items.entries()) {
+      try {
+        await delay(250);
+        const { updates, files } = await fetchFn(item.sourceId);
+        updates.detailScraped = true;
+        updates.lastCrawledAt = new Date();
+        if (files && files.length > 0) updates.files = files;
+
+        await Model.updateOne({ _id: item._id }, { $set: updates });
+
+        const propertyCount = Array.isArray(updates.properties) ? updates.properties.length : 0;
+        updatedItems.push({
+          sourceId: item.sourceId,
+          propertyCount,
+        });
+
+        if (recentNotices.length < 5) {
+          recentNotices.push({
+            sourceId: item.sourceId,
+            name: updates.name || item.name,
+            province: updates.province || item.province,
+            publishedAt: updates.publishedAt || item.publishedAt,
+          });
+        }
+
+        ok++;
       } catch (err) {
-        console.error('[RECRAWL-PROPS] Error:', err);
+        fail++;
+        failedItems.push({
+          sourceId: item.sourceId,
+          message: err.message,
+        });
+        console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
       }
-    })();
-    res.json({ success: true, message: `Re-crawling ${type} items missing properties (limit: ${limit})` });
-  } catch (err) { next(err); }
+
+      log.pagesProcessed = index + 1;
+      log.itemsUpdated = ok;
+      log.itemsSkipped = skippedCompleteCount;
+      log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+      log.recentNotices = recentNotices;
+
+      if ((index + 1) % 10 === 0 || index === items.length - 1) {
+        await log.save();
+        console.log(`[RECRAWL-PROPS] ${index + 1}/${items.length}... recrawl OK: ${ok}, lỗi: ${fail}, bỏ qua đủ dữ liệu: ${skippedCompleteCount}`);
+      }
+    }
+
+    log.status = 'completed';
+    log.finishedAt = new Date();
+    log.itemsInserted = totalScanned;
+    log.itemsUpdated = ok;
+    log.itemsSkipped = skippedCompleteCount;
+    log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+    log.recentNotices = recentNotices;
+    await log.save();
+
+    console.log(`[RECRAWL-PROPS] ✅ Hoàn thành: quét ${totalScanned}, recrawl ${ok}, lỗi ${fail}, bỏ qua ${skippedCompleteCount}`);
+
+    res.json({
+      success: true,
+      message: `Đã cào lại ${ok}/${items.length} ${type} thiếu dữ liệu detail`,
+      scannedCount: totalScanned,
+      skippedCompleteCount,
+      totalMatched: items.length,
+      successCount: ok,
+      failedCount: fail,
+      updatedItems: updatedItems.slice(0, 20),
+      failedItems: failedItems.slice(0, 20),
+      logId: log._id,
+    });
+  } catch (err) {
+    if (log) {
+      try {
+        log.status = 'failed';
+        log.finishedAt = new Date();
+        log.errorMessages = [
+          ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
+          err.message,
+        ].slice(-10);
+        await log.save();
+      } catch (saveErr) {
+        console.error('[RECRAWL-PROPS] Failed to persist crawl log error:', saveErr.message);
+      }
+    }
+
+    next(err);
+  }
 });
 
 router.post('/trigger-list-crawl', async (req, res, next) => {

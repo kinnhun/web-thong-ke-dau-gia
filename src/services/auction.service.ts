@@ -140,7 +140,7 @@ export async function fetchReportTopDiscount(by: 'percent' | 'amount', limit: nu
 // ADMIN
 // ═══════════════════════════════════
 
-export async function fetchCrawlLogs(): Promise<{ logs: Record<string, unknown>[]; hasRunningDuplicateScan: boolean }> {
+export async function fetchCrawlLogs(): Promise<{ logs: Record<string, unknown>[]; hasRunningDuplicateScan: boolean; hasRunningCrawl: boolean }> {
   const { data } = await httpClient.get('/api/crawl-logs');
   return data;
 }

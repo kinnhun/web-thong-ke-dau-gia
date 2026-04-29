@@ -34,6 +34,15 @@ const statusBadge = (s: string) => {
   return <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${map[s] || "bg-secondary"}`}>{label[s] || s}</span>;
 };
 
+const crawlTypeLabel: Record<string, string> = {
+  auction_notice: "Crawl danh sách đấu giá",
+  org_selection: "Crawl DS tổ chức",
+  detail: "Crawl chi tiết đấu giá",
+  org_detail: "Crawl chi tiết tổ chức",
+  duplicate_scan: "Quét trùng lặp",
+  recrawl_missing_properties: "Cào lại tài sản thiếu detail",
+};
+
 export function AdminContainer() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
@@ -44,7 +53,13 @@ export function AdminContainer() {
 
   const rawRecords = rawAuctions?.items || [];
   const crawlLogPayload = crawlLogs;
-  const logs = (crawlLogPayload?.logs || []).slice(0, 15);
+  const logs = [...(crawlLogPayload?.logs || [])]
+    .sort((a, b) => {
+      const left = new Date(String(b.createdAt || b.startedAt || 0)).getTime();
+      const right = new Date(String(a.createdAt || a.startedAt || 0)).getTime();
+      return left - right;
+    })
+    .slice(0, 15);
   const duplicateScanLog = logs.find((log) => log.type === "duplicate_scan");
   const hasRunningDuplicateScan = Boolean(crawlLogPayload?.hasRunningDuplicateScan);
 
@@ -75,7 +90,7 @@ export function AdminContainer() {
     { icon: XCircle, title: "Kill duplicate", desc: "Dừng quét trùng lặp đang chạy", fn: () => triggerKillDuplicateScan() },
     { icon: GitMerge, title: "Crawl tổ chức", desc: "Crawl thông báo lựa chọn", fn: () => triggerListCrawl(5, "org") },
     { icon: Eye, title: "Chi tiết tổ chức", desc: "Detail org selection", fn: () => triggerDetailCrawl(20, "org") },
-    { icon: Split, title: "Cào lại tài sản", desc: "Cào lại items thiếu bảng tài sản", fn: () => triggerRecrawlMissingProperties(100, "auction") },
+    { icon: Split, title: "Cào lại tài sản", desc: "Cào lại toàn bộ item thiếu detail / giá = 0", fn: () => triggerRecrawlMissingProperties(0, "auction") },
   ];
 
   return (
@@ -285,15 +300,26 @@ export function AdminContainer() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
                           <span className="font-mono">{startedAt ? startedAt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "?"}</span>
-                          <span className="rounded bg-secondary px-1.5 py-0.5">{type}</span>
+                          <span className="rounded bg-secondary px-1.5 py-0.5">{crawlTypeLabel[type] || type}</span>
                           {statusBadge(status)}
                           {duration !== null && <span>{duration}s</span>}
                         </div>
                         <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">
-                          {l.itemsInserted !== undefined && <span>Mới: <strong className="num">{String(l.itemsInserted)}</strong></span>}
-                          {l.itemsUpdated !== undefined && <span> · Cập nhật: <strong className="num">{String(l.itemsUpdated)}</strong></span>}
-                          {l.itemsSkipped !== undefined && <span> · Bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}
-                          {l.pagesProcessed !== undefined && <span> · Trang: <strong className="num">{String(l.pagesProcessed)}</strong></span>}
+                          {type === "recrawl_missing_properties" ? (
+                            <>
+                              {l.itemsInserted !== undefined && <span>Đã quét: <strong className="num">{String(l.itemsInserted)}</strong></span>}
+                              {l.itemsSkipped !== undefined && <span> · Đủ dữ liệu bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}
+                              {l.itemsUpdated !== undefined && <span> · Đã recrawl: <strong className="num">{String(l.itemsUpdated)}</strong></span>}
+                              {l.pagesProcessed !== undefined && l.totalPages !== undefined && <span> · Đang xử lý: <strong className="num">{String(l.pagesProcessed)}</strong>/<strong className="num">{String(l.totalPages)}</strong></span>}
+                            </>
+                          ) : (
+                            <>
+                              {l.itemsInserted !== undefined && <span>Mới: <strong className="num">{String(l.itemsInserted)}</strong></span>}
+                              {l.itemsUpdated !== undefined && <span> · Cập nhật: <strong className="num">{String(l.itemsUpdated)}</strong></span>}
+                              {l.itemsSkipped !== undefined && <span> · Bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}
+                              {l.pagesProcessed !== undefined && <span> · Trang: <strong className="num">{String(l.pagesProcessed)}</strong></span>}
+                            </>
+                          )}
                         </div>
                         {Array.isArray(l.recentNotices) && l.recentNotices.length > 0 && (
                           <div className="mt-2 space-y-1 rounded-lg border border-border/60 bg-secondary/20 p-2">

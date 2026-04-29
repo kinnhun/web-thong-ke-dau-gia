@@ -183,8 +183,8 @@ export function useCrawlLogs() {
     queryFn: fetchCrawlLogs,
     staleTime: 10_000,
     refetchInterval: (query) => {
-      const payload = query.state.data as { hasRunningDuplicateScan?: boolean } | undefined;
-      return payload?.hasRunningDuplicateScan ? 5000 : false;
+      const payload = query.state.data as { hasRunningDuplicateScan?: boolean; hasRunningCrawl?: boolean } | undefined;
+      return payload?.hasRunningCrawl || payload?.hasRunningDuplicateScan ? 5000 : false;
     },
   });
 }
