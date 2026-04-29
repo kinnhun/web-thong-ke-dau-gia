@@ -137,6 +137,7 @@ export interface AuctionDetail {
     amount: string;
     startPrice: number;
     deposit: number;
+    depositPercent?: string;
     place: string;
     quality: string;
   }>;

@@ -33,7 +33,7 @@ const mainItems = [
   { title: "Thông báo đấu giá", url: "/listing", icon: FileText },
   { title: "Danh sách theo dõi", url: "/watchlist", icon: Star },
   { title: "Tài sản giảm giá", url: "/discounts", icon: TrendingDown },
-  { title: "Tài sản đăng lại", url: "/relisted", icon: History },
+  // { title: "Tài sản đăng lại", url: "/relisted", icon: History },
   { title: "Báo cáo thị trường", url: "/reports", icon: BarChart3 },
   // { title: "Cảnh báo & bộ lọc", url: "/alerts", icon: Bell },
 ];

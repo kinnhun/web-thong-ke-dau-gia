@@ -431,15 +431,18 @@ function normalizePropertyRows(allItems) {
   return rows.map((p) => {
     const startPrice = Number(p.propertyStartPrice) || 0;
     const rawDeposit = Number(p.deposit) || 0;
-    const deposit = p.depositUnit === 1 && rawDeposit > 0 && rawDeposit <= 100
+    const hasPercentDeposit = p.depositUnit === 1 && rawDeposit > 0 && rawDeposit <= 100;
+    const deposit = hasPercentDeposit
       ? Math.round((startPrice * rawDeposit) / 100)
       : rawDeposit;
+    const depositPercent = hasPercentDeposit ? `${rawDeposit}%` : '';
 
     return {
       name: p.propertyName || p.propertyDesc || '',
       amount: p.propertyAmount || '01',
       startPrice,
       deposit,
+      depositPercent,
       place: p.propertyPlace || '',
       quality: p.propertyQuality || '',
     };
@@ -476,13 +479,22 @@ async function fetchAuctionItemDetail(sourceId) {
       if (assetName) updates.name = assetName;
 
       const properties = normalizePropertyRows(allItems);
-      updates.properties = properties;
+      const safeProperties = Array.isArray(properties) ? properties : [];
+      updates.properties = safeProperties;
 
-      const totalPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
-      const totalDeposit = properties.reduce((s, p) => s + (p.deposit || 0), 0);
+      const totalPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      const totalDeposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
+      const percentDeposits = safeProperties
+        .map((p) => p.depositPercent)
+        .filter(Boolean);
       updates.initialPrice = totalPrice || undefined;
       updates.currentPrice = totalPrice || undefined;
       updates.deposit = totalDeposit || undefined;
+      updates.depositPercent = percentDeposits.length === 1
+        ? percentDeposits[0]
+        : percentDeposits.length > 1
+          ? percentDeposits.join(' + ')
+          : undefined;
     }
   }
 
@@ -548,8 +560,17 @@ async function fetchOrgItemDetail(sourceId) {
       if (assetName) updates.name = assetName;
 
       const properties = normalizePropertyRows(allItems);
-      updates.properties = properties;
-      updates.startingPrice = properties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      const safeProperties = Array.isArray(properties) ? properties : [];
+      updates.properties = safeProperties;
+      const percentDeposits = safeProperties
+        .map((p) => p.depositPercent)
+        .filter(Boolean);
+      updates.startingPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      updates.depositPercent = percentDeposits.length === 1
+        ? percentDeposits[0]
+        : percentDeposits.length > 1
+          ? percentDeposits.join(' + ')
+          : undefined;
     }
   }
 

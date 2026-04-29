@@ -1,7 +1,7 @@
 import Head from "next/head";
 import type { ReactElement } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { RelistedContainer } from "@/features/relisted/RelistedContainer";
+// import { RelistedContainer } from "@/features/relisted/RelistedContainer";
 
 export default function RelistedPage() {
   return (
@@ -10,7 +10,9 @@ export default function RelistedPage() {
         <title>Tài sản đăng lại | AuctionWatch</title>
         <meta name="description" content="Danh sách tài sản đấu giá được đăng lại nhiều nhất" />
       </Head>
-      <RelistedContainer />
+      {/*
+        <RelistedContainer />
+      */}
     </>
   );
 }

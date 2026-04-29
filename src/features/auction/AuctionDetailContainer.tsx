@@ -235,6 +235,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                   amount: auction.propertyAmount || '01',
                   startPrice: auction.initialPrice || 0,
                   deposit: auction.deposit || 0,
+                  depositPercent: auction.depositPercent,
                   place: auction.address || '',
                   quality: '',
                 }];
@@ -262,7 +263,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                         <td className="px-3 py-2.5 text-center num border-r">{p.amount || "01"}</td>
                         <td className="px-3 py-2.5 text-muted-foreground text-xs border-r">{p.place || "—"}</td>
                         <td className="px-3 py-2.5 text-right num font-medium border-r">{p.startPrice ? formatVND(p.startPrice) : "—"}</td>
-                        <td className="px-3 py-2.5 text-right num">{p.deposit ? formatVND(p.deposit) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right num">{p.depositPercent || (p.deposit ? formatVND(p.deposit) : "—")}</td>
                       </tr>
                     ))}
                     {rows.length > 1 && (
