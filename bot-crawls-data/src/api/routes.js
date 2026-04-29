@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { exec } = require('child_process');
 const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
@@ -618,17 +619,90 @@ router.post('/trigger-list-crawl', async (req, res, next) => {
   try {
     const { crawlAuctionNotices } = require('../scrapers/auctionNotice.scraper');
     const { crawlOrgSelections } = require('../scrapers/orgSelection.scraper');
-    const maxPages = parseInt(req.body?.maxPages) || 5;
+    const rawMaxPages = Number(req.body?.maxPages);
+    const maxPages = Number.isFinite(rawMaxPages) && rawMaxPages > 0 ? rawMaxPages : 0; // 0 = crawl hết
+    const rawStartPage = Number(req.body?.startPage);
+    const startPage = Number.isFinite(rawStartPage) && rawStartPage > 0 ? rawStartPage : 1;
+    const rawPageSize = Number(req.body?.pageSize);
+    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? rawPageSize : undefined;
     const type = req.body?.type || 'all'; // 'auction', 'org', or 'all'
-    
+    const crawlOptions = { maxPages, startPage, ...(pageSize ? { pageSize } : {}) };
+
     (async () => {
-      try { 
-        if (type === 'all' || type === 'auction') await crawlAuctionNotices({ maxPages }); 
-        if (type === 'all' || type === 'org') await crawlOrgSelections({ maxPages }); 
+      try {
+        if (type === 'all' || type === 'auction') await crawlAuctionNotices(crawlOptions);
+        if (type === 'all' || type === 'org') await crawlOrgSelections(crawlOptions);
       }
       catch (err) { console.error('[TRIGGER] Lỗi List Crawl:', err); }
     })();
-    res.json({ success: true, message: `Crawl list (${maxPages} pages, type: ${type})` });
+    res.json({
+      success: true,
+      message: maxPages > 0
+        ? `Crawl list (${maxPages} pages từ trang ${startPage}, type: ${type})`
+        : `Crawl list FULL từ trang ${startPage}, type: ${type}`,
+      maxPages,
+      startPage,
+      pageSize: pageSize || null,
+      type,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/tmp/full-crawl/start', async (req, res, next) => {
+  try {
+    const command = [
+      'cd /var/www/web-thong-ke-dau-gia/bot-crawls-data',
+      'pm2 delete mass-crawl || true',
+      'pm2 start src/crawler.js --name mass-crawl -- --type=auction --maxPages=0 --startPage=1 --pageSize=100 --listOnly=true',
+      'pm2 save',
+    ].join(' && ');
+
+    exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) console.error('[TMP-FULL-CRAWL] start failed:', error.message, stderr);
+      else console.log('[TMP-FULL-CRAWL] started:', stdout);
+    });
+
+    res.json({ success: true, message: 'Đã bật luồng mass-crawl riêng để cào đủ 547k dữ liệu.' });
+  } catch (err) { next(err); }
+});
+
+router.get('/tmp/full-crawl/status', async (req, res, next) => {
+  try {
+    const [totalSaved, detailDone, latestLog] = await Promise.all([
+      AuctionNotice.countDocuments(),
+      AuctionNotice.countDocuments({ detailScraped: true }),
+      CrawlLog.findOne({ type: 'auction_notice' }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    const target = 547632;
+    const totalPages = latestLog?.totalPages || 27382;
+    const pagesProcessed = latestLog?.pagesProcessed || 0;
+    const progressPercent = Math.min(100, Number(((totalSaved / target) * 100).toFixed(2)));
+    const pagePercent = totalPages > 0 ? Math.min(100, Number(((pagesProcessed / totalPages) * 100).toFixed(2))) : 0;
+
+    res.json({
+      target,
+      totalSaved,
+      missingToTarget: Math.max(target - totalSaved, 0),
+      detailDone,
+      detailPending: Math.max(totalSaved - detailDone, 0),
+      progressPercent,
+      pagePercent,
+      latestLog: latestLog ? {
+        id: latestLog._id,
+        status: latestLog.status || 'running',
+        startedAt: latestLog.startedAt,
+        finishedAt: latestLog.finishedAt,
+        totalPages,
+        pagesProcessed,
+        itemsInserted: latestLog.itemsInserted || 0,
+        itemsSkipped: latestLog.itemsSkipped || 0,
+        itemsUpdated: latestLog.itemsUpdated || 0,
+        recentNotices: latestLog.recentNotices || [],
+        errorMessages: latestLog.errorMessages || [],
+        updatedAt: latestLog.updatedAt,
+      } : null,
+    });
   } catch (err) { next(err); }
 });
 

@@ -30,12 +30,13 @@ async function main() {
   const startPage = args.startPage ? parseInt(args.startPage) : 1;
   const pageSize = args.pageSize ? parseInt(args.pageSize) : 20;
   const maxItems = args.maxItems ? parseInt(args.maxItems) : 100;
+  const listOnly = args.listOnly === true || args.listOnly === 'true';
 
   console.log('╔══════════════════════════════════════════╗');
   console.log('║   🤖 BOT CÀO DỮ LIỆU ĐẤU GIÁ v2       ║');
   console.log('║   Mode: List + Detail + Sample           ║');
   console.log('╚══════════════════════════════════════════╝');
-  console.log(`\n⚙️  Type: ${type} | MaxPages: ${maxPages || 'unlimited'} | StartPage: ${startPage}`);
+  console.log(`\n⚙️  Type: ${type} | MaxPages: ${maxPages || 'unlimited'} | StartPage: ${startPage} | ListOnly: ${listOnly ? 'yes' : 'no'}`);
 
   await connectDB();
 
@@ -46,7 +47,7 @@ async function main() {
       console.log('\n' + '═'.repeat(50));
       console.log('📋 Thông báo công khai việc đấu giá (list + detail + sample)');
       console.log('═'.repeat(50));
-      await crawlAuctionNotices({ maxPages, startPage, pageSize });
+      await crawlAuctionNotices({ maxPages, startPage, pageSize, listOnly });
     }
 
     if (type === 'all' || type === 'org') {
