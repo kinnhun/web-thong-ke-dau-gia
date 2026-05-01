@@ -419,9 +419,16 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
       const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
       const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
       if (allRelatedIds.length > 0) {
-        const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
-        await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
-        console.log(`[RECRAWL] 🔁 related detail #${sourceId}:`, relatedDetailStats);
+        // Chạy ngầm việc cào duplicates để tránh timeout API khi số lượng nhóm lớn (50-100 items)
+        Promise.resolve().then(async () => {
+          try {
+            const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
+            await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
+            console.log(`[RECRAWL BG] 🔁 related detail #${sourceId}:`, relatedDetailStats);
+          } catch (bgErr) {
+            console.error(`[RECRAWL BG] Lỗi #${sourceId}:`, bgErr.message);
+          }
+        });
       }
     }
 
