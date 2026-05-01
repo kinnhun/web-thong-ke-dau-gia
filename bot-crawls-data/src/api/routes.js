@@ -404,44 +404,52 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
     const Model = type === 'org' ? OrgSelection : AuctionNotice;
     const item = await Model.findOne({ sourceId });
     if (!item) {
+      console.log(`[RECRAWL] Not found: ${type} #${sourceId}`);
       return res.status(404).json({ error: true, message: `Không tìm thấy ${type} #${sourceId}` });
     }
 
-    const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
-    const { updates, files } = await fetchFn(sourceId);
-    updates.detailScraped = true;
-    updates.lastCrawledAt = new Date();
-    if (files && files.length > 0) updates.files = files;
-
-    await Model.updateOne({ _id: item._id }, { $set: updates });
-
-    if (type === 'auction') {
-      const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
-      const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
-      if (allRelatedIds.length > 0) {
-        // Chạy ngầm việc cào duplicates để tránh timeout API khi số lượng nhóm lớn (50-100 items)
-        Promise.resolve().then(async () => {
-          try {
-            const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
-            await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
-            console.log(`[RECRAWL BG] 🔁 related detail #${sourceId}:`, relatedDetailStats);
-          } catch (bgErr) {
-            console.error(`[RECRAWL BG] Lỗi #${sourceId}:`, bgErr.message);
-          }
-        });
-      }
-    }
-
-    const properties = updates.properties || [];
-    console.log(`[RECRAWL] ✅ ${type} #${sourceId} updated — properties: ${properties.length}`);
+    // ⚡ Phản hồi ngay lập tức để tránh timeout (504/500) từ Next.js khi browser mở chậm
     res.json({
       success: true,
-      message: `Đã cào lại chi tiết ${type} #${sourceId}`,
+      message: `Hệ thống đang tiến hành cào lại chi tiết ${type} #${sourceId} ngầm. Vui lòng tải lại trang sau 15-30 giây để xem dữ liệu cập nhật.`,
       sourceId,
-      propertiesCount: properties.length,
-      totalPrice: properties.reduce((sum, property) => sum + (property.startPrice || 0), 0),
-      filesCount: (updates.files || files || []).length,
+      status: 'processing'
     });
+
+    console.log(`[RECRAWL BG] Bắt đầu xử lý ngầm cho ${type} #${sourceId}...`);
+
+    // Chạy ngầm toàn bộ quá trình cào và cập nhật
+    Promise.resolve().then(async () => {
+      try {
+        const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+        const { updates, files } = await fetchFn(sourceId);
+        console.log(`[RECRAWL BG] Đã lấy xong fetchFn cho ${type} #${sourceId}. Updates fields:`, Object.keys(updates).length);
+        
+        updates.detailScraped = true;
+        updates.lastCrawledAt = new Date();
+        if (files && files.length > 0) updates.files = files;
+
+        await Model.updateOne({ _id: item._id }, { $set: updates });
+        console.log(`[RECRAWL BG] Đã cập nhật DB thành công cho #${sourceId}.`);
+
+        if (type === 'auction') {
+          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
+          const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+          if (allRelatedIds.length > 0) {
+            console.log(`[RECRAWL BG] Bắt đầu quét duplicate cho ${allRelatedIds.length} items...`);
+            const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
+            await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
+            console.log(`[RECRAWL BG] 🔁 related detail hoàn thành cho #${sourceId}:`, relatedDetailStats);
+          }
+        }
+
+        const properties = updates.properties || [];
+        console.log(`[RECRAWL BG] ✅ ${type} #${sourceId} updated — properties: ${properties.length}`);
+      } catch (err) {
+        console.error(`[RECRAWL BG] ❌ Lỗi xử lý ngầm #${sourceId}:`, err.message);
+      }
+    });
+
   } catch (err) { next(err); }
 });
 
