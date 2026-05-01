@@ -520,14 +520,21 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     // 1. Tìm trên API gốc (chính xác)
     const res = await fetchAPI(endpoint, payload);
+    const apiCandidates = [];
     if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
-      const apiIds = res.items.map(i => i.id).filter(id => id !== sourceId && id !== undefined && id !== null);
-      relatedIds.push(...apiIds);
+      res.items.forEach(i => {
+        if (i.id && i.id !== sourceId) {
+           apiCandidates.push({
+             sourceId: i.id,
+             name: i.nameAsset || i.name || i.assetName || ''
+           });
+        }
+      });
     }
 
     // 2. Fuzzy match từ local DB (giống 70-80%)
     const Model = type === 'auction' ? AuctionNotice : OrgSelection;
-    const candidates = await Model.find(
+    const dbCandidates = await Model.find(
       { $text: { $search: name } },
       { score: { $meta: 'textScore' } }
     )
@@ -536,12 +543,46 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       .select('sourceId name')
       .lean();
 
+    // Gộp candidates
+    const candidates = [...apiCandidates, ...dbCandidates];
+
+    // Hàm trích xuất các cụm số (giữ lại các chữ cái liền kề như P2, 241/13)
+    const getNumberTokens = (str) => {
+      const tokens = str.toLowerCase().match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
+      return [...new Set(tokens)];
+    };
+
     const targetBigrams = getBigrams(name);
+    const targetNumbers = getNumberTokens(name);
+
     for (const c of candidates) {
       if (c.sourceId === sourceId) continue;
+      
+      const candidateNumbers = getNumberTokens(c.name);
+      
+      // Kiểm tra sự trùng khớp về số (rất quan trọng để phân biệt địa chỉ nhà như 241/13 và 156/11)
+      let hasCommonNumber = false;
+      let bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
+      
+      if (bothHaveNumbers) {
+        const common = targetNumbers.filter(t => candidateNumbers.includes(t));
+        // Nếu cả hai đều có số nhưng KHÔNG CÓ SỐ NÀO CHUNG -> Chắc chắn là tài sản khác nhau
+        if (common.length === 0) continue;
+        hasCommonNumber = true;
+      }
+
       const sim = jaccardSimilarity(targetBigrams, getBigrams(c.name));
-      if (sim >= 0.70) {
+      
+      // Mức độ giống nhau >= 85% -> Chấp nhận
+      if (sim >= 0.85) {
         relatedIds.push(c.sourceId);
+      } 
+      // Mức độ giống nhau >= 72%
+      else if (sim >= 0.72) {
+        // Nếu có số chung hoặc 1 bên không có số -> Chấp nhận
+        if (hasCommonNumber || !bothHaveNumbers) {
+          relatedIds.push(c.sourceId);
+        }
       }
     }
 
