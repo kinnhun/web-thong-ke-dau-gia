@@ -71,6 +71,16 @@ export function DiscountsContainer() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
+  const [appliedFilters, setAppliedFilters] = useState({
+    keyword: "",
+    type: "all" as AssetType | "all",
+    province: [] as string[],
+    organizer: "all",
+    minDiscount: "",
+    maxPrice: "",
+    rounds: "all",
+  });
+
   const { data: filterOpts } = useFilterOptions();
 
   const provinceOptions = useMemo(
@@ -87,13 +97,13 @@ export function DiscountsContainer() {
   const { data, isLoading, isFetching } = useDiscountedAuctions({
     page,
     limit: pageSize,
-    search: keyword || undefined,
-    type: type !== "all" ? type : undefined,
-    province: provinceQueryValue,
-    organizer: organizer !== "all" ? organizer : undefined,
-    minDiscount: minDiscount || undefined,
-    maxPrice: maxPrice ? String(parseFloat(maxPrice) * 1_000_000_000) : undefined,
-    minRounds: rounds !== "all" ? rounds : undefined,
+    search: appliedFilters.keyword || undefined,
+    type: appliedFilters.type !== "all" ? appliedFilters.type : undefined,
+    province: appliedFilters.province.length > 0 ? appliedFilters.province.join(",") : undefined,
+    organizer: appliedFilters.organizer !== "all" ? appliedFilters.organizer : undefined,
+    minDiscount: appliedFilters.minDiscount || undefined,
+    maxPrice: appliedFilters.maxPrice ? String(parseFloat(appliedFilters.maxPrice) * 1_000_000_000) : undefined,
+    minRounds: appliedFilters.rounds !== "all" ? appliedFilters.rounds : undefined,
     sort: sortKey,
   });
 
@@ -105,6 +115,23 @@ export function DiscountsContainer() {
   const reset = () => {
     setKeyword(""); setType("all"); setProvince([]); setOrganizer("all");
     setMinDiscount(""); setMaxPrice(""); setRounds("all"); setPage(1);
+    setAppliedFilters({
+      keyword: "", type: "all", province: [], organizer: "all",
+      minDiscount: "", maxPrice: "", rounds: "all"
+    });
+  };
+
+  const handleSearch = () => {
+    setAppliedFilters({
+      keyword,
+      type,
+      province,
+      organizer,
+      minDiscount,
+      maxPrice,
+      rounds,
+    });
+    setPage(1);
   };
 
   const provincesList = filterOpts?.provinces || [];
@@ -160,7 +187,8 @@ export function DiscountsContainer() {
               <Input
                 placeholder="Tên, địa chỉ, biển số…"
                 value={keyword}
-                onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
                 className="h-10 pl-8"
               />
             </div>
@@ -177,7 +205,6 @@ export function DiscountsContainer() {
               optionFilterProp="label"
               onChange={(value) => {
                 setOrganizer((value as string) ?? "all");
-                setPage(1);
               }}
               className="h-11 w-full [&_.ant-select-selector]:!min-h-11 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
@@ -196,7 +223,6 @@ export function DiscountsContainer() {
               optionFilterProp="label"
               onChange={(values) => {
                 setProvince(values);
-                setPage(1);
               }}
               className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
             />
@@ -213,14 +239,13 @@ export function DiscountsContainer() {
               optionFilterProp="label"
               onChange={(value) => {
                 setType((value as AssetType | "all") ?? "all");
-                setPage(1);
               }}
               className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Số lần ĐG</Label>
-            <Select value={rounds} onValueChange={(v) => { setRounds(v); setPage(1); }}>
+            <Select value={rounds} onValueChange={(v) => setRounds(v)}>
               <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả</SelectItem>
@@ -232,11 +257,11 @@ export function DiscountsContainer() {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">% giảm tối thiểu</Label>
-            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => { setMinDiscount(e.target.value); setPage(1); }} className="h-10" />
+            <Input type="number" placeholder="VD: 20" value={minDiscount} onChange={(e) => setMinDiscount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }} className="h-10" />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Giá tối đa (tỷ)</Label>
-            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }} className="h-10" />
+            <Input type="number" placeholder="VD: 5" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }} className="h-10" />
           </div>
           <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label className="text-xs">Sắp xếp</Label>
@@ -256,6 +281,10 @@ export function DiscountsContainer() {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5" />Đặt lại</Button>
+            <Button size="sm" onClick={handleSearch} disabled={isFetching}>
+              {isFetching ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Search className="h-3.5 w-3.5 mr-1" />}
+              Tìm kiếm
+            </Button>
           </div>
         </div>
       </div>
