@@ -524,10 +524,10 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
       res.items.forEach(i => {
         if (i.id && i.id !== sourceId) {
-           apiCandidates.push({
-             sourceId: i.id,
-             name: i.nameAsset || i.name || i.assetName || ''
-           });
+          apiCandidates.push({
+            sourceId: i.id,
+            name: i.nameAsset || i.name || i.assetName || ''
+          });
         }
       });
     }
@@ -546,9 +546,12 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     // Gộp candidates
     const candidates = [...apiCandidates, ...dbCandidates];
 
-    // Hàm trích xuất các cụm số (giữ lại các chữ cái liền kề như P2, 241/13)
+    // Hàm trích xuất các cụm số (đã loại bỏ ngày tháng năm để tránh nhiễu)
     const getNumberTokens = (str) => {
-      const tokens = str.toLowerCase().match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
+      let s = str.toLowerCase();
+      s = s.replace(/\b(ngày|tháng|năm)\s*\d+([\/\-]\d+)*\b/g, '');
+      s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
+      const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
       return [...new Set(tokens)];
     };
 
@@ -557,13 +560,13 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     for (const c of candidates) {
       if (c.sourceId === sourceId) continue;
-      
+
       const candidateNumbers = getNumberTokens(c.name);
-      
+
       // Kiểm tra sự trùng khớp về số (rất quan trọng để phân biệt địa chỉ nhà như 241/13 và 156/11)
       let hasCommonNumber = false;
       let bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
-      
+
       if (bothHaveNumbers) {
         const common = targetNumbers.filter(t => candidateNumbers.includes(t));
         // Nếu cả hai đều có số nhưng KHÔNG CÓ SỐ NÀO CHUNG -> Chắc chắn là tài sản khác nhau
@@ -572,11 +575,11 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       }
 
       const sim = jaccardSimilarity(targetBigrams, getBigrams(c.name));
-      
+
       // Mức độ giống nhau >= 85% -> Chấp nhận
       if (sim >= 0.85) {
         relatedIds.push(c.sourceId);
-      } 
+      }
       // Mức độ giống nhau >= 72%
       else if (sim >= 0.72) {
         // Nếu có số chung hoặc 1 bên không có số -> Chấp nhận
@@ -1270,14 +1273,23 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     const cleanNames = Object.keys(buckets[prov]);
     if (cleanNames.length === 0) continue;
 
+    const getNumberTokens = (str) => {
+      let s = str.toLowerCase();
+      s = s.replace(/\b(ngày|tháng|năm)\s*\d+([\/\-]\d+)*\b/g, '');
+      s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
+      const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
+      return [...new Set(tokens)];
+    };
+
     const data = cleanNames.map((name, i) => ({
       index: i,
-      wordSet: getWordSet(name),
+      wordSet: getBigrams(name),
+      numbers: getNumberTokens(name),
       sourceIds: buckets[prov][name]
     }));
 
     // Tối ưu hoá cực mạnh: Sắp xếp mảng theo độ dài của từ
-    // Nếu sizeB > sizeA / 0.70 thì độ tương đồng chắc chắn < 0.70 (do |A giao B| <= |A|)
+    // Nếu sizeB > sizeA / 0.72 thì độ tương đồng chắc chắn < 0.72 (do |A giao B| <= |A|)
     // Lúc này ta có thể ngắt luôn vòng lặp j (break) thay vì quét hết mảng.
     data.sort((a, b) => a.wordSet.size - b.wordSet.size);
 
@@ -1302,21 +1314,37 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       }
 
       const sizeA = data[i].wordSet.size;
-      const maxSizeB = sizeA / 0.70;
+      const maxSizeB = sizeA / 0.72;
 
       for (let j = i + 1; j < data.length; j++) {
         const sizeB = data[j].wordSet.size;
-        
+
         // Cực kỳ quan trọng: Mảng đã được sắp xếp tăng dần theo size.
         // Nếu sizeB vượt quá giới hạn lý thuyết, mọi size phía sau cũng sẽ vượt, nên BREAK luôn!
         if (sizeB > maxSizeB) break;
 
         const maxSim = sizeA / sizeB; // Vì sizeA <= sizeB
-        if (maxSim < 0.70) continue;
+        if (maxSim < 0.72) continue;
+
+        let hasCommonNumber = false;
+        let bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
+
+        if (bothHaveNumbers) {
+          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
+          // KHÔNG CHUNG MỘT SỐ NÀO -> TÀI SẢN KHÁC NHAU HOÀN TOÀN
+          if (common.length === 0) continue;
+          hasCommonNumber = true;
+        }
 
         const sim = jaccardSimilarity(data[i].wordSet, data[j].wordSet);
-        if (sim >= 0.70) {
+
+        // Match nếu >= 85%, hoặc >= 72% nếu thỏa mãn điều kiện số
+        if (sim >= 0.85) {
           union(i, j);
+        } else if (sim >= 0.72) {
+          if (hasCommonNumber || !bothHaveNumbers) {
+            union(i, j);
+          }
         }
       }
     }
@@ -1338,7 +1366,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     processedProv++;
     const msg = `Gom nhóm tương đồng 70%: đang xử lý [${prov}] (${data.length} mục) - Tiến độ: ${processedProv}/${provKeys.length} tỉnh/thành`;
     console.log(`[DUPLICATE SCAN] ${msg}`); // Báo cáo trực tiếp ra màn hình Terminal ngay lập tức cho từng tỉnh!
-    
+
     if (progressCallback && (processedProv % 2 === 0 || processedProv === provKeys.length)) {
       await progressCallback(msg); // Lưu vào DB (và hiện lên web) mỗi 2 tỉnh để web không bị đơ
     }
