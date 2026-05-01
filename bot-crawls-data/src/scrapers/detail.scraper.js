@@ -14,11 +14,12 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify } = require('../utils/helpers');
+const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
   cancelRequested: false,
+  skipDetailCrawl: false, // Thêm cờ để bỏ qua cào dữ liệu khi bị block
 };
 
 function requestDuplicateScanCancel() {
@@ -29,9 +30,15 @@ function requestDuplicateScanCancel() {
   return true;
 }
 
+function setSkipDetailCrawl(skip) {
+  duplicateScanState.skipDetailCrawl = !!skip;
+  return duplicateScanState.skipDetailCrawl;
+}
+
 function resetDuplicateScanState() {
   duplicateScanState.isRunning = false;
   duplicateScanState.cancelRequested = false;
+  // không reset skipDetailCrawl để user giữ tuỳ chọn này
 }
 
 function getDuplicateScanState() {
@@ -65,7 +72,7 @@ async function fetchPublishHistory(sourceId) {
       auctionInfoId: sourceId,
       p: 0,
     });
-    
+
     // 2. Lấy thông tin Corrections (Đính chính / Thay đổi)
     const dataCorrections = await fetchAPI('/portal/pageAuctionInfoCorrections', {
       auctionInfoId: sourceId,
@@ -74,10 +81,10 @@ async function fetchPublishHistory(sourceId) {
 
     const itemsPublish2 = dataPublish2 && Array.isArray(dataPublish2.items) ? dataPublish2.items : [];
     const itemsCorrections = dataCorrections && Array.isArray(dataCorrections.items) ? dataCorrections.items : [];
-    
+
     // Tìm self entry trong Publish2 trước, nếu không có thì tìm trong Corrections
     const selfEntry = itemsPublish2.find(d => d.auctionInfoId === sourceId) || itemsCorrections.find(d => d.auctionInfoId === sourceId);
-    
+
     if (selfEntry) {
       result.publishRoundLabel = selfEntry.strLevelCorrection || '';
       result.rootId = selfEntry.rootID || null;
@@ -138,6 +145,14 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
   dup.entries = entries;
   dup.relistCount = entries.length;
 
+  // Lấy province và organizer từ các entry
+  const Model = type === 'org' ? OrgSelection : AuctionNotice;
+  const dbItems = await Model.find({ sourceId: { $in: dup.sourceIds } }).select('province organizer').lean();
+  const prov = dbItems.find(i => i.province)?.province;
+  const org = dbItems.find(i => i.organizer)?.organizer;
+  if (prov) dup.province = prov;
+  if (org) dup.organizer = org;
+
   // Tính toán giá — chỉ đánh dấu giảm giá khi latestPrice < firstPrice
   if (entries.length > 0) {
     const pricesWithValues = entries.filter(e => e.price && e.price > 0);
@@ -170,6 +185,8 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
   }
 
   await dup.save();
+
+
 }
 
 /**
@@ -230,6 +247,58 @@ function buildDuplicateEntriesFromItems(sourceIds, items, type) {
   });
 
   return entries;
+}
+
+function isAuctionDetailIncomplete(item) {
+  return item.detailScraped !== true
+    || !Array.isArray(item.properties)
+    || item.properties.length === 0
+    || !item.initialPrice
+    || !item.currentPrice
+    || !item.address
+    || !item.organizer
+    || !item.owner;
+}
+
+async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
+  const ids = [...new Set((sourceIds || []).map((id) => Number(id)).filter(Boolean))];
+  if (ids.length === 0) return { updated: 0, skipped: 0, errors: 0 };
+
+  const items = await AuctionNotice.find({ sourceId: { $in: ids } })
+    .select('_id sourceId detailScraped properties initialPrice currentPrice address organizer owner')
+    .lean();
+  const itemBySourceId = new Map(items.map((item) => [item.sourceId, item]));
+  const force = options.force === true;
+  const concurrency = Math.max(1, Math.min(Number(options.concurrency) || config.crawl.concurrency || 30, 100));
+  const targets = ids
+    .map((id) => itemBySourceId.get(id))
+    .filter(Boolean)
+    .filter((item) => force || isAuctionDetailIncomplete(item));
+
+  let updated = 0;
+  let errors = 0;
+
+  for (let i = 0; i < targets.length; i += concurrency) {
+    const chunk = targets.slice(i, i + concurrency);
+    const results = await Promise.all(chunk.map(async (item) => {
+      try {
+        const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
+        updates.detailScraped = true;
+        updates.lastCrawledAt = new Date();
+        if (files && files.length > 0) updates.files = files;
+        await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+        return true;
+      } catch (err) {
+        console.error(`[Detail Related] ❌ ${item.sourceId}:`, err.message);
+        return false;
+      }
+    }));
+
+    updated += results.filter(Boolean).length;
+    errors += results.filter((ok) => !ok).length;
+  }
+
+  return { updated, skipped: ids.length - targets.length, errors };
 }
 
 function summarizeDuplicateEntries(entries, type) {
@@ -325,29 +394,64 @@ function buildGraphGroups(items, getRelatedIds) {
 }
 
 function mergeDuplicateGroups(...groupSets) {
-  const mergedMap = new Map();
+  const adjacency = new Map();
+
+  const ensureNode = (id) => {
+    if (!adjacency.has(id)) {
+      adjacency.set(id, new Set());
+    }
+  };
 
   for (const groups of groupSets) {
     for (const group of groups) {
       if (!Array.isArray(group) || group.length < 2) continue;
 
-      const normalized = [...new Set(group)].sort((a, b) => a - b);
-      const key = normalized.join('-');
-      if (!mergedMap.has(key)) {
-        mergedMap.set(key, normalized);
+      for (let i = 0; i < group.length; i++) {
+        ensureNode(group[i]);
+        if (i > 0) {
+          adjacency.get(group[i]).add(group[i - 1]);
+          adjacency.get(group[i - 1]).add(group[i]);
+        }
       }
     }
   }
 
-  return [...mergedMap.values()].sort((a, b) => a[0] - b[0]);
+  const visited = new Set();
+  const mergedGroups = [];
+
+  for (const [node, _] of adjacency.entries()) {
+    if (visited.has(node)) continue;
+
+    const group = [];
+    const queue = [node];
+    visited.add(node);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      group.push(current);
+
+      for (const neighbor of adjacency.get(current)) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    if (group.length >= 2) {
+      mergedGroups.push(group.sort((a, b) => a - b));
+    }
+  }
+
+  return mergedGroups;
 }
 
 async function fetchDuplicateSourceMap(type, sourceIds) {
   const Model = type === 'org' ? OrgSelection : AuctionNotice;
   const priceField = type === 'org' ? 'startingPrice' : 'initialPrice';
   const selectFields = type === 'org'
-    ? `sourceId name ${priceField} publishedAt publishRound publishRoundLabel rootId sourceUrl`
-    : `sourceId name ${priceField} currentPrice publishedAt publishRound publishRoundLabel rootId sourceUrl`;
+    ? `sourceId name province organizer ${priceField} publishedAt publishRound publishRoundLabel rootId sourceUrl`
+    : `sourceId name province organizer ${priceField} currentPrice publishedAt publishRound publishRoundLabel rootId sourceUrl`;
 
   const items = await Model.find({ sourceId: { $in: sourceIds } })
     .select(selectFields)
@@ -383,6 +487,8 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
             isPriceDrop: summary.isPriceDrop,
             priceDropPercent: summary.priceDropPercent,
             rootId: summary.rootId,
+            province: items.find((item) => item.province)?.province || null,
+            organizer: items.find((item) => item.organizer)?.organizer || null,
           },
         },
         upsert: true,
@@ -394,17 +500,16 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
 }
 
 /**
- * Tìm các ID trùng lặp bằng cách gọi API search với nameAsset chính xác.
- * ⚠️ API List dùng param `nameAsset` (KHÔNG phải `assetName`)
+ * Tìm các ID trùng lặp bằng cách kết hợp API search và Fuzzy Match local (>= 70% similarity)
  */
-async function searchDuplicatesByExactName(sourceId, name, type) {
+async function searchDuplicatesByFuzzyName(sourceId, name, type) {
   let relatedIds = [];
   try {
     if (!name || name.trim().length === 0) return [];
 
     let endpoint = '';
     let payload = { numberPerPage: 20, p: 1, typeOrder: 2 };
-    
+
     if (type === 'auction') {
       endpoint = '/portal/search/auction-notice';
       payload.nameAsset = name.trim();
@@ -412,13 +517,35 @@ async function searchDuplicatesByExactName(sourceId, name, type) {
       endpoint = '/ThongTin/getInfoSelectAuctionOrg';
       payload.nameAsset = name.trim();
     }
-    
+
+    // 1. Tìm trên API gốc (chính xác)
     const res = await fetchAPI(endpoint, payload);
-    
-    // Nếu API trả về > 1 item và rowCount hợp lý (tránh trường hợp API lờ đi filter và trả về toàn bộ DB >1000)
     if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
-      relatedIds = res.items.map(i => i.id).filter(id => id !== sourceId && id !== undefined && id !== null);
+      const apiIds = res.items.map(i => i.id).filter(id => id !== sourceId && id !== undefined && id !== null);
+      relatedIds.push(...apiIds);
     }
+
+    // 2. Fuzzy match từ local DB (giống 70-80%)
+    const Model = type === 'auction' ? AuctionNotice : OrgSelection;
+    const candidates = await Model.find(
+      { $text: { $search: name } },
+      { score: { $meta: 'textScore' } }
+    )
+      .sort({ score: { $meta: 'textScore' } })
+      .limit(100)
+      .select('sourceId name')
+      .lean();
+
+    const targetBigrams = getBigrams(name);
+    for (const c of candidates) {
+      if (c.sourceId === sourceId) continue;
+      const sim = jaccardSimilarity(targetBigrams, getBigrams(c.name));
+      if (sim >= 0.70) {
+        relatedIds.push(c.sourceId);
+      }
+    }
+
+    relatedIds = [...new Set(relatedIds)];
   } catch (err) {
     // ignore
   }
@@ -466,7 +593,11 @@ async function fetchAuctionItemDetail(sourceId) {
     if (json.items && json.items.length > 0) {
       const allItems = json.items;
       const prop = allItems[0];
-      if (prop.propertyPlace) updates.address = prop.propertyPlace;
+      if (prop.propertyPlace) {
+        updates.address = prop.propertyPlace;
+        const province = extractProvince(prop.propertyPlace);
+        if (province) updates.province = province;
+      }
       if (prop.fileCost) updates.applicationFee = prop.fileCost;
       if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
       if (prop.propertyQuality) updates.quality = prop.propertyQuality;
@@ -640,7 +771,7 @@ async function crawlDetails(options = {}) {
       try {
         await delay(Math.random() * 500); // Thêm xíu delay random để tránh spam quá nhanh
         const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
-        const exactNameRelatedIds = await searchDuplicatesByExactName(item.sourceId, item.name, 'auction');
+        const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, item.name, 'auction');
         return { item, updates, files, exactNameRelatedIds, success: true };
       } catch (err) {
         return { item, success: false, err };
@@ -654,14 +785,15 @@ async function crawlDetails(options = {}) {
         updates.detailScraped = true;
         updates.lastCrawledAt = new Date();
         if (files && files.length > 0) updates.files = files;
-        
+
         await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
-        
+
         let allRelatedIds = updates.relatedIds || [];
         allRelatedIds = [...new Set([...allRelatedIds, ...exactNameRelatedIds])];
 
         if (allRelatedIds.length > 0) {
-          await handleDuplicate(item.sourceId, item.name, allRelatedIds, 'auction');
+          await recrawlMissingAuctionDetails([item.sourceId, ...allRelatedIds], { concurrency: config.crawl.concurrency || 30 });
+          await handleDuplicate(item.sourceId, updates.name || item.name, allRelatedIds, 'auction');
         }
         stats.updated++;
       } else {
@@ -712,9 +844,9 @@ async function crawlOrgDetails(options = {}) {
         updates.detailScraped = true;
         updates.lastCrawledAt = new Date();
         if (files && files.length > 0) updates.files = files;
-        
+
         await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
-        
+
         stats.updated++;
       } else {
         stats.errors++;
@@ -831,7 +963,7 @@ async function recoverMissingDuplicates(onProgress, shouldStop) {
           status: 'unknown',
           detailScraped: false,
         };
-        
+
         if (dup.type === 'org') {
           newData.startingPrice = initialPrice;
         } else {
@@ -841,7 +973,7 @@ async function recoverMissingDuplicates(onProgress, shouldStop) {
 
         await Model.updateOne({ sourceId: missingId }, { $set: newData }, { upsert: true });
         recoveredCount++;
-        
+
         if (recoveredCount % 10 === 0) {
           await reportProgress(`Khôi phục duplicate thiếu: đã phục hồi ${recoveredCount} bài, kiểm tra ${scannedGroups}/${dups.length} nhóm`);
         }
@@ -853,7 +985,7 @@ async function recoverMissingDuplicates(onProgress, shouldStop) {
     // Sau khi recover xong, rebuild entries cho dup này
     await handleDuplicate(dup.sourceIds[0], dup.name, dup.sourceIds.slice(1), dup.type);
   }
-  
+
   await reportProgress(`Khôi phục duplicate thiếu hoàn tất: ${recoveredCount} bài / ${dups.length} nhóm`);
   console.log(`✅ Hoàn thành phục hồi ${recoveredCount} bài đăng bị thiếu.`);
   return recoveredCount;
@@ -887,6 +1019,13 @@ async function rebuildAllDuplicateEntries(shouldStop, onProgress) {
     const entries = await buildDuplicateEntries(dup.sourceIds, dup.type);
     dup.entries = entries;
     dup.relistCount = entries.length;
+
+    const Model = dup.type === 'org' ? OrgSelection : AuctionNotice;
+    const dbItems = await Model.find({ sourceId: { $in: dup.sourceIds } }).select('province organizer').lean();
+    const prov = dbItems.find(i => i.province)?.province;
+    const org = dbItems.find(i => i.organizer)?.organizer;
+    if (prov) dup.province = prov;
+    if (org) dup.organizer = org;
 
     const pricesWithValues = entries.filter(e => e.price && e.price > 0);
     if (pricesWithValues.length > 0) {
@@ -932,6 +1071,241 @@ async function rebuildAllDuplicateEntries(shouldStop, onProgress) {
   return updatedCount;
 }
 
+/**
+ * Cào detail cho tất cả bài trong nhóm duplicate mà chưa có detail.
+ * Mỗi bài được cào độc lập từ trang gốc, KHÔNG ghi đè lẫn nhau.
+ */
+async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
+  console.log('\n🔄 [Duplicate] Cào detail cho tất cả bài trong nhóm duplicate...');
+
+  // Thu thập tất cả sourceIds từ các nhóm duplicate, tách theo type
+  const dups = await Duplicate.find({}).select('sourceIds type').lean();
+  const auctionIds = new Set();
+  const orgIds = new Set();
+
+  for (const dup of dups) {
+    if (!dup.sourceIds) continue;
+    const targetSet = dup.type === 'org' ? orgIds : auctionIds;
+    for (const id of dup.sourceIds) targetSet.add(id);
+  }
+
+  let crawled = 0;
+  let skipped = 0;
+  let errors = 0;
+  const concurrency = config.crawl.concurrency || 30;
+
+  const reportProgress = async (message) => {
+    if (typeof onProgress === 'function') await onProgress(message);
+  };
+
+  // ── Auction ──
+  if (auctionIds.size > 0) {
+    await reportProgress(`Đang cào detail cho ${auctionIds.size} bài auction trong nhóm duplicate...`);
+
+    const items = await AuctionNotice.find({
+      sourceId: { $in: [...auctionIds] },
+      detailScraped: { $ne: true },
+    }).select('_id sourceId').lean();
+
+    skipped += auctionIds.size - items.length;
+    console.log(`[Dup Detail Auction] ${auctionIds.size} tổng → ${items.length} chưa cào, ${auctionIds.size - items.length} đã bỏ qua`);
+
+    for (let i = 0; i < items.length; i += concurrency) {
+      if (typeof shouldStop === 'function' && shouldStop()) {
+        await reportProgress('Đã dừng khi đang cào detail auction cho nhóm duplicate.');
+        break;
+      }
+
+      const chunk = items.slice(i, i + concurrency);
+      const results = await Promise.all(chunk.map(async (item) => {
+        try {
+          const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files && files.length > 0) updates.files = files;
+          await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+          return true;
+        } catch (err) {
+          console.error(`[Dup Detail Auction] ❌ ${item.sourceId}:`, err.message);
+          return false;
+        }
+      }));
+
+      crawled += results.filter(Boolean).length;
+      errors += results.filter((r) => !r).length;
+
+      if ((i + concurrency) % 30 === 0 || i + concurrency >= items.length) {
+        await reportProgress(`Cào detail auction duplicate: ${crawled}/${items.length} (bỏ qua ${skipped}, lỗi ${errors})`);
+      }
+    }
+  }
+
+  // ── Org ──
+  if (orgIds.size > 0) {
+    await reportProgress(`Đang cào detail cho ${orgIds.size} bài org trong nhóm duplicate...`);
+
+    const items = await OrgSelection.find({
+      sourceId: { $in: [...orgIds] },
+      detailScraped: { $ne: true },
+    }).select('_id sourceId').lean();
+
+    skipped += orgIds.size - items.length;
+    console.log(`[Dup Detail Org] ${orgIds.size} tổng → ${items.length} chưa cào, ${orgIds.size - items.length} đã bỏ qua`);
+
+    for (let i = 0; i < items.length; i += concurrency) {
+      if (typeof shouldStop === 'function' && shouldStop()) {
+        await reportProgress('Đã dừng khi đang cào detail org cho nhóm duplicate.');
+        break;
+      }
+
+      const chunk = items.slice(i, i + concurrency);
+      const results = await Promise.all(chunk.map(async (item) => {
+        try {
+          const { updates, files } = await fetchOrgItemDetail(item.sourceId);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files && files.length > 0) updates.files = files;
+          await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
+          return true;
+        } catch (err) {
+          console.error(`[Dup Detail Org] ❌ ${item.sourceId}:`, err.message);
+          return false;
+        }
+      }));
+
+      crawled += results.filter(Boolean).length;
+      errors += results.filter((r) => !r).length;
+
+      if ((i + concurrency) % 30 === 0 || i + concurrency >= items.length) {
+        await reportProgress(`Cào detail org duplicate: ${crawled} đã cào (bỏ qua ${skipped}, lỗi ${errors})`);
+      }
+    }
+  }
+
+  await reportProgress(`Cào detail nhóm duplicate hoàn tất: ${crawled} cào, ${skipped} bỏ qua, ${errors} lỗi`);
+  console.log(`✅ Cào detail duplicate: ${crawled} cào, ${skipped} bỏ qua, ${errors} lỗi`);
+  return { crawled, skipped, errors };
+}
+
+// ═══════════════════════════════════════════════════════
+// FUZZY MATCHING (JACCARD SIMILARITY > 70%)
+// ═══════════════════════════════════════════════════════
+const STOP_WORDS = new Set([
+  'quyền', 'sử', 'dụng', 'đất', 'sở', 'hữu', 'nhà', 'và', 'tài', 'sản', 'khác', 'gắn', 'liền', 'với',
+  'tại', 'địa', 'chỉ', 'số', 'thông', 'báo', 'việc', 'đấu', 'giá', 'danh', 'mục', 'đối', 'về', 'thực', 'hiện',
+  'tạm', 'dừng', 'cuộc', 'thành', 'phố', 'tỉnh', 'huyện', 'quận', 'phường', 'xã', 'thị', 'trấn', 'nay', 'là',
+  'của', 'ông', 'bà', 'công', 'ty', 'tnhh', 'cp', 'cổ', 'phần', 'kê', 'biên', 'bảo', 'đảm', 'thi', 'hành', 'án'
+]);
+
+function getWordSet(str) {
+  if (!str) return new Set();
+  const clean = str.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  return new Set(clean.split(' ').filter(w => w.length > 0 && !STOP_WORDS.has(w)));
+}
+
+
+async function getFuzzyNameGroups(Model, progressCallback) {
+  const items = await Model.find({ name: { $type: 'string', $ne: '' } })
+    .select('sourceId name province')
+    .maxTimeMS(0)
+    .lean();
+
+  if (progressCallback) await progressCallback(`Đã tải ${items.length} bản ghi để gom nhóm tương đồng 70%...`);
+
+  const buckets = {};
+  for (const item of items) {
+    const prov = item.province || 'unknown';
+    if (!buckets[prov]) buckets[prov] = {};
+    const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
+    buckets[prov][cleanName].push(item.sourceId);
+  }
+
+  const allFuzzyGroups = [];
+  const provKeys = Object.keys(buckets);
+  let processedProv = 0;
+
+  for (const prov of provKeys) {
+    const cleanNames = Object.keys(buckets[prov]);
+    if (cleanNames.length === 0) continue;
+
+    const data = cleanNames.map((name, i) => ({
+      index: i,
+      wordSet: getWordSet(name),
+      sourceIds: buckets[prov][name]
+    }));
+
+    // Tối ưu hoá cực mạnh: Sắp xếp mảng theo độ dài của từ
+    // Nếu sizeB > sizeA / 0.70 thì độ tương đồng chắc chắn < 0.70 (do |A giao B| <= |A|)
+    // Lúc này ta có thể ngắt luôn vòng lặp j (break) thay vì quét hết mảng.
+    data.sort((a, b) => a.wordSet.size - b.wordSet.size);
+
+    const parent = Array.from({ length: data.length }, (_, i) => i);
+    const find = (i) => {
+      if (parent[i] === i) return i;
+      return parent[i] = find(parent[i]);
+    };
+    const union = (i, j) => {
+      const rootI = find(i);
+      const rootJ = find(j);
+      if (rootI !== rootJ) parent[rootI] = rootJ;
+    };
+
+    for (let i = 0; i < data.length; i++) {
+      if (i % 200 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+        // IN RA MÀN HÌNH ĐỂ THẤY RÕ ĐANG CHẠY SO SÁNH
+        const pct = ((i / data.length) * 100).toFixed(1);
+        const sampleText = Array.from(data[i].wordSet).slice(0, 8).join(' ');
+        console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%) | Đang so sánh: "${sampleText}..."`);
+      }
+
+      const sizeA = data[i].wordSet.size;
+      const maxSizeB = sizeA / 0.70;
+
+      for (let j = i + 1; j < data.length; j++) {
+        const sizeB = data[j].wordSet.size;
+        
+        // Cực kỳ quan trọng: Mảng đã được sắp xếp tăng dần theo size.
+        // Nếu sizeB vượt quá giới hạn lý thuyết, mọi size phía sau cũng sẽ vượt, nên BREAK luôn!
+        if (sizeB > maxSizeB) break;
+
+        const maxSim = sizeA / sizeB; // Vì sizeA <= sizeB
+        if (maxSim < 0.70) continue;
+
+        const sim = jaccardSimilarity(data[i].wordSet, data[j].wordSet);
+        if (sim >= 0.70) {
+          union(i, j);
+        }
+      }
+    }
+
+    const provGroups = {};
+    for (let i = 0; i < data.length; i++) {
+      const root = find(i);
+      if (!provGroups[root]) provGroups[root] = [];
+      provGroups[root].push(...data[i].sourceIds);
+    }
+
+    for (const root in provGroups) {
+      const ids = [...new Set(provGroups[root])];
+      if (ids.length >= 2) {
+        allFuzzyGroups.push({ ids: ids });
+      }
+    }
+
+    processedProv++;
+    const msg = `Gom nhóm tương đồng 70%: đang xử lý [${prov}] (${data.length} mục) - Tiến độ: ${processedProv}/${provKeys.length} tỉnh/thành`;
+    console.log(`[DUPLICATE SCAN] ${msg}`); // Báo cáo trực tiếp ra màn hình Terminal ngay lập tức cho từng tỉnh!
+    
+    if (progressCallback && (processedProv % 2 === 0 || processedProv === provKeys.length)) {
+      await progressCallback(msg); // Lưu vào DB (và hiện lên web) mỗi 2 tỉnh để web không bị đơ
+    }
+  }
+
+  return allFuzzyGroups;
+}
+
 async function runFullDuplicateScan() {
   duplicateScanState.isRunning = true;
   duplicateScanState.cancelRequested = false;
@@ -950,10 +1324,24 @@ async function runFullDuplicateScan() {
 
   const saveProgress = async (message) => {
     if (message) {
+      console.log(`[DUPLICATE SCAN] ${message}`); // ADDED CONSOLE LOG SO USER SEES PROGRESS
       const currentMessages = Array.isArray(log.errorMessages) ? log.errorMessages : [];
       log.errorMessages = [...currentMessages.slice(-4), message];
     }
-    await log.save();
+    try {
+      await CrawlLog.updateOne({ _id: log._id }, {
+        $set: {
+          errorMessages: log.errorMessages,
+          status: log.status,
+          finishedAt: log.finishedAt,
+          itemsUpdated: log.itemsUpdated,
+          itemsSkipped: log.itemsSkipped,
+          pagesProcessed: log.pagesProcessed,
+        }
+      });
+    } catch (e) {
+      console.error('Lỗi update log:', e.message);
+    }
   };
 
   const ensureNotCancelled = async (message) => {
@@ -966,7 +1354,15 @@ async function runFullDuplicateScan() {
     const cancelMessage = message || 'Tiến trình quét duplicate đã được dừng thủ công.';
     const currentMessages = Array.isArray(log.errorMessages) ? log.errorMessages : [];
     log.errorMessages = [...currentMessages.slice(-4), cancelMessage];
-    await log.save();
+    try {
+      await CrawlLog.updateOne({ _id: log._id }, {
+        $set: {
+          errorMessages: log.errorMessages,
+          status: log.status,
+          finishedAt: log.finishedAt,
+        }
+      });
+    } catch (e) { }
 
     const cancelError = new Error(cancelMessage);
     cancelError.code = 'DUPLICATE_SCAN_CANCELLED';
@@ -1016,30 +1412,40 @@ async function runFullDuplicateScan() {
 
   try {
     console.log('[TRIGGER] Starting full duplicate scan...');
+    await saveProgress('Đang xoá dữ liệu duplicate cũ để tạo mới hoàn toàn...');
+    await Duplicate.deleteMany({});
 
     const auctions = await AuctionNotice.find({ relatedIds: { $exists: true, $not: { $size: 0 } } })
       .select('sourceId relatedIds')
+      .maxTimeMS(0)
       .lean();
-    const nameGroupsAuction = await AuctionNotice.aggregate([
-      { $match: { name: { $type: 'string', $ne: '' } } },
-      { $group: { _id: '$name', ids: { $push: '$sourceId' }, count: { $sum: 1 } } },
-      { $match: { count: { $gte: 2 } } }
-    ]);
+    await saveProgress('Đang gom nhóm AuctionNotice (tương đồng >70%)...');
+    const nameGroupsAuction = await getFuzzyNameGroups(AuctionNotice, saveProgress);
     await processTypeGroups('auction', 'AuctionNotice', auctions, nameGroupsAuction);
 
     const orgs = await OrgSelection.find({ relatedIds: { $exists: true, $not: { $size: 0 } } })
       .select('sourceId relatedIds')
+      .maxTimeMS(0)
       .lean();
-    const nameGroupsOrg = await OrgSelection.aggregate([
-      { $match: { name: { $type: 'string', $ne: '' } } },
-      { $group: { _id: '$name', ids: { $push: '$sourceId' }, count: { $sum: 1 } } },
-      { $match: { count: { $gte: 2 } } }
-    ]);
+    await saveProgress('Đang gom nhóm OrgSelection (tương đồng >70%)...');
+    const nameGroupsOrg = await getFuzzyNameGroups(OrgSelection, saveProgress);
     await processTypeGroups('org', 'OrgSelection', orgs, nameGroupsOrg);
 
     await ensureNotCancelled('Đã dừng trước khi khôi phục duplicate bị thiếu.');
-    await saveProgress('Đang khôi phục duplicate bị thiếu...');
-    await recoverMissingDuplicates(saveProgress, () => duplicateScanState.cancelRequested);
+    if (!duplicateScanState.skipDetailCrawl) {
+      await saveProgress('Đang khôi phục duplicate bị thiếu...');
+      await recoverMissingDuplicates(saveProgress, () => duplicateScanState.cancelRequested);
+    } else {
+      await saveProgress('Đã bỏ qua bước khôi phục dữ liệu bị thiếu (theo yêu cầu).');
+    }
+
+    await ensureNotCancelled('Đã dừng trước khi cào detail cho nhóm duplicate.');
+    if (!duplicateScanState.skipDetailCrawl) {
+      await saveProgress('Đang cào detail cho các bài trong nhóm duplicate...');
+      await crawlDuplicateGroupsDetail(saveProgress, () => duplicateScanState.cancelRequested);
+    } else {
+      await saveProgress('Đã bỏ qua bước cào detail (theo yêu cầu).');
+    }
 
     await ensureNotCancelled('Đã dừng trước khi rebuild toàn bộ duplicate entries.');
     await saveProgress('Đang rebuild toàn bộ entries duplicate...');
@@ -1057,7 +1463,15 @@ async function runFullDuplicateScan() {
       log.status = 'failed';
       log.finishedAt = new Date();
       log.errorMessages = [err instanceof Error ? err.message : String(err)].filter(Boolean);
-      await log.save();
+      try {
+        await CrawlLog.updateOne({ _id: log._id }, {
+          $set: {
+            errorMessages: log.errorMessages,
+            status: log.status,
+            finishedAt: log.finishedAt,
+          }
+        });
+      } catch (e) { }
     }
     console.error('[TRIGGER] Error in duplicate scan:', err);
     throw err;
@@ -1071,13 +1485,16 @@ module.exports = {
   fetchOrgItemDetail,
   fetchPublishHistory,
   handleDuplicate,
-  searchDuplicatesByExactName,
+  searchDuplicatesByFuzzyName,
   buildDuplicateEntries,
+  recrawlMissingAuctionDetails,
   crawlDetails,
   crawlOrgDetails,
   recoverMissingDuplicates,
   rebuildAllDuplicateEntries,
+  crawlDuplicateGroupsDetail,
   runFullDuplicateScan,
   requestDuplicateScanCancel,
   getDuplicateScanState,
+  setSkipDetailCrawl,
 };

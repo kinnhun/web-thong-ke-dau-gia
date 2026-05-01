@@ -214,47 +214,24 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+const AuctionNotice = require('../models/AuctionNotice');
+
 /**
  * GET /api/relisted/filters
- * Lấy các options để filter (province, type) dựa trên tập data đã relisted
+ * Lấy các options để filter (province, type, organizer)
  */
 router.get('/filters', async (req, res, next) => {
   try {
-    const pipeline = [
-      {
-        $match: {
-          type: 'auction',
-          relistCount: { $gt: 1 },
-        },
-      },
-      ...buildLatestNoticeLookupStages(),
-      {
-        $match: {
-          latestNotice: { $ne: null },
-        },
-      },
-      {
-        $facet: {
-          provinces: [
-            { $group: { _id: '$latestNotice.province', count: { $sum: 1 } } },
-            { $match: { _id: { $ne: null }, count: { $gt: 0 } } },
-            { $sort: { count: -1, _id: 1 } },
-          ],
-          types: [
-            { $group: { _id: '$latestNotice.type', count: { $sum: 1 } } },
-            { $match: { _id: { $ne: null }, count: { $gt: 0 } } },
-            { $sort: { count: -1, _id: 1 } },
-          ],
-        },
-      },
-    ];
-
-    const results = await Duplicate.aggregate(pipeline);
-    const filters = results[0] || { provinces: [], types: [] };
+    const [provinces, organizers, types] = await Promise.all([
+      AuctionNotice.distinct('province', { province: { $ne: '' } }),
+      AuctionNotice.distinct('organizer', { organizer: { $ne: '' } }),
+      AuctionNotice.distinct('type'),
+    ]);
 
     res.json({
-      provinces: (filters.provinces || []).map((p) => p._id).filter(Boolean),
-      types: (filters.types || []).map((t) => t._id).filter(Boolean),
+      provinces: provinces.filter(Boolean).sort(),
+      organizers: organizers.filter(Boolean).sort(),
+      types: types.filter(Boolean),
     });
   } catch (err) {
     next(err);

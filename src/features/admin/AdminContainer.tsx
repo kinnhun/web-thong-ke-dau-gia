@@ -13,8 +13,12 @@ import {
   triggerDetailCrawl,
   triggerDuplicateScan,
   triggerRecrawlMissingProperties,
+  triggerMegaDetailCrawl,
   triggerKillDuplicateScan,
+  triggerCrawlDuplicateDetails,
+  setSkipDetailCrawlSetting,
 } from "@/services/auction.service";
+import { continueTmpFullCrawl } from "@/services/tmp-full-crawl.service";
 
 const statusBadge = (s: string) => {
   const map: Record<string, string> = {
@@ -35,17 +39,17 @@ const statusBadge = (s: string) => {
 };
 
 const crawlTypeLabel: Record<string, string> = {
-  auction_notice: "Crawl danh sách đấu giá",
-  org_selection: "Crawl DS tổ chức",
-  detail: "Crawl chi tiết đấu giá",
-  org_detail: "Crawl chi tiết tổ chức",
+  auction_notice: "Crawl thông báo đấu giá",
   duplicate_scan: "Quét trùng lặp",
-  recrawl_missing_properties: "Cào lại tài sản thiếu detail",
+  recrawl_missing_properties: "Cào lại tài sản lỗi",
+  mega_detail_crawl: "Mega crawl chi tiết",
+  crawl_duplicate_details: "Cào detail nhóm trùng lặp",
 };
 
 export function AdminContainer() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  const [skipDetail, setSkipDetail] = useState(false);
   const [activeTab, setActiveTab] = useState<"raw" | "logs">("raw");
   const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
@@ -75,7 +79,7 @@ export function AdminContainer() {
         skippedCompleteCount?: number;
       };
 
-      if (name === "Cào lại tài sản") {
+      if (name === "Cào lại tài sản" || name === "Mega crawl chi tiết" || name === "Tiếp tục mega crawl" || name === "Cào detail trùng lặp") {
         const scannedLabel = payload.scannedCount !== undefined ? `Đã quét ${payload.scannedCount} item` : null;
         const matchedLabel = payload.totalMatched !== undefined ? `cần recrawl ${payload.totalMatched} item` : null;
         const skippedLabel = payload.skippedCompleteCount !== undefined ? `bỏ qua ${payload.skippedCompleteCount} item đủ dữ liệu` : null;
@@ -94,6 +98,9 @@ export function AdminContainer() {
       } else if (name === "Cào lại tài sản" && message.includes("Đang có tiến trình cào lại tài sản chạy nền")) {
         setActionResult("ℹ️ Cào lại tài sản đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
         refetchLogs();
+      } else if ((name === "Mega crawl chi tiết" || name === "Tiếp tục mega crawl") && message.includes("Đang có tiến trình mega crawl detail chạy nền")) {
+        setActionResult("ℹ️ Mega crawl chi tiết đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
+        refetchLogs();
       } else {
         setActionResult(`❌ ${name} thất bại: ${message}`);
       }
@@ -103,13 +110,24 @@ export function AdminContainer() {
   };
 
   const actions = [
-    { icon: RefreshCw, title: "Crawl danh sách", desc: "Thu thập tin mới", fn: () => triggerListCrawl(5, "auction") },
-    { icon: Database, title: "Crawl chi tiết", desc: "Lấy thông tin chi tiết", fn: () => triggerDetailCrawl(20, "auction") },
-    { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm bài đăng lại", fn: () => triggerDuplicateScan() },
-    { icon: XCircle, title: "Kill duplicate", desc: "Dừng quét trùng lặp đang chạy", fn: () => triggerKillDuplicateScan() },
-    { icon: GitMerge, title: "Crawl tổ chức", desc: "Crawl thông báo lựa chọn", fn: () => triggerListCrawl(5, "org") },
-    { icon: Eye, title: "Chi tiết tổ chức", desc: "Detail org selection", fn: () => triggerDetailCrawl(20, "org") },
-    { icon: Split, title: "Cào lại tài sản", desc: "Cào lại toàn bộ item thiếu detail / giá = 0", fn: () => triggerRecrawlMissingProperties(0, "auction") },
+    { icon: RefreshCw, title: "Crawl thủ công", desc: "Cập nhật dữ liệu mới", fn: () => triggerListCrawl(5, "auction") },
+    { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm & gộp bài trùng", fn: () => triggerDuplicateScan() },
+    { icon: XCircle, title: "Dừng quét trùng", desc: "Hủy quét trùng đang chạy", fn: () => triggerKillDuplicateScan() },
+    { icon: Split, title: "Sửa dữ liệu lỗi", desc: "Cào lại item thiếu chi tiết", fn: () => triggerRecrawlMissingProperties(0, "auction") },
+    { icon: Activity, title: "Mega Crawl", desc: "Quét chi tiết toàn bộ DB", fn: () => triggerMegaDetailCrawl(0, "auction", 10) },
+    { icon: RefreshCw, title: "Tiếp tục Mega Crawl", desc: "Chạy tiếp tiến trình dở dang", fn: () => continueTmpFullCrawl() },
+    { icon: GitMerge, title: "Cào detail trùng lặp", desc: "Cào detail cho bài trong nhóm trùng", fn: () => triggerCrawlDuplicateDetails() },
+    {
+      icon: skipDetail ? Activity : XCircle,
+      title: skipDetail ? "Đang BỎ QUA Detail" : "Cho phép cào Detail",
+      desc: "Chặn bot không cào detail khi bị lỗi 406",
+      fn: async () => {
+        const newStatus = !skipDetail;
+        setSkipDetail(newStatus);
+        const res = await setSkipDetailCrawlSetting(newStatus);
+        return { message: res.message || (newStatus ? "Đã TẮT cào detail." : "Đã BẬT cào detail.") };
+      }
+    },
   ];
 
   return (
@@ -130,20 +148,13 @@ export function AdminContainer() {
         </div>
       )}
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <div className="rounded-xl border bg-card p-3 sm:p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <Layers className="h-4 w-4" />
             <span className="text-xs font-medium">Thông báo đấu giá</span>
           </div>
           <div className="text-lg sm:text-xl font-bold num">{(stats?.totalAuctions ?? 0).toLocaleString("vi-VN")}</div>
-        </div>
-        <div className="rounded-xl border bg-card p-3 sm:p-4">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <FileBarChart className="h-4 w-4" />
-            <span className="text-xs font-medium">Lựa chọn tổ chức</span>
-          </div>
-          <div className="text-lg sm:text-xl font-bold num">{(stats?.totalOrg ?? 0).toLocaleString("vi-VN")}</div>
         </div>
         <div className="rounded-xl border bg-card p-3 sm:p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
@@ -161,10 +172,10 @@ export function AdminContainer() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-6">
         {actions.map((item) => {
           const isDuplicateAction = item.title === "Quét trùng lặp";
-          const isKillDuplicateAction = item.title === "Kill duplicate";
+          const isKillDuplicateAction = item.title === "Dừng quét trùng";
           const isDisabled = !!actionLoading || (isDuplicateAction && hasRunningDuplicateScan) || (isKillDuplicateAction && !hasRunningDuplicateScan);
 
           return (
@@ -324,7 +335,7 @@ export function AdminContainer() {
                           {duration !== null && <span>{duration}s</span>}
                         </div>
                         <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">
-                          {type === "recrawl_missing_properties" ? (
+                          {type === "recrawl_missing_properties" || type === "mega_detail_crawl" ? (
                             <>
                               {l.itemsInserted !== undefined && <span>Đã quét: <strong className="num">{String(l.itemsInserted)}</strong></span>}
                               {l.itemsSkipped !== undefined && <span> · Đủ dữ liệu bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}

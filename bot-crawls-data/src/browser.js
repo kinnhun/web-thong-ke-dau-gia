@@ -10,6 +10,8 @@ let browser = null;
 let page = null;
 let isReady = false;
 let requestChain = Promise.resolve();
+let requestCount = 0;
+const MAX_REQUESTS_BEFORE_RESTART = 200; // Restart browser after N requests to prevent memory leaks
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,11 +89,11 @@ async function createManagedPage() {
   nextPage.on('request', (req) => {
     const type = req.resourceType();
     if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
-      req.abort().catch(() => {});
+      req.abort().catch(() => { });
       return;
     }
 
-    req.continue().catch(() => {});
+    req.continue().catch(() => { });
   });
 
   nextPage.on('close', () => {
@@ -179,7 +181,7 @@ async function evaluateWithRecovery(executor, label, retries = 2) {
 
 async function runSerialized(executor) {
   const nextTask = requestChain.then(executor, executor);
-  requestChain = nextTask.catch(() => {});
+  requestChain = nextTask.catch(() => { });
   return nextTask;
 }
 
@@ -283,16 +285,16 @@ async function waitForRealPage(targetPage, maxWait = 30000) {
 /**
  * Fetch JSON từ API thông qua browser (bypass FEC)
  */
-async function fetchAPI(endpoint, params = {}) {
-  await initBrowser();
+async function fetchAPI(endpoint, params = {}, maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    await initBrowser();
 
-  const queryString = Object.entries(params)
-    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-    .join('&');
+    const queryString = Object.entries(params)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
 
-  const url = `${config.baseUrl}${endpoint}${queryString ? `?${queryString}` : ''}`;
+    const url = `${config.baseUrl}${endpoint}${queryString ? `?${queryString}` : ''}`;
 
-  return runSerialized(async () => {
     const result = await evaluateWithRecovery(async (activePage) => activePage.evaluate(async (fetchUrl) => {
       try {
         const controller = new AbortController();
@@ -308,7 +310,8 @@ async function fetchAPI(endpoint, params = {}) {
         clearTimeout(timeoutId);
 
         if (!res.ok) {
-          return { error: true, status: res.status, message: `HTTP ${res.status}` };
+          const isAuthError = res.status === 406 || res.status === 403;
+          return { error: true, status: res.status, isAuthError, message: `API Error: HTTP ${res.status} on ${fetchUrl.split('?')[0]}` };
         }
 
         const text = await res.text();
@@ -321,14 +324,32 @@ async function fetchAPI(endpoint, params = {}) {
       } catch (error) {
         return { error: true, message: error.message };
       }
-    }, url), `Fetch API ${endpoint}`, 2);
+    }, url), `Fetch API ${endpoint}`, 1);
 
     if (result.error) {
-      throw new Error(`API Error: ${result.message || result.status}`);
+      if (result.isAuthError && attempt <= maxRetries) {
+        console.warn(`⚠️ HTTP ${result.status} (Cookie/Session hết hạn), đang tải lại trang để lấy Cookie mới... (lần ${attempt}/${maxRetries})`);
+        isReady = false; // Ép buộc initBrowser() ở vòng lặp tiếp theo phải chạy lại
+        continue;
+      }
+      throw new Error(`${result.message || result.status}`);
+    }
+
+    // ★ Auto-restart browser sau mỗi N requests để giải phóng memory
+    requestCount++;
+    if (requestCount >= MAX_REQUESTS_BEFORE_RESTART) {
+      requestCount = 0;
+      console.log(`🔄 Browser auto-restart sau ${MAX_REQUESTS_BEFORE_RESTART} requests`);
+      // Schedule restart (không block hiện tại)
+      setTimeout(async () => {
+        try {
+          await cleanupBrowser();
+        } catch (e) { }
+      }, 100);
     }
 
     return result.data;
-  });
+  }
 }
 
 /**

@@ -3,31 +3,65 @@ const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const StatCache = require('../models/StatCache');
 
-async function refreshStats() {
-  try {
-    const now = new Date();
-    const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000);
-    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+// Throttle: không cho refresh stats quá thường xuyên
+let lastRefreshTime = 0;
+const MIN_REFRESH_INTERVAL = 60 * 1000; // 1 phút tối thiểu giữa 2 lần
 
-    // Compute stats sequentially to avoid MongoDB OOM/CPU spikes on VPS
-    const totalAuctions = await AuctionNotice.countDocuments();
-    const totalOrg = await OrgSelection.countDocuments();
+/**
+ * Refresh stats vào StatCache.
+ * Tối ưu:
+ *  - Dùng estimatedDocumentCount cho total (O(1) thay vì O(N))
+ *  - Chạy các aggregate tuần tự (tránh overload MongoDB trên VPS)
+ *  - Throttle 1 phút giữa mỗi lần refresh
+ */
+async function refreshStats() {
+  const now = Date.now();
+  if (now - lastRefreshTime < MIN_REFRESH_INTERVAL) {
+    return; // Skip - vừa refresh xong
+  }
+  lastRefreshTime = now;
+
+  try {
+    const nowDate = new Date();
+    const threeDaysAgo = new Date(nowDate - 3 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(nowDate - 7 * 24 * 60 * 60 * 1000);
+
+    // ★ Dùng estimatedDocumentCount cho total (O(1), không lock collection)
+    const totalAuctions = await AuctionNotice.estimatedDocumentCount();
+    const totalOrg = await OrgSelection.estimatedDocumentCount();
+
+    // Các count có filter vẫn cần countDocuments, nhưng chạy tuần tự
     const recentCount = await AuctionNotice.countDocuments({ publishedAt: { $gte: sevenDaysAgo } });
     const newIn72h = await AuctionNotice.countDocuments({ publishedAt: { $gte: threeDaysAgo } });
-    const byType = await AuctionNotice.aggregate([{ $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }]);
+    
+    // Aggregate nhẹ - giới hạn pipeline
+    const byType = await AuctionNotice.aggregate([
+      { $group: { _id: '$type', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]).option({ allowDiskUse: false });
+
     const byProvince = await AuctionNotice.aggregate([
       { $match: { province: { $ne: '' } } },
       { $group: { _id: '$province', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 20 },
+    ]).option({ allowDiskUse: false });
+
+    const byStatus = await AuctionNotice.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]).option({ allowDiskUse: false });
+
+    // Duplicate counts - nhẹ vì collection nhỏ hơn nhiều
+    const [totalAuctionDuplicates, totalOrgDuplicates, priceDropCount] = await Promise.all([
+      Duplicate.countDocuments({ type: 'auction' }),
+      Duplicate.countDocuments({ type: 'org' }),
+      Duplicate.countDocuments({ isPriceDrop: true }),
     ]);
-    const byStatus = await AuctionNotice.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
-    const totalAuctionDuplicates = await Duplicate.countDocuments({ type: 'auction' });
-    const totalOrgDuplicates = await Duplicate.countDocuments({ type: 'org' });
-    const priceDropCount = await Duplicate.countDocuments({ isPriceDrop: true });
+
     const pendingAuctionDetail = await AuctionNotice.countDocuments({ detailScraped: { $ne: true } });
     const pendingOrgDetail = await OrgSelection.countDocuments({ detailScraped: { $ne: true } });
     
+    // Discount stats - 1 aggregate trên Duplicate (collection nhỏ)
     const discountStats = await Duplicate.aggregate([
       {
         $match: {
@@ -92,20 +126,25 @@ async function refreshStats() {
       byStatus: byStatus.map(s => ({ status: s._id, count: s.count })),
     };
 
-    // Save to Cache Table
-    await StatCache.findOneAndUpdate(
-      { key: 'dashboard-stats' },
-      { data: dashboardStats, lastUpdated: new Date() },
-      { upsert: true, new: true }
-    );
+    // Save to Cache Table (bulkWrite thay vì 2 findOneAndUpdate riêng)
+    await StatCache.bulkWrite([
+      {
+        updateOne: {
+          filter: { key: 'dashboard-stats' },
+          update: { $set: { data: dashboardStats, lastUpdated: new Date() } },
+          upsert: true,
+        },
+      },
+      {
+        updateOne: {
+          filter: { key: 'auctions-stats' },
+          update: { $set: { data: auctionsStats, lastUpdated: new Date() } },
+          upsert: true,
+        },
+      },
+    ]);
 
-    await StatCache.findOneAndUpdate(
-      { key: 'auctions-stats' },
-      { data: auctionsStats, lastUpdated: new Date() },
-      { upsert: true, new: true }
-    );
-
-    console.log(`[${new Date().toISOString()}] Stats refreshed into StatCache collection.`);
+    console.log(`[${new Date().toISOString()}] Stats refreshed (${totalAuctions} auctions, ${totalOrg} org)`);
   } catch (err) {
     console.error('Error refreshing stats:', err.message);
   }

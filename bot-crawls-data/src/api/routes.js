@@ -7,6 +7,25 @@ const CrawlLog = require('../models/CrawlLog');
 
 const router = Router();
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildTextSearchFilter(searchQuery) {
+  const keyword = String(searchQuery || '').trim().slice(0, 120);
+  if (!keyword) return null;
+
+  // Nếu search bằng số → tìm sourceId chính xác (index hit)
+  if (/^\d+$/.test(keyword)) {
+    return { sourceId: Number(keyword) };
+  }
+
+  // Dùng text index thay vì regex → nhanh hơn 100x trên 500k+ docs
+  // Đóng ngoặc kép để bắt buộc MongoDB tìm CHÍNH XÁC CỤM TỪ (phrase match), 
+  // thay vì tìm mặc định theo kiểu OR (có chữ "đất" là ra hết)
+  return { $text: { $search: `"${keyword}"` } };
+}
+
 function buildProvinceFilter(provinceQuery) {
   if (!provinceQuery) return null;
 
@@ -29,6 +48,16 @@ function buildProvinceFilter(provinceQuery) {
 // AUCTION NOTICES
 // ═══════════════════════════════════
 
+// Projection: chỉ lấy fields cần thiết cho list → giảm 60% data transfer
+const AUCTION_LIST_FIELDS = {
+  sourceId: 1, name: 1, shortDescription: 1, type: 1, province: 1, address: 1,
+  initialPrice: 1, currentPrice: 1, deposit: 1, applicationFee: 1,
+  publishRound: 1, publishRoundLabel: 1, rootId: 1, relatedIds: 1,
+  publishedAt: 1, auctionDate: 1, registrationStart: 1, registrationEnd: 1,
+  status: 1, organizer: 1, owner: 1, sourceUrl: 1,
+  propertyTypeName: 1, propertyAmount: 1, properties: 1,
+};
+
 router.get('/auctions', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -39,16 +68,20 @@ router.get('/auctions', async (req, res, next) => {
     const provinceFilter = buildProvinceFilter(req.query.province);
     if (provinceFilter) filter.province = provinceFilter;
     if (req.query.status) filter.status = req.query.status;
-    if (req.query.search) filter.$text = { $search: req.query.search };
+    const searchFilter = buildTextSearchFilter(req.query.search);
+    if (searchFilter) Object.assign(filter, searchFilter);
     if (req.query.minPrice || req.query.maxPrice) {
       filter.currentPrice = {};
       if (req.query.minPrice) filter.currentPrice.$gte = parseInt(req.query.minPrice);
       if (req.query.maxPrice) filter.currentPrice.$lte = parseInt(req.query.maxPrice);
     }
     const sort = { [req.query.sort || 'publishedAt']: req.query.order === 'asc' ? 1 : -1 };
+
+    // Nếu không có filter → dùng estimatedDocumentCount (O(1) thay vì O(N))
+    const hasFilter = Object.keys(filter).length > 0;
     const [items, total] = await Promise.all([
-      AuctionNotice.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-      AuctionNotice.countDocuments(filter),
+      AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
+      hasFilter ? AuctionNotice.countDocuments(filter) : AuctionNotice.estimatedDocumentCount(),
     ]);
     res.json({
       items: items.map(transformAuction),
@@ -78,20 +111,39 @@ router.get('/auctions/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     let item;
-    if (id.match(/^[0-9a-fA-F]{24}$/)) item = await AuctionNotice.findById(id).lean();
-    else item = await AuctionNotice.findOne({ sourceId: parseInt(id) }).lean();
-    if (!item) return res.status(404).json({ error: true, message: 'Không tìm thấy' });
-
-    // Tìm related items qua relatedIds
-    let relatedItems = [];
-    if (item.relatedIds && item.relatedIds.length > 0) {
-      relatedItems = await AuctionNotice.find({ sourceId: { $in: item.relatedIds } })
-        .sort({ publishedAt: -1 }).limit(20).lean();
+    let isOrg = false;
+    if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      item = await AuctionNotice.findById(id).lean();
+      if (!item) {
+        item = await OrgSelection.findById(id).lean();
+        isOrg = true;
+      }
+    } else {
+      item = await AuctionNotice.findOne({ sourceId: parseInt(id) }).lean();
+      if (!item) {
+        item = await OrgSelection.findOne({ sourceId: parseInt(id) }).lean();
+        isOrg = true;
+      }
     }
 
-    // Tìm nhóm Duplicate chứa item này
+    // ★ Bỏ live-scrape: trả 404 ngay thay vì block 10-30s để cào
+    if (!item) return res.status(404).json({ error: true, message: 'Không tìm thấy' });
+
+    // Tìm related items + duplicate group song song (2 queries thay vì tuần tự)
+    const dupType = isOrg ? 'org' : 'auction';
+    const ModelToUse = isOrg ? OrgSelection : AuctionNotice;
+    const hasRelated = item.relatedIds && item.relatedIds.length > 0;
+
+    const [relatedItems, dup] = await Promise.all([
+      hasRelated
+        ? ModelToUse.find({ sourceId: { $in: item.relatedIds } })
+          .select('sourceId name initialPrice publishRound publishedAt')
+          .sort({ publishedAt: -1 }).limit(20).lean()
+        : [],
+      Duplicate.findOne({ sourceIds: item.sourceId, type: dupType }).lean(),
+    ]);
+
     let duplicateGroup = null;
-    const dup = await Duplicate.findOne({ sourceIds: item.sourceId, type: 'auction' }).lean();
     if (dup) {
       duplicateGroup = {
         id: dup._id.toString(),
@@ -179,6 +231,13 @@ router.get('/duplicates', async (req, res, next) => {
     if (req.query.search) filter.$text = { $search: req.query.search };
     if (req.query.priceDrop === 'true') filter.isPriceDrop = true;
 
+    const provinceFilter = buildProvinceFilter(req.query.province);
+    if (provinceFilter) filter.province = provinceFilter;
+
+    if (req.query.organizer) {
+      filter.organizer = { $regex: escapeRegex(req.query.organizer), $options: 'i' };
+    }
+
     const sort = {};
     if (req.query.sort === 'priceDropPercent') {
       sort.priceDropPercent = -1;
@@ -192,52 +251,37 @@ router.get('/duplicates', async (req, res, next) => {
       Duplicate.find(filter).sort(sort).skip(skip).limit(limit).lean(),
       Duplicate.countDocuments(filter),
     ]);
-    
-    // Nạp chi tiết các bài thông báo cho từng nhóm
-    const items = await Promise.all(rawItems.map(async (dup) => {
-      let notices = [];
-      if (dup.type === 'org') {
-        notices = await OrgSelection.find({ sourceId: { $in: dup.sourceIds || [] } })
-          .select('sourceId name startingPrice publishRound publishRoundLabel sourceUrl publishedAt status rootId')
-          .sort({ sourceId: 1 })
-          .lean();
-        notices.forEach(n => { n.initialPrice = n.startingPrice; }); // Chuẩn hóa name để dùng chung UI
-      } else {
-        notices = await AuctionNotice.find({ sourceId: { $in: dup.sourceIds || [] } })
+
+    // ★ FIX N+1: Thu thập TẤT CẢ sourceIds rồi query 1 lần duy nhất
+    const allSourceIds = [...new Set(rawItems.flatMap(d => d.sourceIds || []))];
+    const [auctionNotices, orgNotices] = await Promise.all([
+      allSourceIds.length > 0
+        ? AuctionNotice.find({ sourceId: { $in: allSourceIds } })
           .select('sourceId name initialPrice publishRound publishRoundLabel sourceUrl publishedAt status rootId')
-          .sort({ sourceId: 1 })
-          .lean();
-      }
-      
-      // Bổ sung các bài đăng chưa được cào data vào danh sách
-      const foundIds = notices.map(n => n.sourceId);
-      const missingIds = (dup.sourceIds || []).filter(id => !foundIds.includes(id));
-      missingIds.forEach(id => {
-        notices.push({
-          sourceId: id,
-          initialPrice: null,
-          publishRound: null,
-          sourceUrl: null,
-          publishedAt: null,
-          status: 'Chưa có dữ liệu',
-          isMissing: true
-        });
+          .lean()
+        : [],
+      allSourceIds.length > 0
+        ? OrgSelection.find({ sourceId: { $in: allSourceIds } })
+          .select('sourceId name startingPrice publishRound publishRoundLabel sourceUrl publishedAt status rootId')
+          .lean()
+        : [],
+    ]);
+
+    // Index theo sourceId để O(1) lookup
+    const auctionMap = new Map(auctionNotices.map(n => [n.sourceId, n]));
+    const orgMap = new Map(orgNotices.map(n => [n.sourceId, { ...n, initialPrice: n.startingPrice }]));
+
+    const items = rawItems.map((dup) => {
+      const noticeMap = dup.type === 'org' ? orgMap : auctionMap;
+      let notices = (dup.sourceIds || []).map(id => {
+        const n = noticeMap.get(id);
+        if (n) return n;
+        return { sourceId: id, initialPrice: null, publishRound: null, sourceUrl: null, publishedAt: null, status: 'Chưa có dữ liệu', isMissing: true };
       });
 
-      // Sắp xếp theo sourceId tăng dần (id nhỏ -> đăng trước)
       notices.sort((a, b) => a.sourceId - b.sourceId);
-      
-      // Gắn nhãn Lần 1, 2, 3... theo thứ tự sourceId để UI hiển thị mượt
-      notices.forEach((n, idx) => {
-        n.displayRound = idx + 1;
-      });
+      notices.forEach((n, idx) => { n.displayRound = idx + 1; });
 
-      // So sánh giá giữa các lần đăng
-      const prices = notices.map(n => n.initialPrice).filter(Boolean);
-      const isPriceDrop = dup.isPriceDrop || false;
-      const priceDropPercent = dup.priceDropPercent || 0;
-
-      // Tính chi tiết thay đổi giá
       let priceChanges = [];
       for (let i = 1; i < notices.length; i++) {
         const prev = notices[i - 1];
@@ -245,30 +289,39 @@ router.get('/duplicates', async (req, res, next) => {
         if (prev.initialPrice && curr.initialPrice) {
           const diff = curr.initialPrice - prev.initialPrice;
           const diffPercent = Math.round((diff / prev.initialPrice) * 10000) / 100;
-          priceChanges.push({
-            fromRound: i,
-            toRound: i + 1,
-            fromPrice: prev.initialPrice,
-            toPrice: curr.initialPrice,
-            diff,
-            diffPercent,
-            direction: diff < 0 ? 'down' : diff > 0 ? 'up' : 'same',
-          });
+          priceChanges.push({ fromRound: i, toRound: i + 1, fromPrice: prev.initialPrice, toPrice: curr.initialPrice, diff, diffPercent, direction: diff < 0 ? 'down' : diff > 0 ? 'up' : 'same' });
         }
       }
 
-      return {
-        ...dup,
-        notices,
-        isPriceDrop,
-        priceDropPercent,
-        firstPrice: dup.firstPrice || 0,
-        latestPrice: dup.latestPrice || 0,
-        priceChanges,
-      };
-    }));
+      return { ...dup, notices, isPriceDrop: dup.isPriceDrop || false, priceDropPercent: dup.priceDropPercent || 0, firstPrice: dup.firstPrice || 0, latestPrice: dup.latestPrice || 0, priceChanges };
+    });
 
     res.json({ items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+  } catch (err) { next(err); }
+});
+
+let duplicatesFilterCache = null;
+let duplicatesFilterCacheTime = 0;
+
+router.get('/duplicates/filters', async (req, res, next) => {
+  try {
+    if (duplicatesFilterCache && Date.now() - duplicatesFilterCacheTime < 3600000) {
+      return res.json(duplicatesFilterCache);
+    }
+    const [provinces, organizers] = await Promise.all([
+      Duplicate.distinct('province', { province: { $ne: null, $ne: '' } }),
+      Duplicate.distinct('organizer', { organizer: { $ne: null, $ne: '' } })
+    ]);
+
+    const sortedProvinces = provinces.filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
+    const sortedOrganizers = organizers.filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
+
+    duplicatesFilterCache = {
+      provinces: sortedProvinces,
+      organizers: sortedOrganizers
+    };
+    duplicatesFilterCacheTime = Date.now();
+    res.json(duplicatesFilterCache);
   } catch (err) { next(err); }
 });
 
@@ -328,11 +381,11 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
     const { crawlDetails, crawlOrgDetails } = require('../scrapers/detail.scraper');
     const limit = parseInt(req.body?.limit) || 30;
     const type = req.body?.type || 'all'; // 'auction', 'org', or 'all'
-    
+
     (async () => {
-      try { 
-        if (type === 'all' || type === 'auction') await crawlDetails({ maxItems: limit }); 
-        if (type === 'all' || type === 'org') await crawlOrgDetails({ maxItems: limit }); 
+      try {
+        if (type === 'all' || type === 'auction') await crawlDetails({ maxItems: limit });
+        if (type === 'all' || type === 'org') await crawlOrgDetails({ maxItems: limit });
       }
       catch (err) { console.error('[TRIGGER] Lỗi:', err); }
     })();
@@ -343,7 +396,7 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
 // Force re-crawl detail cho 1 item cụ thể (bỏ qua detailScraped)
 router.post('/trigger-recrawl-item', async (req, res, next) => {
   try {
-    const { fetchAuctionItemDetail, fetchOrgItemDetail, handleDuplicate, searchDuplicatesByExactName } = require('../scrapers/detail.scraper');
+    const { fetchAuctionItemDetail, fetchOrgItemDetail, handleDuplicate, searchDuplicatesByFuzzyName, recrawlMissingAuctionDetails } = require('../scrapers/detail.scraper');
     const sourceId = parseInt(req.body?.sourceId);
     const type = req.body?.type || 'auction'; // 'auction' or 'org'
     if (!sourceId) return res.status(400).json({ error: true, message: 'sourceId is required' });
@@ -363,10 +416,12 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
     await Model.updateOne({ _id: item._id }, { $set: updates });
 
     if (type === 'auction') {
-      const exactNameRelatedIds = await searchDuplicatesByExactName(sourceId, updates.name || item.name, 'auction');
+      const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
       const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
       if (allRelatedIds.length > 0) {
+        const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
         await handleDuplicate(sourceId, updates.name || item.name, allRelatedIds, 'auction');
+        console.log(`[RECRAWL] 🔁 related detail #${sourceId}:`, relatedDetailStats);
       }
     }
 
@@ -379,6 +434,242 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
       propertiesCount: properties.length,
       totalPrice: properties.reduce((sum, property) => sum + (property.startPrice || 0), 0),
       filesCount: (updates.files || files || []).length,
+    });
+  } catch (err) { next(err); }
+});
+
+// Mega crawl detail theo danh sách đã có: lấy 5000 item và cào detail như nút "Cào lại" ở trang detail
+router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
+  try {
+    const {
+      fetchAuctionItemDetail,
+      fetchOrgItemDetail,
+      handleDuplicate,
+      searchDuplicatesByFuzzyName,
+      recrawlMissingAuctionDetails,
+    } = require('../scrapers/detail.scraper');
+
+    const type = req.body?.type || 'auction';
+    const staleThresholdMs = 30 * 60 * 1000;
+
+    const Model = type === 'org' ? OrgSelection : AuctionNotice;
+    const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+    const maxMegaLimit = await Model.countDocuments({ sourceId: { $exists: true, $ne: null } });
+    const rawLimit = Number(req.body?.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxMegaLimit) : maxMegaLimit;
+    const rawConcurrency = Number(req.body?.concurrency);
+    const requestedConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 20;
+    const concurrency = Math.max(1, Math.min(requestedConcurrency, 100)); // Cấp max 100 cho crawl tốc độ cao
+
+    const runningHeavyLog = await CrawlLog.findOne({
+      status: 'running',
+      type: { $in: ['duplicate_scan', 'recrawl_missing_properties'] },
+    }).sort({ createdAt: -1 });
+
+    if (runningHeavyLog) {
+      return res.status(409).json({
+        success: false,
+        message: `Đang có tiến trình nặng ${runningHeavyLog.type} chạy nền. Vui lòng chờ hoàn tất hoặc dừng job đó trước khi mega crawl detail.`,
+        logId: runningHeavyLog._id,
+        startedAt: runningHeavyLog.startedAt || runningHeavyLog.createdAt,
+        updatedAt: runningHeavyLog.updatedAt,
+      });
+    }
+
+    const runningLog = await CrawlLog.findOne({
+      type: 'mega_detail_crawl',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Mega crawl detail cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép chạy lại.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: 'Đang có tiến trình mega crawl detail chạy nền. Vui lòng theo dõi trong Nhật ký crawl.',
+          logId: runningLog._id,
+          startedAt: runningLog.startedAt || runningLog.createdAt,
+          updatedAt: runningLog.updatedAt,
+        });
+      }
+    }
+
+    const isMissingString = (field) => ([
+      { [field]: { $exists: false } },
+      { [field]: null },
+      { [field]: '' },
+    ]);
+
+    const isMissingNumber = (field) => ([
+      { [field]: { $exists: false } },
+      { [field]: null },
+      { [field]: 0 },
+    ]);
+
+    const missingDetailQuery = type === 'org'
+      ? {
+        $and: [
+          {
+            $or: [
+              { detailScraped: { $ne: true } },
+              { properties: { $exists: false } },
+              { properties: { $size: 0 } },
+              ...isMissingNumber('startingPrice'),
+              ...isMissingString('name'),
+              ...isMissingString('province'),
+            ]
+          },
+          { $or: [{ zeroPriceRetryCount: { $exists: false } }, { zeroPriceRetryCount: { $lt: 2 } }] }
+        ]
+      }
+      : {
+        $and: [
+          {
+            $or: [
+              { detailScraped: { $ne: true } },
+              { properties: { $exists: false } },
+              { properties: { $size: 0 } },
+              ...isMissingNumber('initialPrice'),
+              ...isMissingString('name'),
+              ...isMissingString('province'),
+            ]
+          },
+          { $or: [{ zeroPriceRetryCount: { $exists: false } }, { zeroPriceRetryCount: { $lt: 2 } }] }
+        ]
+      };
+
+    const items = await Model.find(missingDetailQuery)
+      .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
+      .sort({ lastCrawledAt: 1, publishedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const log = await CrawlLog.create({
+      type: 'mega_detail_crawl',
+      startedAt: new Date(),
+      status: 'running',
+      totalPages: items.length,
+      pagesProcessed: 0,
+      itemsInserted: items.length,
+      itemsUpdated: 0,
+      itemsSkipped: 0,
+      errorMessages: [],
+      recentNotices: [],
+    });
+
+    (async () => {
+      const failedItems = [];
+      const recentNotices = [];
+      let ok = 0;
+      let fail = 0;
+      let processed = 0;
+      let index = 0;
+
+      const persistProgress = async (force = false) => {
+        log.pagesProcessed = processed;
+        log.itemsUpdated = ok;
+        log.itemsSkipped = fail;
+        log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+        log.recentNotices = recentNotices;
+
+        if (force || processed % 1000 === 0 || processed === items.length) {
+          await log.save();
+          console.log(`[MEGA-DETAIL] ${processed}/${items.length}... OK: ${ok}, lỗi: ${fail}, concurrency: ${concurrency}`);
+        }
+      };
+
+      const processItem = async (item) => {
+        try {
+          const { updates, files } = await fetchFn(item.sourceId);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files && files.length > 0) updates.files = files;
+
+          const priceField = type === 'org' ? 'startingPrice' : 'initialPrice';
+          const isStillMissingPrice = !updates.properties || updates.properties.length === 0 || !updates[priceField];
+
+          const updateCommand = { $set: updates };
+          if (isStillMissingPrice) {
+            updateCommand.$inc = { zeroPriceRetryCount: 1 };
+          } else {
+            updates.zeroPriceRetryCount = 0;
+          }
+
+          await Model.updateOne({ _id: item._id }, updateCommand);
+
+          if (type === 'auction') {
+            const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, updates.name || item.name, 'auction');
+            const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+            if (allRelatedIds.length > 0) {
+              await handleDuplicate(item.sourceId, updates.name || item.name, allRelatedIds, 'auction');
+            }
+          }
+
+          if (recentNotices.length < 5) {
+            recentNotices.push({
+              sourceId: item.sourceId,
+              name: updates.name || item.name,
+              province: updates.province || item.province,
+              publishedAt: updates.publishedAt || item.publishedAt,
+            });
+          }
+
+          console.log(`[CRAWLED] ${item.sourceId}`);
+
+          ok++;
+        } catch (err) {
+          fail++;
+          failedItems.push({ sourceId: item.sourceId, message: err.message });
+          console.error(`[MEGA-DETAIL] ❌ ${item.sourceId}:`, err.message);
+        } finally {
+          processed += 1;
+          await persistProgress(false);
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (index < items.length) {
+          const item = items[index++];
+          await processItem(item);
+        }
+      });
+
+      try {
+        console.log(`[MEGA-DETAIL] Bắt đầu mega crawl ${items.length} ${type}, concurrency=${concurrency}`);
+        await Promise.all(workers);
+        log.status = 'completed';
+        log.finishedAt = new Date();
+        await persistProgress(true);
+        console.log(`[MEGA-DETAIL] ✅ Hoàn thành: ${ok} OK, ${fail} lỗi`);
+      } catch (err) {
+        log.status = 'failed';
+        log.finishedAt = new Date();
+        log.errorMessages = [
+          ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
+          err.message,
+        ].slice(-10);
+        await log.save();
+        console.error('[MEGA-DETAIL] Background job failed:', err.message);
+      }
+    })();
+
+    return res.json({
+      success: true,
+      message: `Đã bắt đầu mega crawl ${items.length}/${maxMegaLimit} detail ${type} trong nền, chạy song song ${concurrency} worker`,
+      totalMatched: items.length,
+      concurrency,
+      logId: log._id,
     });
   } catch (err) { next(err); }
 });
@@ -409,51 +700,51 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
 
   const missingDetailQuery = type === 'org'
     ? {
-        $or: [
-          { detailScraped: { $ne: true } },
-          { properties: { $exists: false } },
-          { properties: { $size: 0 } },
-          ...isMissingString('name'),
-          ...isMissingString('shortDescription'),
-          ...isMissingString('owner'),
-          ...isMissingString('address'),
-          ...isMissingString('province'),
-          ...isMissingString('assetDescription'),
-          ...isMissingString('requirements'),
-          ...isMissingNumber('startingPrice'),
-          { receiveTimeStart: { $exists: false } },
-          { receiveTimeStart: null },
-          { receiveTimeEnd: { $exists: false } },
-          { receiveTimeEnd: null },
-        ],
-      }
+      $or: [
+        { detailScraped: { $ne: true } },
+        { properties: { $exists: false } },
+        { properties: { $size: 0 } },
+        ...isMissingString('name'),
+        ...isMissingString('shortDescription'),
+        ...isMissingString('owner'),
+        ...isMissingString('address'),
+        ...isMissingString('province'),
+        ...isMissingString('assetDescription'),
+        ...isMissingString('requirements'),
+        ...isMissingNumber('startingPrice'),
+        { receiveTimeStart: { $exists: false } },
+        { receiveTimeStart: null },
+        { receiveTimeEnd: { $exists: false } },
+        { receiveTimeEnd: null },
+      ],
+    }
     : {
-        $or: [
-          { detailScraped: { $ne: true } },
-          { properties: { $exists: false } },
-          { properties: { $size: 0 } },
-          ...isMissingString('name'),
-          ...isMissingString('shortDescription'),
-          ...isMissingString('type'),
-          ...isMissingString('province'),
-          ...isMissingString('address'),
-          ...isMissingString('organizer'),
-          ...isMissingString('owner'),
-          ...isMissingString('quality'),
-          ...isMissingString('propertyTypeName'),
-          ...isMissingString('propertyAmount'),
-          ...isMissingNumber('initialPrice'),
-          ...isMissingNumber('currentPrice'),
-          ...isMissingNumber('deposit'),
-          ...isMissingNumber('applicationFee'),
-          { auctionDate: { $exists: false } },
-          { auctionDate: null },
-          { registrationStart: { $exists: false } },
-          { registrationStart: null },
-          { registrationEnd: { $exists: false } },
-          { registrationEnd: null },
-        ],
-      };
+      $or: [
+        { detailScraped: { $ne: true } },
+        { properties: { $exists: false } },
+        { properties: { $size: 0 } },
+        ...isMissingString('name'),
+        ...isMissingString('shortDescription'),
+        ...isMissingString('type'),
+        ...isMissingString('province'),
+        ...isMissingString('address'),
+        ...isMissingString('organizer'),
+        ...isMissingString('owner'),
+        ...isMissingString('quality'),
+        ...isMissingString('propertyTypeName'),
+        ...isMissingString('propertyAmount'),
+        ...isMissingNumber('initialPrice'),
+        ...isMissingNumber('currentPrice'),
+        ...isMissingNumber('deposit'),
+        ...isMissingNumber('applicationFee'),
+        { auctionDate: { $exists: false } },
+        { auctionDate: null },
+        { registrationStart: { $exists: false } },
+        { registrationStart: null },
+        { registrationEnd: { $exists: false } },
+        { registrationEnd: null },
+      ],
+    };
 
   try {
     const runningLog = await CrawlLog.findOne({
@@ -648,35 +939,127 @@ router.post('/trigger-list-crawl', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/tmp/full-crawl/start', async (req, res, next) => {
-  try {
-    const command = [
+function launchTmpFullCrawl(startPage) {
+  const normalizedStartPage = Number.isFinite(startPage) && startPage > 0 ? Math.floor(startPage) : 1;
+  const isWindows = process.platform === 'win32';
+  const command = isWindows
+    ? `set CRAWL_DELAY_MS=0&& node src/crawler.js --type=auction --maxPages=0 --startPage=${normalizedStartPage} --pageSize=100 --listOnly=true`
+    : [
       'cd /var/www/web-thong-ke-dau-gia/bot-crawls-data',
       'pm2 delete mass-crawl || true',
-      'pm2 start src/crawler.js --name mass-crawl -- --type=auction --maxPages=0 --startPage=1 --pageSize=100 --listOnly=true',
+      `pm2 start src/crawler.js --name mass-crawl -- --type=auction --maxPages=0 --startPage=${normalizedStartPage} --pageSize=100 --listOnly=true`,
       'pm2 save',
     ].join(' && ');
 
-    exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
-      if (error) console.error('[TMP-FULL-CRAWL] start failed:', error.message, stderr);
-      else console.log('[TMP-FULL-CRAWL] started:', stdout);
-    });
+  exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+    if (error) console.error('[TMP-FULL-CRAWL] start failed:', error.message, stderr);
+    else console.log('[TMP-FULL-CRAWL] started:', stdout);
+  });
 
-    res.json({ success: true, message: 'Đã bật luồng mass-crawl riêng để cào đủ 547k dữ liệu.' });
+  return normalizedStartPage;
+}
+
+async function closeStaleAuctionNoticeLogs() {
+  const staleThresholdMs = 30 * 60 * 1000;
+  const runningLogs = await CrawlLog.find({ type: 'auction_notice', status: 'running' }).sort({ createdAt: -1 });
+  const activeLogs = [];
+
+  for (const log of runningLogs) {
+    const lastActiveAt = log.updatedAt || log.startedAt || log.createdAt;
+    const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+    const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+    if (isStale) {
+      log.status = 'failed';
+      log.finishedAt = new Date();
+      log.errorMessages = [
+        ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
+        'Tiến trình mass-crawl danh sách cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép tiếp tục.',
+      ].slice(-10);
+      await log.save();
+      continue;
+    }
+
+    activeLogs.push(log);
+  }
+
+  return activeLogs;
+}
+
+router.post('/tmp/full-crawl/start', async (req, res, next) => {
+  try {
+    launchTmpFullCrawl(1);
+    res.json({ success: true, message: 'Đã bật luồng mass-crawl riêng từ trang 1 để cào đủ 547k dữ liệu.' });
+  } catch (err) { next(err); }
+});
+
+router.post('/tmp/full-crawl/continue', async (req, res, next) => {
+  try {
+    const activeLogs = await closeStaleAuctionNoticeLogs();
+    const runningLog = activeLogs[0] || null;
+
+    if (runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: 'Đang có tiến trình mass-crawl danh sách chạy nền. Vui lòng theo dõi trong Nhật ký crawl.',
+        logId: runningLog._id,
+        startedAt: runningLog.startedAt || runningLog.createdAt,
+        updatedAt: runningLog.updatedAt,
+      });
+    }
+
+    const latestLog = await CrawlLog.findOne({ type: 'auction_notice' }).sort({ createdAt: -1 }).lean();
+    const lastProcessedPage = Number(latestLog?.lastPage) || Number(latestLog?.pagesProcessed) || 0;
+    const nextStartPage = Math.max(lastProcessedPage + 1, 1);
+    const startedPage = launchTmpFullCrawl(nextStartPage);
+
+    res.json({
+      success: true,
+      message: `Đã tiếp tục luồng mass-crawl riêng từ trang ${startedPage}.`,
+    });
   } catch (err) { next(err); }
 });
 
 router.get('/tmp/full-crawl/status', async (req, res, next) => {
   try {
-    const [totalSaved, detailDone, latestLog] = await Promise.all([
+    const [totalSaved, detailDone] = await Promise.all([
       AuctionNotice.countDocuments(),
       AuctionNotice.countDocuments({ detailScraped: true }),
-      CrawlLog.findOne({ type: 'auction_notice' }).sort({ createdAt: -1 }).lean(),
     ]);
 
+    const runningLogs = (await closeStaleAuctionNoticeLogs()).map((log) => log.toObject());
+    const latestLog = await CrawlLog.findOne({ type: 'auction_notice' }).sort({ createdAt: -1 }).lean();
+
     const target = 547632;
-    const totalPages = latestLog?.totalPages || 27382;
-    const pagesProcessed = latestLog?.pagesProcessed || 0;
+    const logsForStats = runningLogs.length > 0 ? runningLogs : (latestLog ? [latestLog] : []);
+    const sumField = (field) => logsForStats.reduce((total, log) => total + (Number(log?.[field]) || 0), 0);
+    const firstStartedAt = logsForStats.reduce((oldest, log) => {
+      const startedAt = log?.startedAt ? new Date(log.startedAt).getTime() : 0;
+      if (!startedAt) return oldest;
+      return oldest === 0 ? startedAt : Math.min(oldest, startedAt);
+    }, 0);
+    const elapsedSeconds = firstStartedAt > 0 ? Math.max(1, Math.floor((Date.now() - firstStartedAt) / 1000)) : 0;
+    const aggregateLog = logsForStats.length > 0 ? {
+      _id: latestLog?._id,
+      status: runningLogs.length > 0 ? 'running' : latestLog?.status,
+      startedAt: firstStartedAt > 0 ? new Date(firstStartedAt) : latestLog?.startedAt,
+      finishedAt: runningLogs.length > 0 ? null : latestLog?.finishedAt,
+      totalPages: sumField('totalPages') || latestLog?.totalPages || 27382,
+      pagesProcessed: sumField('pagesProcessed'),
+      itemsInserted: sumField('itemsInserted'),
+      itemsSkipped: sumField('itemsSkipped'),
+      itemsUpdated: sumField('itemsUpdated'),
+      recentNotices: latestLog?.recentNotices || [],
+      errorMessages: logsForStats.flatMap((log) => log?.errorMessages || []).slice(-20),
+      updatedAt: latestLog?.updatedAt,
+      workerCount: runningLogs.length,
+    } : null;
+
+    const totalPages = aggregateLog?.totalPages || 27382;
+    const pagesProcessed = aggregateLog?.pagesProcessed || 0;
+    const processedItems = (aggregateLog?.itemsInserted || 0) + (aggregateLog?.itemsUpdated || 0) + (aggregateLog?.itemsSkipped || 0);
+    const speedPerSecond = elapsedSeconds > 0 ? Number((processedItems / elapsedSeconds).toFixed(2)) : 0;
+    const insertPerSecond = elapsedSeconds > 0 ? Number(((aggregateLog?.itemsInserted || 0) / elapsedSeconds).toFixed(2)) : 0;
     const progressPercent = Math.min(100, Number(((totalSaved / target) * 100).toFixed(2)));
     const pagePercent = totalPages > 0 ? Math.min(100, Number(((pagesProcessed / totalPages) * 100).toFixed(2))) : 0;
 
@@ -688,19 +1071,25 @@ router.get('/tmp/full-crawl/status', async (req, res, next) => {
       detailPending: Math.max(totalSaved - detailDone, 0),
       progressPercent,
       pagePercent,
-      latestLog: latestLog ? {
-        id: latestLog._id,
-        status: latestLog.status || 'running',
-        startedAt: latestLog.startedAt,
-        finishedAt: latestLog.finishedAt,
+      speedPerSecond,
+      insertPerSecond,
+      processedItems,
+      elapsedSeconds,
+      workerCount: runningLogs.length,
+      latestLog: aggregateLog ? {
+        id: aggregateLog._id,
+        status: aggregateLog.status || 'running',
+        startedAt: aggregateLog.startedAt,
+        finishedAt: aggregateLog.finishedAt,
         totalPages,
         pagesProcessed,
-        itemsInserted: latestLog.itemsInserted || 0,
-        itemsSkipped: latestLog.itemsSkipped || 0,
-        itemsUpdated: latestLog.itemsUpdated || 0,
-        recentNotices: latestLog.recentNotices || [],
-        errorMessages: latestLog.errorMessages || [],
-        updatedAt: latestLog.updatedAt,
+        itemsInserted: aggregateLog.itemsInserted || 0,
+        itemsSkipped: aggregateLog.itemsSkipped || 0,
+        itemsUpdated: aggregateLog.itemsUpdated || 0,
+        recentNotices: aggregateLog.recentNotices || [],
+        errorMessages: aggregateLog.errorMessages || [],
+        updatedAt: aggregateLog.updatedAt,
+        workerCount: aggregateLog.workerCount || 0,
       } : null,
     });
   } catch (err) { next(err); }
@@ -710,6 +1099,21 @@ router.post('/trigger-duplicate-scan', async (req, res, next) => {
   try {
     const { runFullDuplicateScan } = require('../scrapers/detail.scraper');
     const staleThresholdMs = 30 * 60 * 1000;
+
+    const runningHeavyLog = await CrawlLog.findOne({
+      status: 'running',
+      type: { $in: ['mega_detail_crawl', 'recrawl_missing_properties'] },
+    }).sort({ createdAt: -1 });
+
+    if (runningHeavyLog) {
+      return res.status(409).json({
+        success: false,
+        message: `Đang có tiến trình nặng ${runningHeavyLog.type} chạy nền. Vui lòng chờ hoàn tất hoặc dừng job đó trước khi quét trùng lặp.`,
+        logId: runningHeavyLog._id,
+        startedAt: runningHeavyLog.startedAt || runningHeavyLog.createdAt,
+        updatedAt: runningHeavyLog.updatedAt,
+      });
+    }
 
     const runningLog = await CrawlLog.findOne({
       type: 'duplicate_scan',
@@ -758,11 +1162,28 @@ router.post('/trigger-duplicate-scan', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.post('/skip-detail-crawl-setting', async (req, res) => {
+  try {
+    const { skip } = req.body;
+    const { setSkipDetailCrawl } = require('../scrapers/detail.scraper');
+    
+    const newStatus = setSkipDetailCrawl(skip);
+    
+    res.json({
+      success: true,
+      skipDetailCrawl: newStatus,
+      message: `Đã ${newStatus ? 'BẬT' : 'TẮT'} chế độ bỏ qua cào dữ liệu khi bị chặn.`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Trigger rebuild entries cho Duplicate cũ (migration)
 router.post('/trigger-rebuild-duplicates', async (req, res, next) => {
   try {
     const { rebuildAllDuplicateEntries } = require('../scrapers/detail.scraper');
-    
+
     (async () => {
       try {
         await rebuildAllDuplicateEntries();
@@ -770,8 +1191,81 @@ router.post('/trigger-rebuild-duplicates', async (req, res, next) => {
         console.error('[TRIGGER] Rebuild error:', err);
       }
     })();
-    
+
     res.json({ success: true, message: 'Đã bắt đầu rebuild entries + price cho tất cả nhóm Duplicate.' });
+  } catch (err) { next(err); }
+});
+
+// Trigger cào detail cho tất cả bài trong nhóm duplicate
+router.post('/trigger-crawl-duplicate-details', async (req, res, next) => {
+  try {
+    const { crawlDuplicateGroupsDetail } = require('../scrapers/detail.scraper');
+
+    // Không cho chạy nếu đang có duplicate scan hoặc mega crawl
+    const runningLog = await CrawlLog.findOne({
+      status: 'running',
+      type: { $in: ['duplicate_scan', 'mega_detail_crawl'] },
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: `Đang có tiến trình ${runningLog.type} chạy nền. Vui lòng chờ hoàn tất trước.`,
+      });
+    }
+
+    const log = await CrawlLog.create({
+      type: 'crawl_duplicate_details',
+      startedAt: new Date(),
+      status: 'running',
+      itemsUpdated: 0,
+      itemsSkipped: 0,
+      pagesProcessed: 0,
+      errorMessages: ['Bắt đầu cào detail cho các bài trong nhóm duplicate.'],
+    });
+
+    (async () => {
+      try {
+        const saveProgress = async (message) => {
+          if (message) {
+            const currentMessages = Array.isArray(log.errorMessages) ? log.errorMessages : [];
+            log.errorMessages = [...currentMessages.slice(-4), message];
+          }
+          try {
+            await CrawlLog.updateOne({ _id: log._id }, {
+              $set: {
+                errorMessages: log.errorMessages,
+                status: log.status,
+                finishedAt: log.finishedAt,
+                itemsUpdated: log.itemsUpdated,
+                itemsSkipped: log.itemsSkipped,
+                pagesProcessed: log.pagesProcessed,
+              }
+            });
+          } catch (e) { }
+        };
+
+        const result = await crawlDuplicateGroupsDetail(saveProgress);
+        log.status = 'completed';
+        log.finishedAt = new Date();
+        log.itemsUpdated = result.crawled || 0;
+        log.itemsSkipped = result.skipped || 0;
+        log.pagesProcessed = result.errors || 0;
+        await CrawlLog.updateOne({ _id: log._id }, { $set: { status: log.status, finishedAt: log.finishedAt, itemsUpdated: log.itemsUpdated, itemsSkipped: log.itemsSkipped, pagesProcessed: log.pagesProcessed } });
+      } catch (err) {
+        log.status = 'failed';
+        log.finishedAt = new Date();
+        log.errorMessages = [err instanceof Error ? err.message : String(err)];
+        await CrawlLog.updateOne({ _id: log._id }, { $set: { status: log.status, finishedAt: log.finishedAt, errorMessages: log.errorMessages } });
+        console.error('[TRIGGER] Crawl duplicate details error:', err);
+      }
+    })();
+
+    res.json({
+      success: true,
+      message: 'Đã bắt đầu cào detail cho tất cả bài trong nhóm duplicate.',
+      logId: log._id,
+    });
   } catch (err) { next(err); }
 });
 
@@ -835,9 +1329,9 @@ function transformAuction(doc) {
   return {
     id: doc._id.toString(), sourceId: doc.sourceId,
     name: doc.name || '', shortDescription: doc.shortDescription || '',
-    type: doc.type || 'other', province: doc.province || '',
+    type: doc.type || (doc.startingPrice ? 'org' : 'other'), province: doc.province || '',
     address: doc.address || '',
-    initialPrice: doc.initialPrice || 0, currentPrice: doc.currentPrice || 0,
+    initialPrice: doc.initialPrice || doc.startingPrice || 0, currentPrice: doc.currentPrice || doc.startingPrice || 0,
     deposit: doc.deposit || 0, applicationFee: doc.applicationFee || 0,
     publishRound: doc.publishRound || 1,
     publishRoundLabel: doc.publishRoundLabel || '',

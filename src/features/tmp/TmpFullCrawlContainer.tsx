@@ -1,8 +1,12 @@
-import { RefreshCw, Rocket, Database, FileCheck2, AlertTriangle, Activity } from 'lucide-react';
+import { RefreshCw, Rocket, Database, FileCheck2, AlertTriangle, Activity, PlayCircle } from 'lucide-react';
 import { useTmpFullCrawl } from './hooks/useTmpFullCrawl';
 
 function formatNumber(value?: number) {
   return new Intl.NumberFormat('vi-VN').format(value || 0);
+}
+
+function formatSpeed(value?: number) {
+  return `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value || 0)} bài/s`;
 }
 
 function formatDate(value?: string) {
@@ -17,8 +21,9 @@ function formatDate(value?: string) {
 }
 
 export function TmpFullCrawlContainer() {
-  const { status, isLoading, isStarting, error, notice, refresh, start } = useTmpFullCrawl();
+  const { status, isLoading, isStarting, isContinuing, error, notice, refresh, start, continueCrawl } = useTmpFullCrawl();
   const log = status?.latestLog;
+  const nextPage = Math.max((log?.pagesProcessed || 0) + 1, 1);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#172554_0,#020617_38%,#030712_100%)] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
@@ -35,6 +40,9 @@ export function TmpFullCrawlContainer() {
               <p className="mt-3 max-w-3xl text-base text-slate-300">
                 Trang này hiển thị riêng tiến độ luồng crawler PM2 đang quét toàn bộ danh sách đấu giá, không phụ thuộc thao tác admin thông thường.
               </p>
+              <p className="mt-3 text-sm font-semibold text-cyan-100/90">
+                Điểm tiếp tục đề xuất: trang {formatNumber(nextPage)}
+              </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button
@@ -44,6 +52,15 @@ export function TmpFullCrawlContainer() {
                 type="button"
               >
                 <RefreshCw className="h-4 w-4" /> Làm mới
+              </button>
+              <button
+                id="tmp-continue-full-crawl"
+                onClick={() => void continueCrawl()}
+                disabled={isContinuing}
+                className="inline-flex items-center gap-2 rounded-2xl border border-emerald-300/30 bg-emerald-400/15 px-5 py-3 font-black text-emerald-50 shadow-lg shadow-emerald-500/20 transition hover:-translate-y-0.5 hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+              >
+                <PlayCircle className="h-4 w-4" /> {isContinuing ? 'Đang tiếp tục...' : 'Tiếp tục từ trang kế'}
               </button>
               <button
                 id="tmp-start-full-crawl"
@@ -67,7 +84,7 @@ export function TmpFullCrawlContainer() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Metric icon={<Database />} label="Đã lưu MongoDB" value={formatNumber(status?.totalSaved)} hint={`/ ${formatNumber(status?.target || 547632)} bản ghi`} />
-          <Metric icon={<Rocket />} label="Còn thiếu tới target" value={formatNumber(status?.missingToTarget)} hint={`${status?.progressPercent || 0}% dữ liệu`} />
+          <Metric icon={<Rocket />} label="Tốc độ hiện tại" value={formatSpeed(status?.speedPerSecond)} hint={`Mới: ${formatSpeed(status?.insertPerSecond)} · ${formatNumber(status?.workerCount)} worker`} />
           <Metric icon={<FileCheck2 />} label="Detail đã đủ" value={formatNumber(status?.detailDone)} hint={`${formatNumber(status?.detailPending)} còn chờ detail`} />
           <Metric icon={<Activity />} label="Trang đã quét" value={`${formatNumber(log?.pagesProcessed)} / ${formatNumber(log?.totalPages || 27382)}`} hint={`${status?.pagePercent || 0}% số trang`} />
         </div>
@@ -88,21 +105,21 @@ export function TmpFullCrawlContainer() {
                 <div className="mt-1 text-sm text-slate-400">Số liệu lấy trực tiếp từ CrawlLog của tiến trình mass-crawl.</div>
               </div>
               <div className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-black text-emerald-100">
-                Mới: {formatNumber(log?.itemsInserted)} · Cập nhật: {formatNumber(log?.itemsUpdated)} · Bỏ qua: {formatNumber(log?.itemsSkipped)} · Trang: {formatNumber(log?.pagesProcessed)}
+                Mới: {formatNumber(log?.itemsInserted)} · Cập nhật: {formatNumber(log?.itemsUpdated)} · Bỏ qua: {formatNumber(log?.itemsSkipped)} · Trang: {formatNumber(log?.pagesProcessed)} · Tốc độ: {formatSpeed(status?.speedPerSecond)}
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <DetailStat label="Mới" value={formatNumber(log?.itemsInserted)} tone="from-emerald-400/25 to-cyan-400/10" />
               <DetailStat label="Cập nhật" value={formatNumber(log?.itemsUpdated)} tone="from-sky-400/25 to-blue-400/10" />
               <DetailStat label="Bỏ qua" value={formatNumber(log?.itemsSkipped)} tone="from-amber-400/25 to-orange-400/10" />
-              <DetailStat label="Trang" value={formatNumber(log?.pagesProcessed)} tone="from-fuchsia-400/25 to-violet-400/10" />
+              <DetailStat label="Tốc độ" value={formatSpeed(status?.speedPerSecond)} tone="from-lime-400/25 to-emerald-400/10" />
             </div>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <Info label="Trạng thái log" value={isLoading ? 'Đang tải...' : log?.status || 'Chưa có log'} />
-            <Info label="Bắt đầu" value={formatDate(log?.startedAt)} />
-            <Info label="Cập nhật" value={formatDate(log?.updatedAt)} />
+            <Info label="Worker đang chạy" value={formatNumber(status?.workerCount || log?.workerCount || 0)} />
+            <Info label="Đã xử lý / thời gian" value={`${formatNumber(status?.processedItems)} bài / ${formatNumber(status?.elapsedSeconds)}s`} />
           </div>
         </div>
 

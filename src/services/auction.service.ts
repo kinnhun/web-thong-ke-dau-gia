@@ -170,7 +170,22 @@ export async function triggerRecrawlMissingProperties(limit = 50, type = 'auctio
   return data;
 }
 
+export async function triggerMegaDetailCrawl(limit = 0, type = 'auction', concurrency = 10000) {
+  const { data } = await httpClient.post('/api/trigger-mega-detail-crawl', { limit, type, concurrency });
+  return data;
+}
+
 export async function triggerKillDuplicateScan() {
   const { data } = await httpClient.post('/api/trigger-kill-duplicate-scan');
+  return data;
+}
+
+export async function triggerCrawlDuplicateDetails() {
+  const { data } = await httpClient.post('/api/trigger-crawl-duplicate-details');
+  return data;
+}
+
+export async function setSkipDetailCrawlSetting(skip: boolean) {
+  const { data } = await httpClient.post('/api/skip-detail-crawl-setting', { skip });
   return data;
 }

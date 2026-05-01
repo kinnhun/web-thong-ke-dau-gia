@@ -1,6 +1,32 @@
 /**
  * Chuyển chuỗi tiếng Việt thành slug URL
  */
+function getBigrams(str) {
+  if (!str) return new Set();
+  const clean = str.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = clean.split(' ');
+  const bigrams = new Set();
+  for (let i = 0; i < words.length - 1; i++) {
+    bigrams.add(`${words[i]} ${words[i+1]}`);
+  }
+  if (words.length === 1) bigrams.add(words[0]);
+  return bigrams;
+}
+
+function jaccardSimilarity(setA, setB) {
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersectionSize = 0;
+  const [smaller, larger] = setA.size < setB.size ? [setA, setB] : [setB, setA];
+  for (const item of smaller) {
+    if (larger.has(item)) intersectionSize++;
+  }
+  const unionSize = setA.size + setB.size - intersectionSize;
+  return intersectionSize / unionSize;
+}
+
+/**
+ * Chuyển chuỗi tiếng Việt thành slug URL
+ */
 function slugify(str) {
   if (!str) return '';
   const map = {
@@ -148,4 +174,6 @@ module.exports = {
   deriveStatus,
   delay,
   PROVINCES,
+  getBigrams,
+  jaccardSimilarity,
 };

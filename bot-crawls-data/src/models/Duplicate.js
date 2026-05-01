@@ -25,6 +25,8 @@ const duplicateSchema = new mongoose.Schema({
   name: { type: String, required: true, index: true },
   sourceIds: [Number],
   type: { type: String, enum: ['auction', 'org'], default: 'auction' },
+  province: { type: String, index: true },
+  organizer: { type: String, index: true },
 
   // Chi tiết từng lần đăng (sắp xếp theo thời gian)
   entries: [relistEntrySchema],

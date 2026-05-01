@@ -96,6 +96,7 @@ const auctionNoticeSchema = new mongoose.Schema({
 
   // Crawl tracking
   detailScraped: { type: Boolean, default: false },
+  zeroPriceRetryCount: { type: Number, default: 0 },
   lastCrawledAt: Date,
 }, {
   timestamps: true,
@@ -110,5 +111,12 @@ auctionNoticeSchema.index({ name: 'text', shortDescription: 'text', address: 'te
 auctionNoticeSchema.index({ type: 1, province: 1 });
 auctionNoticeSchema.index({ publishedAt: -1 });
 auctionNoticeSchema.index({ auctionDate: -1 });
+
+// ★ Indexes cho mega crawl queries (detailScraped filter)
+auctionNoticeSchema.index({ detailScraped: 1, publishedAt: -1 });
+auctionNoticeSchema.index({ lastCrawledAt: 1, publishedAt: -1 });
+
+// ★ Index cho price range filter
+auctionNoticeSchema.index({ currentPrice: 1 });
 
 module.exports = mongoose.model('AuctionNotice', auctionNoticeSchema);

@@ -13,18 +13,29 @@
  */
 require('dotenv').config();
 const cron = require('node-cron');
-const { connectDB } = require('./db');
+const { connectDB, closeDB } = require('./db');
 const { closeBrowser } = require('./browser');
 const { crawlAuctionNotices } = require('./scrapers/auctionNotice.scraper');
 const { crawlOrgSelections } = require('./scrapers/orgSelection.scraper');
 const config = require('./config');
 const { refreshStats } = require('./services/stats.service');
+const CrawlLog = require('./models/CrawlLog');
 
 let isCrawling = false; // Tránh chạy chồng lấn
 
 async function runAutoCrawl() {
   if (isCrawling) {
     console.log(`⏭️  [${timeNow()}] Bỏ qua - đợt trước vẫn đang chạy`);
+    return;
+  }
+
+  const runningHeavyLog = await CrawlLog.findOne({
+    status: 'running',
+    type: { $in: ['mega_detail_crawl', 'duplicate_scan', 'recrawl_missing_properties'] },
+  }).sort({ createdAt: -1 }).lean();
+
+  if (runningHeavyLog) {
+    console.log(`⏭️  [${timeNow()}] Bỏ qua auto-crawl - đang chạy job nặng ${runningHeavyLog.type}`);
     return;
   }
 
@@ -35,10 +46,11 @@ async function runAutoCrawl() {
 
   try {
     // Cào thông báo đấu giá (list + detail + sample, all-in-one)
-    await crawlAuctionNotices({ isAuto: true });
-
-    // Đã decommission luồng lựa chọn tổ chức đấu giá để hệ thống chỉ tập trung vào auction notice.
-    // await crawlOrgSelections({ isAuto: true });
+    // ★ Chạy song song 2 loại crawl thay vì tuần tự
+    await Promise.all([
+      crawlAuctionNotices({ isAuto: true }),
+      crawlOrgSelections({ isAuto: true })
+    ]);
 
     // Cập nhật thống kê vào bảng tạm
     await refreshStats();
@@ -84,18 +96,31 @@ async function main() {
     console.log(`   - GET /api/crawl-logs           Lịch sử crawl`);
   });
 
-  // Schedule auto-crawl mỗi 5 phút
-  const schedule = process.env.CRON_SCHEDULE || '*/5 * * * *';
+  // Dọn dẹp CrawlLog bị treo (running nhưng quá cũ)
+  try {
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 giờ
+    const cleaned = await CrawlLog.updateMany(
+      { status: 'running', updatedAt: { $lt: staleThreshold } },
+      { $set: { status: 'failed', finishedAt: new Date() }, $push: { errorMessages: 'Auto-closed: stale running log' } }
+    );
+    if (cleaned.modifiedCount > 0) {
+      console.log(`🧹 Đã dọn ${cleaned.modifiedCount} CrawlLog bị treo`);
+    }
+  } catch (e) { /* ignore */ }
+
+  // Schedule auto-crawl mỗi 15 phút (giảm từ 5 phút để bớt tải)
+  const schedule = process.env.CRON_SCHEDULE || '*/15 * * * *';
   cron.schedule(schedule, runAutoCrawl);
-  console.log(`\n⏰ Auto-crawl schedule: ${schedule} (mỗi 5 phút)`);
+  console.log(`\n⏰ Auto-crawl schedule: ${schedule}`);
   console.log(`🔄 Skip threshold: ${config.crawl.skipThreshold} bản cũ liên tiếp → dừng sớm`);
 
-  // Chạy lần đầu sau 5 giây (có thể tắt khi debug/restart server)
-  if (process.env.DISABLE_STARTUP_AUTO_CRAWL === 'true') {
-    console.log(`\n⏸️ Bỏ qua crawl khởi động do DISABLE_STARTUP_AUTO_CRAWL=true`);
-  } else {
+  // Mặc định không chạy crawl lúc khởi động để tránh tranh browser với mega crawl/manual job.
+  // Nếu cần bật lại: STARTUP_AUTO_CRAWL=true npm run dev:backend
+  if (process.env.STARTUP_AUTO_CRAWL === 'true') {
     console.log(`\n🚀 Crawl lần đầu sau 5 giây...`);
     setTimeout(runAutoCrawl, 5000);
+  } else {
+    console.log(`\n⏸️ Bỏ qua crawl khởi động. Bật STARTUP_AUTO_CRAWL=true nếu cần.`);
   }
 
   // Tính toán stats ban đầu
@@ -105,10 +130,12 @@ async function main() {
   process.on('SIGINT', async () => {
     console.log('\n🛑 Đang shutdown...');
     await closeBrowser();
+    await closeDB();
     process.exit(0);
   });
   process.on('SIGTERM', async () => {
     await closeBrowser();
+    await closeDB();
     process.exit(0);
   });
 }

@@ -20,6 +20,7 @@ export interface TmpFullCrawlLog {
   recentNotices: TmpFullCrawlNotice[];
   errorMessages: string[];
   updatedAt?: string;
+  workerCount?: number;
 }
 
 export interface TmpFullCrawlStatus {
@@ -30,7 +31,17 @@ export interface TmpFullCrawlStatus {
   detailPending: number;
   progressPercent: number;
   pagePercent: number;
+  speedPerSecond: number;
+  insertPerSecond: number;
+  processedItems: number;
+  elapsedSeconds: number;
+  workerCount: number;
   latestLog: TmpFullCrawlLog | null;
+}
+
+export interface TmpFullCrawlActionResponse {
+  success: boolean;
+  message: string;
 }
 
 export async function getTmpFullCrawlStatus(): Promise<TmpFullCrawlStatus> {
@@ -38,7 +49,12 @@ export async function getTmpFullCrawlStatus(): Promise<TmpFullCrawlStatus> {
   return response.data;
 }
 
-export async function startTmpFullCrawl(): Promise<{ success: boolean; message: string }> {
-  const response = await httpClient.post<{ success: boolean; message: string }>('/api/tmp/full-crawl/start');
+export async function startTmpFullCrawl(): Promise<TmpFullCrawlActionResponse> {
+  const response = await httpClient.post<TmpFullCrawlActionResponse>('/api/tmp/full-crawl/start');
+  return response.data;
+}
+
+export async function continueTmpFullCrawl(): Promise<TmpFullCrawlActionResponse> {
+  const response = await httpClient.post<TmpFullCrawlActionResponse>('/api/tmp/full-crawl/continue');
   return response.data;
 }

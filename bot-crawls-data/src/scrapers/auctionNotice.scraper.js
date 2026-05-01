@@ -6,12 +6,34 @@ const config = require('../config');
 const { fetchAPI } = require('../browser');
 const AuctionNotice = require('../models/AuctionNotice');
 const CrawlLog = require('../models/CrawlLog');
-const { fetchAuctionItemDetail, handleDuplicate } = require('./detail.scraper');
+const { fetchAuctionItemDetail, handleDuplicate, searchDuplicatesByFuzzyName } = require('./detail.scraper');
 const { slugify, mapAssetType, parseDate, extractProvince, deriveStatus, delay } = require('../utils/helpers');
 
 const API = config.endpoints.auctionNoticeList;
 const BASE = config.baseUrl;
 const SKIP_THRESHOLD = config.crawl.skipThreshold;
+
+function resolveAuctionProvince(item, name, shortDescription) {
+  const directProvince = item.provinceName
+    || item.province_name
+    || item.province
+    || item.cityName
+    || item.city_name
+    || item.addressProvince
+    || item.propertyProvince;
+
+  if (directProvince) return directProvince;
+
+  return extractProvince([
+    name,
+    shortDescription,
+    item.titleName,
+    item.fullname,
+    item.org_name,
+    item.address,
+    item.propertyPlace,
+  ].filter(Boolean).join(' '));
+}
 
 async function crawlAuctionNotices(options = {}) {
   const pageSize = options.pageSize || config.crawl.pageSize;
@@ -23,6 +45,7 @@ async function crawlAuctionNotices(options = {}) {
   const log = await CrawlLog.create({
     type: 'auction_notice', startedAt: new Date(), status: 'running',
     itemsInserted: 0, itemsUpdated: 0, itemsSkipped: 0, pagesProcessed: 0, totalPages: 0, errorMessages: [], recentNotices: [],
+    lastPage: Math.max(startPage - 1, 0),
   });
 
   let currentPage = startPage;
@@ -46,6 +69,7 @@ async function crawlAuctionNotices(options = {}) {
     consecutiveOld = r.consecutiveOld;
     if (!listOnly && isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
     log.pagesProcessed = 1;
+    log.lastPage = currentPage;
     log.itemsInserted = stats.inserted;
     log.itemsUpdated = stats.updated;
     log.itemsSkipped = stats.skipped;
@@ -67,6 +91,7 @@ async function crawlAuctionNotices(options = {}) {
         log.errorMessages.push(`P${currentPage}: ${err.message}`);
       }
       log.pagesProcessed = currentPage - startPage + 1;
+      log.lastPage = currentPage;
       log.itemsInserted = stats.inserted;
       log.itemsUpdated = stats.updated;
       log.itemsSkipped = stats.skipped;
@@ -91,6 +116,9 @@ async function crawlAuctionNotices(options = {}) {
   log.itemsUpdated = stats.updated;
   log.itemsSkipped = stats.skipped;
   log.recentNotices = stats.recentNotices;
+  if (!log.lastPage) {
+    log.lastPage = Math.max(startPage - 1, 0);
+  }
   await log.save();
   return stats;
 }
@@ -169,10 +197,15 @@ async function processItems(items, stats, options = {}) {
         Object.assign(data, updates);
         if (files.length > 0) data.files = files;
         data.detailScraped = true;
-        return { data, hasDetail: true, relatedIds: data.relatedIds, sourceId, name: data.name };
+        
+        // ★ Auto-crawl: chỉ dùng relatedIds từ API (nhanh), BỎ fuzzy search (chậm)
+        // Fuzzy search sẽ chạy riêng trong duplicate_scan job
+        const relatedIds = data.relatedIds || [];
+        
+        return { data, hasDetail: true, relatedIds, sourceId, name: data.name };
       } catch (e) {
         data.detailScraped = false;
-        return { data, hasDetail: false, sourceId, name: data.name };
+        return { data, hasDetail: false, relatedIds: [], sourceId, name: data.name };
       }
     }));
 
@@ -217,7 +250,7 @@ function buildAuctionData(item) {
   const shortDescription = item.subPropertyName || '';
   const propertyTypeName = item.propertyTypeName || '';
   const type = mapAssetType(propertyTypeName, name);
-  const province = extractProvince(name + ' ' + shortDescription);
+  const province = resolveAuctionProvince(item, name, shortDescription);
   const slug = slugify(shortDescription || name);
   const publishedAt = parseDate(item.publishTime1) || parseDate(item.publishTime2);
   const auctionDate = parseDate(item.aucTime);
