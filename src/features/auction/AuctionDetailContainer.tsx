@@ -218,7 +218,17 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <InfoRow icon={MapPin} label="Địa chỉ tài sản" value={auction.address || "—"} />
           <InfoRow icon={User} label="Người có tài sản" value={auction.owner || "—"} />
           <InfoRow icon={Building2} label="Tổ chức đấu giá" value={auction.organizer || "—"} />
-          <InfoRow icon={Wallet} label="Tiền đặt cọc" value={<span className="num">{formatVND(auction.deposit || 0)}</span>} />
+          <InfoRow 
+            icon={Wallet} 
+            label="Tiền đặt trước" 
+            value={
+              <span className="num">
+                {auction.depositPercent 
+                  ? auction.depositPercent
+                  : formatVND(auction.deposit || 0)}
+              </span>
+            } 
+          />
           <InfoRow icon={Wallet} label="Phí hồ sơ" value={<span className="num">{formatVND(auction.applicationFee || 0)}</span>} />
           <InfoRow icon={Calendar} label="Thời gian công khai" value={auction.publishedAt ? formatDate(auction.publishedAt) : "—"} />
           <InfoRow icon={Calendar} label="Hạn đăng ký" value={auction.registrationEnd ? formatDate(auction.registrationEnd) : "—"} />
@@ -270,7 +280,11 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                       <tr className="border-t bg-secondary/30 font-medium">
                         <td colSpan={4} className="px-3 py-2.5 text-right text-xs">Tổng cộng</td>
                         <td className="px-3 py-2.5 text-right num border-r">{formatVND(rows.reduce((s, p) => s + (p.startPrice || 0), 0))}</td>
-                        <td className="px-3 py-2.5 text-right num">{formatVND(rows.reduce((s, p) => s + (p.deposit || 0), 0))}</td>
+                        <td className="px-3 py-2.5 text-right num">
+                          {rows.every(p => p.depositPercent) 
+                            ? rows.map(p => p.depositPercent).join(' + ') 
+                            : formatVND(rows.reduce((s, p) => s + (p.deposit || 0), 0))}
+                        </td>
                       </tr>
                     )}
                   </tbody>

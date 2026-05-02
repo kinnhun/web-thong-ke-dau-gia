@@ -1,9 +1,89 @@
 /**
- * Chuyển chuỗi tiếng Việt thành slug URL
+ * Xoá dấu tiếng Việt
+ */
+function removeDiacritics(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+}
+
+/**
+ * Trích xuất "lõi danh tính" tài sản — loại bỏ toàn bộ văn bản pháp lý, tỉnh/thành,
+ * phường/quận, ngày tháng, ngoặc đơn. Chỉ giữ lại phần phân biệt: số nhà + tên đường,
+ * thửa đất, biển số xe, v.v.
+ */
+function extractCoreIdentity(name) {
+  if (!name) return '';
+  let s = removeDiacritics(name.toLowerCase());
+  // 1. Xoá ngoặc đơn
+  s = s.replace(/\([^)]*\)/g, ' ');
+  // 2. Xoá boilerplate pháp lý (dài trước, ngắn sau)
+  s = s.replace(/quyen su dung dat,?\s*quyen so huu nha o va tai san khac gan lien voi dat/g, ' ');
+  s = s.replace(/quyen su dung dat o va quyen so huu nha o/g, ' ');
+  s = s.replace(/quyen so huu nha o va quyen su dung dat o/g, ' ');
+  s = s.replace(/quyen su dung dat va tai san\s*(khac\s*)?gan lien voi dat/g, ' ');
+  s = s.replace(/tai san\s*(khac\s*)?gan lien\s*(voi\s*dat)?/g, ' ');
+  s = s.replace(/quyen su dung dat\s*(o)?/g, ' ');
+  s = s.replace(/quyen so huu nha\s*(o)?/g, ' ');
+  s = s.replace(/tai dia chi\s*(so)?:?/g, ' ');
+  s = s.replace(/nha dat\s*(so)?/g, ' ');
+  s = s.replace(/can ho\s*(so)?/g, ' ');
+  s = s.replace(/thua dat\s*(so)?/g, ' ');
+  s = s.replace(/to ban do\s*(so)?/g, ' ');
+  // 3. Xoá tên tỉnh/thành phố
+  s = s.replace(/thanh pho ho chi minh/g, ' ');
+  s = s.replace(/tp\.?\s*ho chi minh/g, ' ');
+  s = s.replace(/tp\.?\s*hcm/g, ' ');
+  const provNamesNoDiac = [
+    'an giang','ba ria vung tau','bac giang','bac kan','bac lieu','bac ninh','ben tre',
+    'binh dinh','binh duong','binh phuoc','binh thuan','ca mau','cao bang','dak lak',
+    'dak nong','dien bien','dong nai','dong thap','gia lai','ha giang','ha nam','ha noi',
+    'ha tinh','hai duong','hai phong','hau giang','hoa binh','hung yen','khanh hoa',
+    'kien giang','kon tum','lai chau','lam dong','lang son','lao cai','long an','nam dinh',
+    'nghe an','ninh binh','ninh thuan','phu tho','phu yen','quang binh','quang nam',
+    'quang ngai','quang ninh','quang tri','soc trang','son la','tay ninh','thai binh',
+    'thai nguyen','thanh hoa','thua thien hue','tien giang','tra vinh','tuyen quang',
+    'vinh long','vinh phuc','yen bai','can tho','da nang',
+  ];
+  for (const p of provNamesNoDiac) {
+    s = s.replace(new RegExp(p.replace(/ /g, '\\s+'), 'g'), ' ');
+  }
+  // 4. Xoá đơn vị hành chính kèm số
+  s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, ' ');
+  // 5. Xoá nhãn đơn vị hành chính
+  s = s.replace(/\b(phuong|quan|huyen|thi xa|thi tran|xa|tinh|thanh pho|khu pho|to dan pho)\b/g, ' ');
+  // 6. Xoá ngày tháng năm
+  s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, ' ');
+  s = s.replace(/\b(19\d{2}|20\d{2})\b/g, ' ');
+  // 7. Xoá stop words
+  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia)\b/g, ' ');
+  // 8. Dọn dẹp
+  s = s.replace(/[,\.\(\):\-;"']/g, ' ').replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+/**
+ * Trích xuất số tài sản (đã loại bỏ ngày, năm, đơn vị hành chính)
+ */
+function getNumberTokens(name) {
+  if (!name) return [];
+  let s = removeDiacritics(name.toLowerCase());
+  s = s.replace(/\([^)]*\)/g, ' ');
+  s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, '');
+  s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
+  s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, '');
+  const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
+  return [...new Set(tokens)];
+}
+
+/**
+ * Tạo bigrams từ chuỗi
  */
 function getBigrams(str) {
   if (!str) return new Set();
-  const clean = str.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const clean = str.toLowerCase()
+    .replace(/\([^)]+\)/g, ' ')
+    .replace(/[,\.\(\):\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const words = clean.split(' ');
   const bigrams = new Set();
   for (let i = 0; i < words.length - 1; i++) {
@@ -176,4 +256,7 @@ module.exports = {
   PROVINCES,
   getBigrams,
   jaccardSimilarity,
+  removeDiacritics,
+  extractCoreIdentity,
+  getNumberTokens,
 };

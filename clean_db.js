@@ -11,9 +11,17 @@ const schema = new mongoose.Schema({
 const AuctionNotice = mongoose.model('AuctionNotice', schema, 'auctionnotices');
 const OrgSelection = mongoose.model('OrgSelection', schema, 'orgselections');
 
+const removeDiacritics = (str) => {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, 'd').replace(/Đ/g, 'D');
+};
+
 const getNumberTokens = (str) => {
   if (!str) return [];
-  const tokens = str.toLowerCase().match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
+  let s = removeDiacritics(str.toLowerCase());
+  s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, '');
+  s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
+  s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, '');
+  const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
   return [...new Set(tokens)];
 };
 

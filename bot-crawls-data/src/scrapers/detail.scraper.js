@@ -14,7 +14,7 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity } = require('../utils/helpers');
+const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -546,16 +546,9 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     // Gộp candidates
     const candidates = [...apiCandidates, ...dbCandidates];
 
-    // Hàm trích xuất các cụm số (đã loại bỏ ngày tháng năm để tránh nhiễu)
-    const getNumberTokens = (str) => {
-      let s = str.toLowerCase();
-      s = s.replace(/\b(ngày|tháng|năm)\s*\d+([\/\-]\d+)*\b/g, '');
-      s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
-      const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
-      return [...new Set(tokens)];
-    };
-
-    const targetBigrams = getBigrams(name);
+    // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
+    const targetCore = extractCoreIdentity(name);
+    const targetCoreBigrams = getBigrams(targetCore);
     const targetNumbers = getNumberTokens(name);
 
     for (const c of candidates) {
@@ -563,27 +556,27 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
       const candidateNumbers = getNumberTokens(c.name);
 
-      // Kiểm tra sự trùng khớp về số (rất quan trọng để phân biệt địa chỉ nhà như 241/13 và 156/11)
-      let hasCommonNumber = false;
-      let bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
-
+      // BƯỚC 1: Cả hai có số nhưng KHÔNG CHUNG SỐ NÀO → REJECT ngay
+      const bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
       if (bothHaveNumbers) {
         const common = targetNumbers.filter(t => candidateNumbers.includes(t));
-        // Nếu cả hai đều có số nhưng KHÔNG CÓ SỐ NÀO CHUNG -> Chắc chắn là tài sản khác nhau
         if (common.length === 0) continue;
-        hasCommonNumber = true;
       }
 
-      const sim = jaccardSimilarity(targetBigrams, getBigrams(c.name));
+      // BƯỚC 2: So sánh LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
+      const candidateCore = extractCoreIdentity(c.name);
+      const coreSim = jaccardSimilarity(targetCoreBigrams, getBigrams(candidateCore));
 
-      // Mức độ giống nhau >= 85% -> Chấp nhận
-      if (sim >= 0.85) {
+      // Core sim >= 80% → MATCH (rất chính xác vì đã lọc sạch rác)
+      if (coreSim >= 0.80) {
         relatedIds.push(c.sourceId);
+        continue;
       }
-      // Mức độ giống nhau >= 72%
-      else if (sim >= 0.72) {
-        // Nếu có số chung hoặc 1 bên không có số -> Chấp nhận
-        if (hasCommonNumber || !bothHaveNumbers) {
+
+      // Có số chung + core sim >= 60% → MATCH (số đã xác nhận cùng tài sản)
+      if (bothHaveNumbers && coreSim >= 0.60) {
+        const common = targetNumbers.filter(t => candidateNumbers.includes(t));
+        if (common.length > 0) {
           relatedIds.push(c.sourceId);
         }
       }
@@ -1273,25 +1266,16 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     const cleanNames = Object.keys(buckets[prov]);
     if (cleanNames.length === 0) continue;
 
-    const getNumberTokens = (str) => {
-      let s = str.toLowerCase();
-      s = s.replace(/\b(ngày|tháng|năm)\s*\d+([\/\-]\d+)*\b/g, '');
-      s = s.replace(/\b(19\d{2}|20\d{2})\b/g, '');
-      const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
-      return [...new Set(tokens)];
-    };
-
+    // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH
     const data = cleanNames.map((name, i) => ({
       index: i,
-      wordSet: getBigrams(name),
+      coreBigrams: getBigrams(extractCoreIdentity(name)),
       numbers: getNumberTokens(name),
       sourceIds: buckets[prov][name]
     }));
 
-    // Tối ưu hoá cực mạnh: Sắp xếp mảng theo độ dài của từ
-    // Nếu sizeB > sizeA / 0.72 thì độ tương đồng chắc chắn < 0.72 (do |A giao B| <= |A|)
-    // Lúc này ta có thể ngắt luôn vòng lặp j (break) thay vì quét hết mảng.
-    data.sort((a, b) => a.wordSet.size - b.wordSet.size);
+    // Sắp xếp theo kích thước core bigrams để tối ưu hoá break sớm
+    data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
 
     const parent = Array.from({ length: data.length }, (_, i) => i);
     const find = (i) => {
@@ -1307,44 +1291,34 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     for (let i = 0; i < data.length; i++) {
       if (i % 200 === 0) {
         await new Promise(resolve => setImmediate(resolve));
-        // IN RA MÀN HÌNH ĐỂ THẤY RÕ ĐANG CHẠY SO SÁNH
         const pct = ((i / data.length) * 100).toFixed(1);
-        const sampleText = Array.from(data[i].wordSet).slice(0, 8).join(' ');
-        console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%) | Đang so sánh: "${sampleText}..."`);
+        console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%)`);
       }
 
-      const sizeA = data[i].wordSet.size;
-      const maxSizeB = sizeA / 0.72;
+      const sizeA = data[i].coreBigrams.size;
+      if (sizeA === 0) continue;
+      const maxSizeB = sizeA / 0.60; // Ngưỡng thấp nhất là 60%
 
       for (let j = i + 1; j < data.length; j++) {
-        const sizeB = data[j].wordSet.size;
-
-        // Cực kỳ quan trọng: Mảng đã được sắp xếp tăng dần theo size.
-        // Nếu sizeB vượt quá giới hạn lý thuyết, mọi size phía sau cũng sẽ vượt, nên BREAK luôn!
+        const sizeB = data[j].coreBigrams.size;
+        if (sizeB === 0) continue;
         if (sizeB > maxSizeB) break;
 
-        const maxSim = sizeA / sizeB; // Vì sizeA <= sizeB
-        if (maxSim < 0.72) continue;
-
-        let hasCommonNumber = false;
-        let bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
-
+        // BƯỚC 1: Kiểm tra số
+        const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
           const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          // KHÔNG CHUNG MỘT SỐ NÀO -> TÀI SẢN KHÁC NHAU HOÀN TOÀN
-          if (common.length === 0) continue;
-          hasCommonNumber = true;
+          if (common.length === 0) continue; // Khác số → REJECT
         }
 
-        const sim = jaccardSimilarity(data[i].wordSet, data[j].wordSet);
+        // BƯỚC 2: So sánh core identity
+        const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
 
-        // Match nếu >= 85%, hoặc >= 72% nếu thỏa mãn điều kiện số
-        if (sim >= 0.85) {
+        if (coreSim >= 0.80) {
           union(i, j);
-        } else if (sim >= 0.72) {
-          if (hasCommonNumber || !bothHaveNumbers) {
-            union(i, j);
-          }
+        } else if (bothHaveNumbers && coreSim >= 0.60) {
+          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
+          if (common.length > 0) union(i, j);
         }
       }
     }
