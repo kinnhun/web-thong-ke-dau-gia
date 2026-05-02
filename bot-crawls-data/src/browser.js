@@ -10,6 +10,7 @@ let browser = null;
 let page = null;
 let isReady = false;
 let requestChain = Promise.resolve();
+let contextLock = Promise.resolve();
 let requestCount = 0;
 const MAX_REQUESTS_BEFORE_RESTART = 200; // Restart browser after N requests to prevent memory leaks
 
@@ -121,37 +122,42 @@ async function createManagedPage() {
 }
 
 async function ensureBrowserContext(forceReset = false) {
-  if (forceReset) {
-    await cleanupPage(page);
-    page = null;
-    isReady = false;
-  }
+  const nextTask = contextLock.then(async () => {
+    if (forceReset) {
+      await cleanupPage(page);
+      page = null;
+      isReady = false;
+    }
 
-  if (!browser) {
-    console.log('🌐 Đang khởi tạo browser (headless mode)...');
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-blink-features=AutomationControlled',
-        '--window-size=1280,900',
-      ],
-      defaultViewport: null,
-    });
-  }
+    if (!browser) {
+      console.log('🌐 Đang khởi tạo browser (headless mode)...');
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-blink-features=AutomationControlled',
+          '--window-size=1280,900',
+        ],
+        defaultViewport: null,
+      });
+    }
 
-  if (!(await isPageUsable(page))) {
-    await cleanupPage(page);
-    page = await createManagedPage();
-    isReady = false;
-  }
+    if (!(await isPageUsable(page))) {
+      await cleanupPage(page);
+      page = await createManagedPage();
+      isReady = false;
+    }
 
-  return page;
+    return page;
+  });
+
+  contextLock = nextTask.catch(() => {});
+  return nextTask;
 }
 
 async function evaluateWithRecovery(executor, label, retries = 2) {
