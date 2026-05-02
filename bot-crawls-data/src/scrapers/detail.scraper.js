@@ -1288,9 +1288,9 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       if (rootI !== rootJ) parent[rootI] = rootJ;
     };
 
+    let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
       if (i % 200 === 0) {
-        await new Promise(resolve => setImmediate(resolve));
         const pct = ((i / data.length) * 100).toFixed(1);
         console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%)`);
       }
@@ -1300,6 +1300,11 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       const maxSizeB = sizeA / 0.60; // Ngưỡng thấp nhất là 60%
 
       for (let j = i + 1; j < data.length; j++) {
+        if (j % 500 === 0 && Date.now() - lastYield > 20) {
+          await new Promise(resolve => setImmediate(resolve));
+          lastYield = Date.now();
+        }
+
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
         if (sizeB > maxSizeB) break;
