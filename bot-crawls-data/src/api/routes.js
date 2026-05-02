@@ -387,7 +387,7 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
         if (type === 'all' || type === 'auction') await crawlDetails({ maxItems: limit });
         if (type === 'all' || type === 'org') await crawlOrgDetails({ maxItems: limit });
       }
-      catch (err) { console.error('[TRIGGER] Lỗi:', err); }
+      catch (err) { console.error('[TRIGGER] Lỗi:', err); } finally { const { closeBrowser } = require('../browser'); await closeBrowser().catch(()=>{}); }
     })();
     res.json({ success: true, message: `Re-crawl detail (${limit} items, type: ${type})` });
   } catch (err) { next(err); }
@@ -939,7 +939,7 @@ router.post('/trigger-list-crawl', async (req, res, next) => {
         if (type === 'all' || type === 'auction') await crawlAuctionNotices(crawlOptions);
         if (type === 'all' || type === 'org') await crawlOrgSelections(crawlOptions);
       }
-      catch (err) { console.error('[TRIGGER] Lỗi List Crawl:', err); }
+      catch (err) { console.error('[TRIGGER] Lỗi List Crawl:', err); } finally { const { closeBrowser } = require('../browser'); await closeBrowser().catch(()=>{}); }
     })();
     res.json({
       success: true,
