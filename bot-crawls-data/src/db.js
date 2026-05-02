@@ -21,7 +21,7 @@ async function connectDB() {
       
       // Timeout settings
       serverSelectionTimeoutMS: 10000,  // 10s timeout khi chọn server
-      socketTimeoutMS: 45000,           // 45s socket idle timeout
+      socketTimeoutMS: 300000,          // 5 minutes socket idle timeout
       connectTimeoutMS: 10000,          // 10s connection timeout
       
       // Heartbeat: kiểm tra server còn sống
@@ -79,7 +79,7 @@ function scheduleReconnect() {
         maxPoolSize: 10,
         minPoolSize: 2,
         serverSelectionTimeoutMS: 10000,
-        socketTimeoutMS: 45000,
+        socketTimeoutMS: 300000,
         connectTimeoutMS: 10000,
       });
       isConnected = true;
