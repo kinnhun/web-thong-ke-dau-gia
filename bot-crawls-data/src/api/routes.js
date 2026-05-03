@@ -453,6 +453,107 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Force re-crawl detail cho NHIỀU item liên quan (bài đăng lại) cùng lúc
+// ⚠️ Safety: max 100 items, lock chống spam, concurrency = 2, delay giữa chunks
+let _recrawlRelatedRunning = false;
+
+router.post('/trigger-recrawl-related', async (req, res, next) => {
+  try {
+    // ★ GUARD 1: Chống gọi chồng — chỉ 1 job chạy tại 1 thời điểm
+    if (_recrawlRelatedRunning) {
+      return res.status(409).json({
+        error: true,
+        message: 'Đang có tiến trình cào bài liên quan đang chạy. Vui lòng chờ hoàn thành.',
+      });
+    }
+
+    const { fetchAuctionItemDetail, fetchOrgItemDetail, handleDuplicate } = require('../scrapers/detail.scraper');
+    const sourceIds = req.body?.sourceIds;
+    const type = req.body?.type || 'auction';
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return res.status(400).json({ error: true, message: 'sourceIds (array) is required' });
+    }
+
+    // ★ GUARD 2: Giới hạn tối đa 100 items để tránh quá tải
+    const ids = [...new Set(sourceIds.map(id => parseInt(id)).filter(Boolean))].slice(0, 100);
+    if (ids.length === 0) {
+      return res.status(400).json({ error: true, message: 'No valid sourceIds provided' });
+    }
+
+    const Model = type === 'org' ? OrgSelection : AuctionNotice;
+    const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+
+    _recrawlRelatedRunning = true;
+
+    // Phản hồi ngay lập tức
+    res.json({
+      success: true,
+      message: `Hệ thống đang tiến hành cào lại chi tiết ${ids.length} bài viết liên quan ngầm.`,
+      sourceIds: ids,
+      total: ids.length,
+      status: 'processing'
+    });
+
+    console.log(`[RECRAWL-RELATED] Bắt đầu cào ${ids.length} bài viết liên quan (${type})...`);
+
+    // Chạy ngầm — concurrency = 2 để tránh quá tải, có delay giữa chunks
+    Promise.resolve().then(async () => {
+      let ok = 0;
+      let fail = 0;
+      const concurrency = 2; // ★ GUARD 3: giảm concurrency
+      const delay = ms => new Promise(r => setTimeout(r, ms));
+
+      try {
+        for (let i = 0; i < ids.length; i += concurrency) {
+          const chunk = ids.slice(i, i + concurrency);
+          const results = await Promise.allSettled(chunk.map(async (sourceId) => {
+            try {
+              const item = await Model.findOne({ sourceId }).lean();
+              if (!item) {
+                console.log(`[RECRAWL-RELATED] Bỏ qua #${sourceId} — không tìm thấy trong DB`);
+                return false;
+              }
+
+              const { updates, files } = await fetchFn(sourceId);
+              updates.detailScraped = true;
+              updates.lastCrawledAt = new Date();
+              if (files && files.length > 0) updates.files = files;
+              await Model.updateOne({ _id: item._id }, { $set: updates });
+
+              // ★ GUARD 4: Chỉ handleDuplicate đơn giản (KHÔNG searchDuplicatesByFuzzyName)
+              // searchDuplicatesByFuzzyName rất nặng (gọi API + $text search DB) — bỏ qua ở đây
+              if (type === 'auction' && updates.relatedIds && updates.relatedIds.length > 0) {
+                await handleDuplicate(sourceId, updates.name || item.name, updates.relatedIds, 'auction');
+              }
+
+              console.log(`[RECRAWL-RELATED] ✅ #${sourceId} OK (${i + 1}/${ids.length})`);
+              return true;
+            } catch (err) {
+              console.error(`[RECRAWL-RELATED] ❌ #${sourceId}:`, err.message);
+              return false;
+            }
+          }));
+
+          ok += results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+          fail += results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === false)).length;
+
+          // ★ GUARD 5: Delay 1 giây giữa mỗi chunk để giảm áp lực
+          if (i + concurrency < ids.length) {
+            await delay(1000);
+          }
+        }
+
+        console.log(`[RECRAWL-RELATED] 🏁 Hoàn thành: ${ok} OK, ${fail} lỗi/bỏ qua (tổng ${ids.length})`);
+      } catch (err) {
+        console.error(`[RECRAWL-RELATED] 💥 Job bị lỗi:`, err.message);
+      } finally {
+        _recrawlRelatedRunning = false; // ★ Luôn giải phóng lock
+      }
+    });
+
+  } catch (err) { next(err); }
+});
+
 // Mega crawl detail theo danh sách đã có: lấy 5000 item và cào detail như nút "Cào lại" ở trang detail
 router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
   try {

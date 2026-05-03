@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -29,7 +29,7 @@ import { formatDate, formatVND } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useWatchlist } from "@/domains/watchlist/watchlist.hooks";
-import { triggerRecrawlItem } from "@/services/auction.service";
+import { triggerRecrawlItem, triggerRecrawlRelated } from "@/services/auction.service";
 
 interface AuctionDetailContainerProps {
   id: string;
@@ -41,18 +41,129 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   const { data: auction, isLoading, error } = useAuctionDetail(id);
   const { toggleWatch, isWatched } = useWatchlist();
   const [recrawling, setRecrawling] = useState(false);
+  const [recrawlingRelated, setRecrawlingRelated] = useState(false);
+  const [relatedProgress, setRelatedProgress] = useState({ done: 0, total: 0 });
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const singlePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const snapshotRef = useRef<Set<number>>(new Set());
 
   const watched = auction ? isWatched(auction.sourceId) : false;
 
+  // Cleanup TẤT CẢ polling khi unmount hoặc đổi trang
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      if (singlePollRef.current) {
+        clearInterval(singlePollRef.current);
+        singlePollRef.current = null;
+      }
+    };
+  }, [id]);
+
+  // Polling: kiểm tra dữ liệu bài liên quan đã cập nhật chưa
+  const startPolling = useCallback((totalEntries: number) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    const startTime = Date.now();
+    const MAX_POLL_MS = 3 * 60 * 1000; // tối đa 3 phút
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        // Refetch dữ liệu từ server (chờ xong trước khi đọc cache)
+        await queryClient.refetchQueries({ queryKey: ['auction', 'detail', id] });
+
+        // Đọc data mới nhất từ cache
+        const freshData = queryClient.getQueryData(['auction', 'detail', id]) as typeof auction;
+        const freshEntries = freshData?.duplicateGroup?.entries || [];
+        const missingBefore = snapshotRef.current;
+
+        // Đếm số entries đã có giá (trước đó chưa có)
+        let doneCount = 0;
+        for (const entry of freshEntries) {
+          if (missingBefore.has(entry.sourceId)) {
+            if (entry.price && entry.price > 0) doneCount++;
+          } else {
+            doneCount++; // entry đã có giá từ trước → tính là done
+          }
+        }
+
+        setRelatedProgress({ done: doneCount, total: totalEntries });
+
+        // Kiểm tra hoàn thành: tất cả entries đều có giá HOẶC hết thời gian
+        const allDone = doneCount >= totalEntries;
+        const timedOut = Date.now() - startTime > MAX_POLL_MS;
+
+        if (allDone || timedOut) {
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          setRecrawlingRelated(false);
+          setRelatedProgress({ done: 0, total: 0 });
+          // Final refresh
+          await queryClient.refetchQueries({ queryKey: ['auction', 'detail', id] });
+          await queryClient.invalidateQueries({ queryKey: ['auction', 'duplicates'] });
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 8000); // ★ Poll mỗi 8 giây (tránh quá tải server)
+  }, [id, queryClient, auction]);
+
   const handleRecrawl = async () => {
-    if (!auction) return;
+    if (!auction || recrawling || recrawlingRelated) return; // ★ Chống double-fire
     setRecrawling(true);
     try {
       await triggerRecrawlItem(auction.sourceId, 'auction');
-      await queryClient.invalidateQueries({ queryKey: ['auction', 'detail', id] });
-      await queryClient.invalidateQueries({ queryKey: ['auction', 'duplicates'] });
-    } catch { /* ignore */ }
-    setRecrawling(false);
+      // Poll mỗi 5 giây trong tối đa 60 giây để cập nhật dữ liệu
+      if (singlePollRef.current) clearInterval(singlePollRef.current);
+      let pollCount = 0;
+      const maxPolls = 12;
+      singlePollRef.current = setInterval(async () => {
+        pollCount++;
+        await queryClient.invalidateQueries({ queryKey: ['auction', 'detail', id] });
+        await queryClient.invalidateQueries({ queryKey: ['auction', 'duplicates'] });
+        if (pollCount >= maxPolls) {
+          if (singlePollRef.current) {
+            clearInterval(singlePollRef.current);
+            singlePollRef.current = null;
+          }
+          setRecrawling(false);
+        }
+      }, 5000);
+    } catch {
+      setRecrawling(false);
+    }
+  };
+
+  const handleRecrawlRelated = async () => {
+    if (!auction?.duplicateGroup || recrawling || recrawlingRelated) return; // ★ Chống double-fire
+    const allEntries = auction.duplicateGroup.entries || [];
+    if (allEntries.length === 0) return;
+    setRecrawlingRelated(true);
+
+    // Ghi snapshot các entry chưa có giá trước khi cào
+    const missingPriceIds = new Set<number>();
+    for (const e of allEntries) {
+      if (!e.price || e.price <= 0) missingPriceIds.add(e.sourceId);
+    }
+    snapshotRef.current = missingPriceIds;
+
+    const totalEntries = allEntries.length;
+    const alreadyDone = totalEntries - missingPriceIds.size;
+    setRelatedProgress({ done: alreadyDone, total: totalEntries });
+
+    try {
+      const sourceIds = allEntries.map(e => e.sourceId).filter(Boolean);
+      await triggerRecrawlRelated(sourceIds, 'auction');
+      // Bắt đầu polling tự động
+      startPolling(totalEntries);
+    } catch {
+      setRecrawlingRelated(false);
+      setRelatedProgress({ done: 0, total: 0 });
+    }
   };
 
   if (isLoading) {
@@ -161,7 +272,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <Button variant="outline" size="sm"><Bell className="h-4 w-4" />Thông Báo</Button>
           <Button variant="outline" size="sm"><Share2 className="h-4 w-4" /></Button>
           <Button variant="outline" size="sm"><Printer className="h-4 w-4" /></Button>
-          <Button variant="outline" size="sm" onClick={handleRecrawl} disabled={recrawling}>
+          <Button variant="outline" size="sm" onClick={handleRecrawl} disabled={recrawling || recrawlingRelated}>
             {recrawling ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {recrawling ? "Đang cào..." : "Cào lại"}
           </Button>
@@ -341,6 +452,37 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                   </div>
                 )}
               </div>
+              {/* Nút cào bài viết liên quan — chỉ hiển thị khi có duplicate entries */}
+              {dup && entries.length > 0 && (
+                <div className="mt-3 pt-3 border-t">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={handleRecrawlRelated}
+                    disabled={recrawlingRelated || recrawling}
+                  >
+                    {recrawlingRelated ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Đang cào... {relatedProgress.done}/{relatedProgress.total}</>
+                    ) : (
+                      <><RefreshCw className="h-3.5 w-3.5" />Cào lại {entries.length} bài viết liên quan</>
+                    )}
+                  </Button>
+                  {recrawlingRelated && (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="w-full bg-secondary rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-primary h-1.5 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${relatedProgress.total > 0 ? (relatedProgress.done / relatedProgress.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground text-center">
+                        Đã cào {relatedProgress.done}/{relatedProgress.total} bài · Tự động cập nhật giá khi hoàn thành
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
           <div className="rounded-xl border bg-card p-5">

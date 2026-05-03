@@ -165,6 +165,11 @@ export async function triggerRecrawlItem(sourceId: number, type = 'auction') {
   return data;
 }
 
+export async function triggerRecrawlRelated(sourceIds: number[], type = 'auction') {
+  const { data } = await httpClient.post('/api/trigger-recrawl-related', { sourceIds, type });
+  return data;
+}
+
 export async function triggerRecrawlMissingProperties(limit = 50, type = 'auction') {
   const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { limit, type });
   return data;
