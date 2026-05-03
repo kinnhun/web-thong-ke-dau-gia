@@ -14,7 +14,7 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens } = require('../utils/helpers');
+const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -550,20 +550,27 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     const targetCore = extractCoreIdentity(name);
     const targetCoreBigrams = getBigrams(targetCore);
     const targetNumbers = getNumberTokens(name);
+    const targetIdentifiers = extractPropertyIdentifiers(name); // ★ Trích xuất định danh chuẩn
 
     for (const c of candidates) {
       if (c.sourceId === sourceId) continue;
 
       const candidateNumbers = getNumberTokens(c.name);
+      const candidateIdentifiers = extractPropertyIdentifiers(c.name);
 
-      // BƯỚC 1: Cả hai có số nhưng KHÔNG CHUNG SỐ NÀO → REJECT ngay
+      // BƯỚC 1: Xung đột ĐỊNH DANH (VD: Thửa đất số 01 vs Thửa đất số 02) → REJECT NGAY
+      if (hasConflictingIdentifiers(targetIdentifiers, candidateIdentifiers)) {
+        continue;
+      }
+
+      // BƯỚC 2: Cả hai có số nhưng KHÔNG CHUNG SỐ NÀO → REJECT
       const bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
       if (bothHaveNumbers) {
         const common = targetNumbers.filter(t => candidateNumbers.includes(t));
         if (common.length === 0) continue;
       }
 
-      // BƯỚC 2: So sánh LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
+      // BƯỚC 3: So sánh LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
       const candidateCore = extractCoreIdentity(c.name);
       const coreSim = jaccardSimilarity(targetCoreBigrams, getBigrams(candidateCore));
 
@@ -1271,6 +1278,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       index: i,
       coreBigrams: getBigrams(extractCoreIdentity(name)),
       numbers: getNumberTokens(name),
+      identifiers: extractPropertyIdentifiers(name),
       sourceIds: buckets[prov][name]
     }));
 
@@ -1308,6 +1316,11 @@ async function getFuzzyNameGroups(Model, progressCallback) {
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
         if (sizeB > maxSizeB) break;
+
+        // BƯỚC 0: Xung đột ĐỊNH DANH (VD: Thửa đất số 01 vs Thửa đất số 02) → REJECT NGAY
+        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
+          continue;
+        }
 
         // BƯỚC 1: Kiểm tra số
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;

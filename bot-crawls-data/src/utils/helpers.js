@@ -61,6 +61,98 @@ function extractCoreIdentity(name) {
 }
 
 /**
+ * Trích xuất các ĐỊNH DANH TÀI SẢN có cấu trúc (thửa đất số X, tờ bản đồ số X, lô X, v.v.)
+ * Trả về object { plotNumber, mapSheet, lot, houseNumber, apartment, block, ... }
+ * Dùng để phát hiện 2 tài sản KHÁC NHAU dù tên rất giống.
+ */
+function extractPropertyIdentifiers(name) {
+  if (!name) return {};
+  const s = removeDiacritics(name.toLowerCase());
+  const ids = {};
+
+  // Thửa đất số X / Thửa X
+  const plotMatch = s.match(/thua\s*(?:dat)?\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?)?)/i);
+  if (plotMatch) ids.plotNumber = plotMatch[1];
+
+  // Tờ bản đồ số X / Bản đồ X
+  const mapMatch = s.match(/(?:to\s*)?ban\s*do\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?)?)/i);
+  if (mapMatch) ids.mapSheet = mapMatch[1];
+
+  // Lô đất / Lô X
+  const lotMatch = s.match(/\blo\s*(?:dat)?\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
+  if (lotMatch) ids.lot = lotMatch[1];
+
+  // Số nhà X / Nhà số X
+  const houseMatch = s.match(/(?:so\s*nha|nha\s*so)\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
+  if (houseMatch) ids.houseNumber = houseMatch[1];
+
+  // Căn hộ số X
+  const aptMatch = s.match(/can\s*ho\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);
+  if (aptMatch) ids.apartment = aptMatch[1];
+
+  // Block / Tòa X
+  const blockMatch = s.match(/(?:block|toa\s*nha|toa)\s*[:\.]?\s*([a-z0-9]+(?![\w-]*\s*(?:phuong|quan|huyen|xa|tinh|thanh pho)))/i);
+  if (blockMatch && blockMatch[1]) ids.block = blockMatch[1];
+
+  // Tầng (Floor)
+  const floorMatch = s.match(/\btang\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?)/i);
+  if (floorMatch) ids.floor = floorMatch[1];
+
+  // Biển kiểm soát / Biển số xe (VD: 30A-123.45 hoặc 29H1-1234)
+  const bksMatch = s.match(/(?:bien\s*kiem\s*soat|bien\s*so|bks|bs\s*xe|bs)\s*[:\.]?\s*([0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{3}[\s.-]*[0-9]{2}|[0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{4,5})/i);
+  if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.-]/g, '');
+
+  // Số khung (Chassis)
+  const chassisMatch = s.match(/so\s*khung\s*[:\.]?\s*([a-z0-9]{5,})/i);
+  if (chassisMatch) ids.chassisNumber = chassisMatch[1];
+
+  // Số máy (Engine)
+  const engineMatch = s.match(/so\s*may\s*[:\.]?\s*([a-z0-9]{5,})/i);
+  if (engineMatch) ids.engineNumber = engineMatch[1];
+
+  // Giấy chứng nhận (Sổ đỏ/hồng) - Số phát hành (VD: CS 12345, BA 678901)
+  const certMatch = s.match(/(?:giay\s*chung\s*nhan|gcn|gcnqsdd|so\s*do|so\s*hong|phat\s*hanh)[^\d]{1,30}\b([a-z]{2}\s*[0-9]{5,6})\b/i);
+  if (certMatch) ids.certificateNumber = certMatch[1].replace(/\s+/g, '');
+
+  // Số vào sổ cấp GCN (VD: CH 01234, CS 56789)
+  const certEntryMatch = s.match(/(?:vao\s*so|so\s*vao\s*so)[^\d]{1,20}\b([a-z]{2}\s*[0-9]{4,6})\b/i);
+  if (certEntryMatch) ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '');
+
+  // Ki ốt / Kios / Quầy / Gian hàng
+  const kioskMatch = s.match(/(?:ki\s*ot|kios|quay|gian\s*hang)\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
+  if (kioskMatch) ids.kiosk = kioskMatch[1];
+
+  // Tàu thuyền (Số đăng ký / Ký hiệu) (VD: SG-1234, HP-12345, QN-1234-TS)
+  const shipMatch = s.match(/(?:tau\s*ca|tau\s*bien|so\s*dang\s*ky|ky\s*hieu|tau|thuyen)\s*[:\.]?\s*([a-z]{2,4}[\s.-]*[0-9]{4,5}(?:[\s.-]*[a-z]{1,2})?)/i);
+  if (shipMatch) ids.shipNumber = shipMatch[1].replace(/[\s.-]/g, '');
+
+  return ids;
+}
+
+/**
+ * So sánh 2 bộ property identifiers.
+ * Trả về true nếu CÓ MÂU THUẪN: cùng loại identifier nhưng giá trị KHÁC nhau.
+ * VD: cả 2 đều có "thửa đất số" nhưng 1 là "01", 1 là "02" → CONFLICT → KHÁC tài sản.
+ */
+function hasConflictingIdentifiers(idsA, idsB) {
+  const keys = [
+    'plotNumber', 'mapSheet', 'lot', 'houseNumber', 'apartment', 'block', 'floor',
+    'licensePlate', 'chassisNumber', 'engineNumber', 
+    'certificateNumber', 'certificateEntryNumber', 'kiosk', 'shipNumber'
+  ];
+  for (const key of keys) {
+    if (idsA[key] && idsB[key] && idsA[key] !== idsB[key]) {
+      // Cùng loại nhưng khác giá trị → chắc chắn KHÁC tài sản
+      // Ngoại trừ mapSheet: 2 thửa đất khác nhau CÓ THỂ cùng tờ bản đồ (cùng khu vực)
+      // Nên mapSheet chỉ conflict nếu plotNumber CŨNG khác nhau
+      if (key === 'mapSheet') continue; // bỏ qua mapSheet, chỉ xét plotNumber
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Trích xuất số tài sản (đã loại bỏ ngày, năm, đơn vị hành chính)
  */
 function getNumberTokens(name) {
@@ -259,4 +351,6 @@ module.exports = {
   removeDiacritics,
   extractCoreIdentity,
   getNumberTokens,
+  extractPropertyIdentifiers,
+  hasConflictingIdentifiers,
 };
