@@ -20,10 +20,21 @@ function buildTextSearchFilter(searchQuery) {
     return { sourceId: Number(keyword) };
   }
 
-  // Dùng text index thay vì regex → nhanh hơn 100x trên 500k+ docs
-  // Đóng ngoặc kép để bắt buộc MongoDB tìm CHÍNH XÁC CỤM TỪ (phrase match), 
-  // thay vì tìm mặc định theo kiểu OR (có chữ "đất" là ra hết)
-  return { $text: { $search: `"${keyword}"` } };
+  const words = keyword.split(/\s+/);
+  
+  // Với các chuỗi tìm kiếm dài (nhiều hơn 3 từ), việc dùng $text phrase match hoặc Logical AND 
+  // sẽ khiến MongoDB bị treo (hang) do phải quét regex trên tập kết quả lớn từ Inverted Index.
+  // Dùng $regex trực tiếp trên trường 'name' sẽ quét toàn bộ (COLLSCAN) nhưng thời gian cố định 
+  // chỉ khoảng 3-5s (vẫn tốt hơn treo 30s+) và ra kết quả chính xác tuyệt đối cụm từ.
+  if (words.length > 3) {
+    // Escape regex characters
+    const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return { name: { $regex: escapedKeyword, $options: 'i' } };
+  }
+
+  // Với chuỗi ngắn (<=3 từ), dùng $text Logical AND rất nhanh (chỉ <50ms)
+  const andSearch = words.map(w => `"${w}"`).join(' ');
+  return { $text: { $search: andSearch } };
 }
 
 function buildProvinceFilter(provinceQuery) {
