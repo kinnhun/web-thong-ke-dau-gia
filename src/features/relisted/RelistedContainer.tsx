@@ -42,7 +42,9 @@ import {
   useRelistedAuctions,
   useRelistedFilterOptions,
   assetTypeLabel,
+  statusLabel,
   type AssetType,
+  type AuctionStatus,
 } from "@/domains/auction";
 import { formatVND, formatVNDShort, formatDate } from "@/lib/format";
 import { getAuctionDisplayTitle, getAuctionPropertyLines } from "@/utils/auction-display";
@@ -64,6 +66,7 @@ export function RelistedContainer() {
   const [type, setType] = useState<AssetType | "all">("all");
   const [province, setProvince] = useState<string[]>([]);
   const [organizer, setOrganizer] = useState<string>("all");
+  const [status, setStatus] = useState<string>("all");
   const [minDiscount, setMinDiscount] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [rounds, setRounds] = useState<string>("all");
@@ -75,6 +78,7 @@ export function RelistedContainer() {
     type: "all" as AssetType | "all",
     province: [] as string[],
     organizer: "all",
+    status: "all",
     minDiscount: "",
     maxPrice: "",
     rounds: "all",
@@ -101,6 +105,7 @@ export function RelistedContainer() {
     type: appliedFilters.type !== "all" ? appliedFilters.type : undefined,
     province: appliedFilters.province.length > 0 ? appliedFilters.province.join(",") : undefined,
     organizer: appliedFilters.organizer !== "all" ? appliedFilters.organizer : undefined,
+    status: appliedFilters.status !== "all" ? appliedFilters.status : undefined,
     minDiscount: appliedFilters.minDiscount || undefined,
     maxPrice: appliedFilters.maxPrice ? String(parseFloat(appliedFilters.maxPrice) * 1_000_000_000) : undefined,
     minRounds: appliedFilters.rounds !== "all" ? appliedFilters.rounds : undefined,
@@ -117,12 +122,13 @@ export function RelistedContainer() {
     setType("all");
     setProvince([]);
     setOrganizer("all");
+    setStatus("all");
     setMinDiscount("");
     setMaxPrice("");
     setRounds("all");
     setPage(1);
     setAppliedFilters({
-      keyword: "", type: "all", province: [], organizer: "all",
+      keyword: "", type: "all", province: [], organizer: "all", status: "all",
       minDiscount: "", maxPrice: "", rounds: "all"
     });
   };
@@ -133,6 +139,7 @@ export function RelistedContainer() {
       type,
       province,
       organizer,
+      status,
       minDiscount,
       maxPrice,
       rounds,
@@ -144,6 +151,17 @@ export function RelistedContainer() {
     () => [
       { label: "Tất cả", value: "all" },
       ...Object.entries(assetTypeLabel).map(([key, label]) => ({
+        label,
+        value: key,
+      })),
+    ],
+    []
+  );
+
+  const statusOptions = useMemo(
+    () => [
+      { label: "Tất cả", value: "all" },
+      ...Object.entries(statusLabel).map(([key, label]) => ({
         label,
         value: key,
       })),
@@ -248,6 +266,22 @@ export function RelistedContainer() {
             />
           </div>
           <div className="space-y-1.5">
+            <Label className="text-xs">Trạng thái</Label>
+            <AntdSelect
+              id="relisted-status-select"
+              allowClear
+              showSearch
+              value={status}
+              placeholder="Chọn trạng thái"
+              options={statusOptions}
+              optionFilterProp="label"
+              onChange={(value) => {
+                setStatus((value as string) ?? "all");
+              }}
+              className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs">Số lần ĐG</Label>
             <Select value={rounds} onValueChange={(v) => setRounds(v)}>
               <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
@@ -317,8 +351,7 @@ export function RelistedContainer() {
             <thead className="text-xs text-muted-foreground border-b bg-secondary/30">
               <tr>
                 <th className="px-4 py-2.5 w-8"><Checkbox /></th>
-                <th className="px-4 py-2.5 text-left font-medium min-w-[360px]">Tài sản</th>
-                <th className="px-4 py-2.5 text-left font-medium min-w-[240px]">Thông tin tài sản</th>
+                <th className="px-4 py-2.5 text-left font-medium min-w-[360px]">Thông tin tài sản</th>
                 <th className="px-4 py-2.5 text-left font-medium">Khu vực</th>
                 <th className="px-4 py-2.5 text-right font-medium">Giá đầu</th>
                 <th className="px-4 py-2.5 text-right font-medium">Giá hiện tại</th>
@@ -340,32 +373,35 @@ export function RelistedContainer() {
                   <tr key={a._id} className="border-b last:border-0 hover:bg-secondary/40 align-top">
                     <td className="px-4 py-3"><Checkbox /></td>
                     <td className="px-4 py-3">
-                      <Link href={`/auction/${a.sourceId}`} className="flex items-start gap-2 group min-w-[360px] max-w-[460px]">
+                      <div className="flex items-start gap-2 min-w-[360px] max-w-[500px]">
                         <AssetTypeIcon type={a.type} className="mt-0.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">{displayTitle}</div>
-                          <div className="mt-1 text-xs text-muted-foreground whitespace-normal break-words">
-                            Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
-                          </div>
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground min-w-[240px]">
-                      <div className="space-y-1.5">
-                        <div className="space-y-1 whitespace-normal break-words">
-                          {propertyLines.map((line, index) => (
-                            <div key={`${a._id}-property-${index}`} className="font-medium text-foreground whitespace-normal break-words">
-                              {line}
+                        <div className="min-w-0 space-y-2">
+                          <Link href={`/auction/${a.sourceId}`} className="group block">
+                            <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">
+                              {displayTitle}
                             </div>
-                          ))}
-                        </div>
-                        {a.organizer && (
-                          <div className="whitespace-normal break-words">
-                            Đơn vị: <span className="text-foreground/80">{a.organizer}</span>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
+                            </div>
+                          </Link>
+                          
+                          <div className="text-xs text-muted-foreground space-y-1.5 pt-2 border-t border-border/40">
+                            <div className="space-y-1 whitespace-normal break-words">
+                              {propertyLines.map((line, index) => (
+                                <div key={`${a._id}-property-${index}`} className="font-medium text-foreground whitespace-normal break-words">
+                                  {line}
+                                </div>
+                              ))}
+                            </div>
+                            {a.organizer && (
+                              <div className="whitespace-normal break-words">
+                                Đơn vị: <span className="text-foreground/80">{a.organizer}</span>
+                              </div>
+                            )}
+                            <div className="whitespace-normal break-words">
+                              Tình trạng: <span className="text-foreground/80">{a.status}</span>
+                            </div>
                           </div>
-                        )}
-                        <div className="whitespace-normal break-words">
-                          Tình trạng: <span className="text-foreground/80">{a.status}</span>
                         </div>
                       </div>
                     </td>
@@ -398,7 +434,7 @@ export function RelistedContainer() {
                 );
               })}
               {items.length === 0 && (
-                <tr><td colSpan={13} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
+                <tr><td colSpan={12} className="px-4 py-12 text-center text-muted-foreground">Không tìm thấy tài sản phù hợp</td></tr>
               )}
             </tbody>
           </table>

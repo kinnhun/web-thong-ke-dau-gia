@@ -74,6 +74,7 @@ router.get('/', async (req, res, next) => {
       (req.query.province && req.query.province !== 'all')
         || (req.query.type && req.query.type !== 'all')
         || (req.query.organizer && req.query.organizer !== 'all')
+        || (req.query.status && req.query.status !== 'all')
         || req.query.maxPrice
     );
 
@@ -147,6 +148,9 @@ router.get('/', async (req, res, next) => {
     }
     if (req.query.organizer && req.query.organizer !== 'all') {
       noticeMatch['latestNotice.organizer'] = { $regex: escapeRegex(req.query.organizer), $options: 'i' };
+    }
+    if (req.query.status && req.query.status !== 'all') {
+      noticeMatch['latestNotice.status'] = req.query.status;
     }
     if (req.query.maxPrice) {
       noticeMatch.latestPrice = { $lte: parseFloat(req.query.maxPrice) };

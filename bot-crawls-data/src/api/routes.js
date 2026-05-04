@@ -505,19 +505,37 @@ router.get('/system/export/:collection', async (req, res, next) => {
 
     console.log(`[EXPORT] Bắt đầu xuất ${collectionKey} (${count} documents, format: ${format})`);
 
+    const gzip = createGzip();
+    
+    const writeAsync = (data) => new Promise((resolve, reject) => {
+      const canContinue = gzip.write(data);
+      if (!canContinue) {
+        const onDrain = () => {
+          gzip.removeListener('error', onError);
+          resolve();
+        };
+        const onError = (err) => {
+          gzip.removeListener('drain', onDrain);
+          reject(err);
+        };
+        gzip.once('drain', onDrain);
+        gzip.once('error', onError);
+      } else {
+        resolve();
+      }
+    });
+
+    res.setHeader('Content-Type', 'application/gzip');
+
     if (format === 'csv') {
-      // CSV export — lấy mẫu 1 document để xác định headers
       const sample = await collection.findOne({});
       if (!sample) {
         return res.status(404).json({ error: true, message: 'Collection rỗng, không có dữ liệu để xuất.' });
       }
 
-      const gzip = createGzip();
-      res.setHeader('Content-Type', 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv.gz"`);
       gzip.pipe(res);
 
-      // Flatten keys từ sample document
       const flattenObj = (obj, prefix = '') => {
         const result = {};
         if (!obj) return result;
@@ -535,58 +553,49 @@ router.get('/system/export/:collection', async (req, res, next) => {
 
       const flatSample = flattenObj(sample);
       const headers = Object.keys(flatSample);
-      gzip.write(headers.map(h => `"${h}"`).join(',') + '\n');
+      await writeAsync(headers.map(h => `"${h}"`).join(',') + '\n');
 
       const cursor = collection.find();
-      cursor.on('data', (doc) => {
-        const flat = flattenObj(doc);
-        const row = headers.map(h => {
-          let val = flat[h];
-          if (val === undefined || val === null) val = '';
-          else if (Array.isArray(val)) val = JSON.stringify(val);
-          else if (val instanceof Date) val = val.toISOString();
-          else val = String(val);
-          return `"${val.replace(/"/g, '""')}"`;
-        }).join(',');
-        gzip.write(row + '\n');
-      });
-
-      cursor.on('end', () => {
+      try {
+        for await (const doc of cursor) {
+          const flat = flattenObj(doc);
+          const row = headers.map(h => {
+            let val = flat[h];
+            if (val === undefined || val === null) val = '';
+            else if (Array.isArray(val)) val = JSON.stringify(val);
+            else if (val instanceof Date) val = val.toISOString();
+            else val = String(val);
+            return `"${val.replace(/"/g, '""')}"`;
+          }).join(',');
+          await writeAsync(row + '\n');
+        }
         gzip.end();
         console.log(`[EXPORT] Hoàn thành xuất CSV ${collectionKey}`);
-      });
-
-      cursor.on('error', (err) => {
+      } catch (err) {
         console.error(`[EXPORT] Lỗi stream CSV ${collectionKey}:`, err.message);
         gzip.end();
-      });
+      }
     } else {
-      // JSON export (mặc định) — stream JSON array
-      const gzip = createGzip();
-      res.setHeader('Content-Type', 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}.json.gz"`);
       gzip.pipe(res);
-      gzip.write('[');
+      await writeAsync('[');
 
       let isFirst = true;
       const cursor = collection.find();
 
-      cursor.on('data', (doc) => {
-        if (!isFirst) gzip.write(',\n');
-        isFirst = false;
-        gzip.write(JSON.stringify(doc));
-      });
-
-      cursor.on('end', () => {
-        gzip.write(']');
+      try {
+        for await (const doc of cursor) {
+          if (!isFirst) await writeAsync(',\n');
+          isFirst = false;
+          await writeAsync(JSON.stringify(doc));
+        }
+        await writeAsync(']');
         gzip.end();
         console.log(`[EXPORT] Hoàn thành xuất JSON ${collectionKey}`);
-      });
-
-      cursor.on('error', (err) => {
-        console.error(`[EXPORT] Lỗi stream ${collectionKey}:`, err.message);
+      } catch (err) {
+        console.error(`[EXPORT] Lỗi stream JSON ${collectionKey}:`, err.message);
         gzip.end();
-      });
+      }
     }
   } catch (err) { next(err); }
 });
