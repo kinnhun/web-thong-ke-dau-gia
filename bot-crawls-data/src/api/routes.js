@@ -383,6 +383,188 @@ router.get('/crawl-logs', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/system/backup', (req, res, next) => {
+  try {
+    const { spawn } = require('child_process');
+    const dump = spawn('mongodump', ['--db', 'thong_ke_dau_gia', '--archive', '--gzip']);
+    
+    let hasError = false;
+
+    dump.on('error', (err) => {
+      hasError = true;
+      console.error(`[BACKUP] Lỗi khi chạy mongodump:`, err.message);
+      if (!res.headersSent) {
+        res.removeHeader('Content-Type');
+        res.removeHeader('Content-Disposition');
+        res.status(500).send('Loi: Khong tim thay lenh mongodump tren he thong. Vui long cai dat MongoDB Database Tools.');
+      }
+    });
+
+    // Chỉ set header và pipe khi tiến trình spawn thành công
+    dump.stdout.once('data', () => {
+      if (!hasError && !res.headersSent) {
+        res.setHeader('Content-Type', 'application/gzip');
+        res.setHeader('Content-Disposition', `attachment; filename="thong_ke_dau_gia_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.archive.gz"`);
+      }
+    });
+    
+    dump.stdout.pipe(res);
+    
+    dump.stderr.on('data', (data) => {
+      console.log(`[BACKUP] ${data}`);
+    });
+    
+    dump.on('close', (code) => {
+      console.log(`[BACKUP] Process exited with code ${code}`);
+      if (!res.writableEnded) res.end();
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════
+// COLLECTION EXPORT (tải từng collection)
+// ═══════════════════════════════════
+
+const EXPORTABLE_COLLECTIONS = {
+  auctionnotices: { label: 'Thông báo đấu giá' },
+  orgselections: { label: 'Lựa chọn tổ chức' },
+  duplicates: { label: 'Nhóm trùng lặp' },
+  crawllogs: { label: 'Nhật ký crawl' },
+  statcaches: { label: 'Cache thống kê' },
+};
+
+// Liệt kê các collection có thể tải + số lượng document
+router.get('/system/collections', async (req, res, next) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    
+    const result = await Promise.all(
+      collections.map(async (col) => {
+        const key = col.name;
+        // Mặc định lấy label từ config nếu có, không thì lấy tên nguyên bản
+        const label = EXPORTABLE_COLLECTIONS[key]?.label || key;
+        const count = await db.collection(key).estimatedDocumentCount();
+        return { key, label, count };
+      })
+    );
+    res.json({ collections: result });
+  } catch (err) { next(err); }
+});
+
+// Stream export 1 collection dưới dạng JSON array, nén gzip
+router.get('/system/export/:collection', async (req, res, next) => {
+  try {
+    const { createGzip } = require('zlib');
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    
+    const collectionKey = req.params.collection;
+    const format = (req.query.format || 'json').toLowerCase();
+    
+    // Kiểm tra collection tồn tại
+    const collections = await db.listCollections().toArray();
+    const exists = collections.some(c => c.name === collectionKey);
+    if (!exists) {
+      return res.status(404).json({ error: true, message: `Collection "${collectionKey}" không tồn tại.` });
+    }
+
+    const collection = db.collection(collectionKey);
+    const count = await collection.estimatedDocumentCount();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `${collectionKey}_${timestamp}`;
+
+    console.log(`[EXPORT] Bắt đầu xuất ${collectionKey} (${count} documents, format: ${format})`);
+
+    if (format === 'csv') {
+      // CSV export — lấy mẫu 1 document để xác định headers
+      const sample = await collection.findOne({});
+      if (!sample) {
+        return res.status(404).json({ error: true, message: 'Collection rỗng, không có dữ liệu để xuất.' });
+      }
+
+      const gzip = createGzip();
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv.gz"`);
+      gzip.pipe(res);
+
+      // Flatten keys từ sample document
+      const flattenObj = (obj, prefix = '') => {
+        const result = {};
+        if (!obj) return result;
+        for (const [k, v] of Object.entries(obj)) {
+          const key = prefix ? `${prefix}.${k}` : k;
+          const isObjectId = v && v.constructor && (v.constructor.name === 'ObjectID' || v.constructor.name === 'ObjectId');
+          if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date) && !isObjectId) {
+            Object.assign(result, flattenObj(v, key));
+          } else {
+            result[key] = v;
+          }
+        }
+        return result;
+      };
+
+      const flatSample = flattenObj(sample);
+      const headers = Object.keys(flatSample);
+      gzip.write(headers.map(h => `"${h}"`).join(',') + '\n');
+
+      const cursor = collection.find();
+      cursor.on('data', (doc) => {
+        const flat = flattenObj(doc);
+        const row = headers.map(h => {
+          let val = flat[h];
+          if (val === undefined || val === null) val = '';
+          else if (Array.isArray(val)) val = JSON.stringify(val);
+          else if (val instanceof Date) val = val.toISOString();
+          else val = String(val);
+          return `"${val.replace(/"/g, '""')}"`;
+        }).join(',');
+        gzip.write(row + '\n');
+      });
+
+      cursor.on('end', () => {
+        gzip.end();
+        console.log(`[EXPORT] Hoàn thành xuất CSV ${collectionKey}`);
+      });
+
+      cursor.on('error', (err) => {
+        console.error(`[EXPORT] Lỗi stream CSV ${collectionKey}:`, err.message);
+        gzip.end();
+      });
+    } else {
+      // JSON export (mặc định) — stream JSON array
+      const gzip = createGzip();
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.json.gz"`);
+      gzip.pipe(res);
+      gzip.write('[');
+
+      let isFirst = true;
+      const cursor = collection.find();
+
+      cursor.on('data', (doc) => {
+        if (!isFirst) gzip.write(',\n');
+        isFirst = false;
+        gzip.write(JSON.stringify(doc));
+      });
+
+      cursor.on('end', () => {
+        gzip.write(']');
+        gzip.end();
+        console.log(`[EXPORT] Hoàn thành xuất JSON ${collectionKey}`);
+      });
+
+      cursor.on('error', (err) => {
+        console.error(`[EXPORT] Lỗi stream ${collectionKey}:`, err.message);
+        gzip.end();
+      });
+    }
+  } catch (err) { next(err); }
+});
+
 // ═══════════════════════════════════
 // MANUAL TRIGGERS
 // ═══════════════════════════════════

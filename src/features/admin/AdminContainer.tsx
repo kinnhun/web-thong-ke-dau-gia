@@ -2,11 +2,12 @@ import { useState } from "react";
 import {
   AlertCircle, CheckCircle2, Database, Eye, GitMerge,
   Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
-  TrendingDown, Layers, FileBarChart,
+  TrendingDown, Layers, FileBarChart, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCrawlLogs, useAuctions, useDashboardStats } from "@/domains/auction";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useCrawlLogs, useAuctions, useDashboardStats, useCollections } from "@/domains/auction";
 import { formatDate } from "@/lib/format";
 import {
   triggerListCrawl,
@@ -50,10 +51,12 @@ export function AdminContainer() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [skipDetail, setSkipDetail] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"raw" | "logs">("raw");
   const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
   const { data: stats } = useDashboardStats();
+  const { data: collectionsData, isLoading: collectionsLoading } = useCollections();
 
   const rawRecords = rawAuctions?.items || [];
   const crawlLogPayload = crawlLogs;
@@ -128,6 +131,24 @@ export function AdminContainer() {
         return { message: res.message || (newStatus ? "Đã TẮT cào detail." : "Đã BẬT cào detail.") };
       }
     },
+    {
+      icon: Database,
+      title: "Backup dữ liệu",
+      desc: "Tải DB về máy (.gz)",
+      fn: () => {
+        window.location.href = "/api/system/backup";
+        return Promise.resolve({ message: "Đang bắt đầu tải xuống tệp backup dữ liệu..." });
+      }
+    },
+    {
+      icon: Download,
+      title: "Xuất dữ liệu",
+      desc: "Tải CSV/JSON từng bảng",
+      fn: () => {
+        setExportOpen(true);
+        return Promise.resolve({ message: "Mở menu xuất dữ liệu" });
+      }
+    }
   ];
 
   return (
@@ -147,6 +168,37 @@ export function AdminContainer() {
           {actionResult}
         </div>
       )}
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Xuất dữ liệu hệ thống</DialogTitle>
+            <DialogDescription>
+              Tải xuống dữ liệu từ các collection dưới dạng JSON (mặc định) hoặc CSV. File sẽ được nén dưới định dạng .gz để tiết kiệm băng thông.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            {collectionsLoading ? (
+              <div className="flex items-center justify-center p-4 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Đang tải danh sách...</div>
+            ) : collectionsData?.collections?.length ? (
+              collectionsData.collections.map((col: { key: string, label: string, count: number }) => (
+                <div key={col.key} className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <div className="font-medium text-sm">{col.label}</div>
+                    <div className="text-xs text-muted-foreground num">{col.count.toLocaleString("vi-VN")} bản ghi</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="h-8 text-xs font-medium" onClick={() => window.location.href = `/api/system/export/${col.key}?format=csv`}>CSV</Button>
+                    <Button variant="default" size="sm" className="h-8 text-xs font-medium" onClick={() => window.location.href = `/api/system/export/${col.key}?format=json`}>JSON</Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-sm text-muted-foreground">Không tìm thấy collection nào.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <div className="rounded-xl border bg-card p-3 sm:p-4">

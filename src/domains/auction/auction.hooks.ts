@@ -19,6 +19,7 @@ import {
   fetchReportTopDiscount,
   fetchCrawlLogs,
   fetchAuctions,
+  fetchCollections,
 } from '@/services/auction.service';
 
 // ═══════════════════════════════════
@@ -186,5 +187,13 @@ export function useCrawlLogs() {
       const payload = query.state.data as { hasRunningDuplicateScan?: boolean; hasRunningCrawl?: boolean } | undefined;
       return payload?.hasRunningCrawl || payload?.hasRunningDuplicateScan ? 5000 : false;
     },
+  });
+}
+
+export function useCollections() {
+  return useQuery({
+    queryKey: ['system-collections'],
+    queryFn: fetchCollections,
+    staleTime: 60_000,
   });
 }

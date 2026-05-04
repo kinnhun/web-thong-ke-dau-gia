@@ -145,6 +145,11 @@ export async function fetchCrawlLogs(): Promise<{ logs: Record<string, unknown>[
   return data;
 }
 
+export async function fetchCollections(): Promise<{ collections: { key: string; label: string; count: number }[] }> {
+  const { data } = await httpClient.get('/api/system/collections');
+  return data;
+}
+
 export async function triggerDetailCrawl(limit: number, type: string) {
   const { data } = await httpClient.post('/api/trigger-detail-crawl', { limit, type });
   return data;
