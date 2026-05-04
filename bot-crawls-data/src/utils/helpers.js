@@ -158,6 +158,7 @@ function hasConflictingIdentifiers(idsA, idsB) {
  * Trả về true nếu có bất kỳ định danh mạnh nào giống hệt nhau.
  */
 function hasMatchingStrongIdentifiers(idsA, idsB) {
+  // 1. Định danh đơn lẻ duy nhất (xe cộ, sổ đỏ, tàu)
   const strongKeys = [
     'licensePlate', 'chassisNumber', 'engineNumber', 
     'certificateNumber', 'certificateEntryNumber', 'shipNumber'
@@ -167,6 +168,14 @@ function hasMatchingStrongIdentifiers(idsA, idsB) {
       return true; // Khớp định danh duy nhất -> Chắc chắn 100% là trùng lặp
     }
   }
+
+  // 2. BẤT ĐỘNG SẢN: Cùng "thửa đất số X" + cùng "tờ bản đồ số Y" → Chắc chắn cùng 1 thửa đất
+  //    (Hệ thống địa chính VN: mỗi thửa trên 1 tờ bản đồ là duy nhất, dù tên phường/quận thay đổi)
+  if (idsA.plotNumber && idsB.plotNumber && idsA.mapSheet && idsB.mapSheet &&
+      idsA.plotNumber === idsB.plotNumber && idsA.mapSheet === idsB.mapSheet) {
+    return true;
+  }
+
   return false;
 }
 

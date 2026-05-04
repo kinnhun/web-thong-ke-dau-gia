@@ -10,7 +10,7 @@ const { searchDuplicatesByFuzzyName, handleDuplicate } = require('/var/www/web-t
 async function fix() {
   await mongoose.connect('mongodb://127.0.0.1:27017/thong_ke_dau_gia');
   
-  const ids = [460746, 562918];
+  const ids = [454852, 561763, 471403];
   
   // Clean up any old duplicate records specifically for these IDs to reset state
   await Duplicate.deleteMany({ sourceIds: { $in: ids } });
