@@ -3,15 +3,19 @@ const Duplicate = require('../models/Duplicate');
 
 const router = Router();
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function buildLatestNoticeLookupStages() {
   return [
     {
       $addFields: {
         latestSourceId: {
-          $arrayElemAt: ['$sourceIds', -1],
+          $arrayElemAt: [{ $ifNull: ['$sourceIds', []] }, -1],
         },
         _latestPublishedAt: {
-          $arrayElemAt: [{ $slice: ['$entries.publishedAt', -1] }, 0],
+          $arrayElemAt: [{ $slice: [{ $ifNull: ['$entries.publishedAt', []] }, -1] }, 0],
         },
       },
     },
@@ -54,7 +58,7 @@ router.get('/', async (req, res, next) => {
     };
 
     if (req.query.search) {
-      dupFilter.name = { $regex: req.query.search, $options: 'i' };
+      dupFilter.name = { $regex: escapeRegex(req.query.search), $options: 'i' };
     }
 
     const sortMap = {
@@ -64,6 +68,7 @@ router.get('/', async (req, res, next) => {
       discount_pct: { priceDropPercent: -1 },
     };
     const sortKey = req.query.sort || 'newest';
+    const sortStage = { $sort: sortMap[sortKey] || sortMap.rounds_desc };
 
     const hasNoticeFilters = Boolean(
       (req.query.province && req.query.province !== 'all')
@@ -72,63 +77,50 @@ router.get('/', async (req, res, next) => {
         || req.query.maxPrice
     );
 
-    const baseStages = [
-      { $match: dupFilter },
-      {
-        $addFields: {
-          _latestPublishedAt: {
-            $arrayElemAt: [{ $slice: ['$entries.publishedAt', -1] }, 0],
-          },
-        },
-      },
-    ];
-
-    const sortStage = { $sort: sortMap[sortKey] || sortMap.rounds_desc };
+    const baseProject = {
+      _id: 1,
+      name: 1,
+      shortDescription: '$latestNotice.shortDescription',
+      firstPrice: 1,
+      latestPrice: 1,
+      priceDropPercent: 1,
+      relistCount: 1,
+      updatedAt: 1,
+      sourceId: '$latestNotice.sourceId',
+      type: '$latestNotice.type',
+      province: '$latestNotice.province',
+      organizer: '$latestNotice.organizer',
+      publishedAt: '$latestNotice.publishedAt',
+      status: '$latestNotice.status',
+      initialPrice: '$latestNotice.initialPrice',
+      currentPrice: '$latestNotice.currentPrice',
+    };
 
     if (!hasNoticeFilters) {
-      const pipeline = [
-        ...baseStages,
-        {
-          $facet: {
-            metadata: [{ $count: 'total' }],
-            data: [
-              sortStage,
-              { $skip: skip },
-              { $limit: limit },
-              ...buildLatestNoticeLookupStages(),
-              {
-                $match: {
-                  latestNotice: { $ne: null },
-                },
+      // Tối ưu khi không có filter phức tạp liên quan đến bảng join
+      const [total, items] = await Promise.all([
+        Duplicate.countDocuments(dupFilter),
+        Duplicate.aggregate([
+          { $match: dupFilter },
+          {
+            $addFields: {
+              _latestPublishedAt: {
+                $arrayElemAt: [{ $slice: [{ $ifNull: ['$entries.publishedAt', []] }, -1] }, 0],
               },
-              {
-                $project: {
-                  _id: 1,
-                  name: 1,
-                  shortDescription: '$latestNotice.shortDescription',
-                  firstPrice: 1,
-                  latestPrice: 1,
-                  priceDropPercent: 1,
-                  relistCount: 1,
-                  updatedAt: 1,
-                  sourceId: '$latestNotice.sourceId',
-                  type: '$latestNotice.type',
-                  province: '$latestNotice.province',
-                  organizer: '$latestNotice.organizer',
-                  publishedAt: '$latestNotice.publishedAt',
-                  status: '$latestNotice.status',
-                  initialPrice: '$latestNotice.initialPrice',
-                  currentPrice: '$latestNotice.currentPrice',
-                },
-              },
-            ],
+            },
           },
-        },
-      ];
-
-      const result = await Duplicate.aggregate(pipeline);
-      const total = result[0]?.metadata?.[0]?.total || 0;
-      const items = result[0]?.data || [];
+          sortStage,
+          { $skip: skip },
+          { $limit: limit },
+          ...buildLatestNoticeLookupStages(),
+          {
+            $match: {
+              latestNotice: { $ne: null },
+            },
+          },
+          { $project: baseProject },
+        ]).allowDiskUse(true)
+      ]);
 
       res.json({
         items,
@@ -142,11 +134,7 @@ router.get('/', async (req, res, next) => {
       return;
     }
 
-    const pipeline = [
-      ...baseStages,
-      ...buildLatestNoticeLookupStages(),
-    ];
-
+    // Khi có filter phức tạp, bắt buộc phải lookup trước
     const noticeMatch = {
       latestNotice: { $ne: null },
     };
@@ -158,47 +146,30 @@ router.get('/', async (req, res, next) => {
       noticeMatch['latestNotice.type'] = req.query.type;
     }
     if (req.query.organizer && req.query.organizer !== 'all') {
-      noticeMatch['latestNotice.organizer'] = { $regex: req.query.organizer, $options: 'i' };
+      noticeMatch['latestNotice.organizer'] = { $regex: escapeRegex(req.query.organizer), $options: 'i' };
     }
     if (req.query.maxPrice) {
       noticeMatch.latestPrice = { $lte: parseFloat(req.query.maxPrice) };
     }
 
-    pipeline.push({ $match: noticeMatch });
-    pipeline.push({
-      $facet: {
-        metadata: [{ $count: 'total' }],
-        data: [
-          sortStage,
-          { $skip: skip },
-          { $limit: limit },
-          {
-            $project: {
-              _id: 1,
-              name: 1,
-              shortDescription: '$latestNotice.shortDescription',
-              firstPrice: 1,
-              latestPrice: 1,
-              priceDropPercent: 1,
-              relistCount: 1,
-              updatedAt: 1,
-              sourceId: '$latestNotice.sourceId',
-              type: '$latestNotice.type',
-              province: '$latestNotice.province',
-              organizer: '$latestNotice.organizer',
-              publishedAt: '$latestNotice.publishedAt',
-              status: '$latestNotice.status',
-              initialPrice: '$latestNotice.initialPrice',
-              currentPrice: '$latestNotice.currentPrice',
-            },
-          },
-        ],
-      },
-    });
+    const filterPipeline = [
+      { $match: dupFilter },
+      ...buildLatestNoticeLookupStages(),
+      { $match: noticeMatch }
+    ];
 
-    const result = await Duplicate.aggregate(pipeline);
-    const total = result[0]?.metadata?.[0]?.total || 0;
-    const items = result[0]?.data || [];
+    const [totalResult, items] = await Promise.all([
+      Duplicate.aggregate([...filterPipeline, { $count: 'total' }]),
+      Duplicate.aggregate([
+        ...filterPipeline,
+        sortStage,
+        { $skip: skip },
+        { $limit: limit },
+        { $project: baseProject },
+      ]).allowDiskUse(true)
+    ]);
+
+    const total = totalResult[0]?.total || 0;
 
     res.json({
       items,

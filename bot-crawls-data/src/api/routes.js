@@ -383,43 +383,69 @@ router.get('/crawl-logs', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/system/backup', (req, res, next) => {
+router.get('/system/backup', async (req, res, next) => {
   try {
-    const { spawn } = require('child_process');
-    const dump = spawn('mongodump', ['--db', 'thong_ke_dau_gia', '--archive', '--gzip']);
+    const { createGzip } = require('zlib');
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
     
-    let hasError = false;
-
-    dump.on('error', (err) => {
-      hasError = true;
-      console.error(`[BACKUP] Lỗi khi chạy mongodump:`, err.message);
-      if (!res.headersSent) {
-        res.removeHeader('Content-Type');
-        res.removeHeader('Content-Disposition');
-        res.status(500).send('Loi: Khong tim thay lenh mongodump tren he thong. Vui long cai dat MongoDB Database Tools.');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="thong_ke_dau_gia_backup_${timestamp}.json.gz"`);
+    
+    const gzip = createGzip();
+    gzip.pipe(res);
+    
+    const writeAsync = (data) => new Promise((resolve, reject) => {
+      const canContinue = gzip.write(data);
+      if (!canContinue) {
+        const onDrain = () => {
+          gzip.removeListener('error', onError);
+          resolve();
+        };
+        const onError = (err) => {
+          gzip.removeListener('drain', onDrain);
+          reject(err);
+        };
+        gzip.once('drain', onDrain);
+        gzip.once('error', onError);
+      } else {
+        resolve();
       }
     });
 
-    // Chỉ set header và pipe khi tiến trình spawn thành công
-    dump.stdout.once('data', () => {
-      if (!hasError && !res.headersSent) {
-        res.setHeader('Content-Type', 'application/gzip');
-        res.setHeader('Content-Disposition', `attachment; filename="thong_ke_dau_gia_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.archive.gz"`);
+    await writeAsync('{"collections":{');
+    
+    const collections = await db.listCollections().toArray();
+    
+    for (let i = 0; i < collections.length; i++) {
+      const colName = collections[i].name;
+      if (i > 0) await writeAsync(',');
+      await writeAsync(`"${colName}":[`);
+      
+      const cursor = db.collection(colName).find();
+      let isFirstDoc = true;
+      
+      for await (const doc of cursor) {
+        if (!isFirstDoc) await writeAsync(',');
+        await writeAsync(JSON.stringify(doc));
+        isFirstDoc = false;
       }
-    });
+      
+      await writeAsync(']');
+    }
     
-    dump.stdout.pipe(res);
+    await writeAsync('}}');
+    gzip.end();
     
-    dump.stderr.on('data', (data) => {
-      console.log(`[BACKUP] ${data}`);
-    });
-    
-    dump.on('close', (code) => {
-      console.log(`[BACKUP] Process exited with code ${code}`);
-      if (!res.writableEnded) res.end();
-    });
+    console.log(`[BACKUP] Full DB backup completed successfully.`);
   } catch (err) {
-    next(err);
+    console.error(`[BACKUP] Error during backup:`, err.message);
+    if (!res.headersSent) {
+      res.status(500).send('Lỗi khi tạo file backup: ' + err.message);
+    } else {
+      res.end();
+    }
   }
 });
 
