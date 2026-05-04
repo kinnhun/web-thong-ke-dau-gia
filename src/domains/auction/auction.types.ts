@@ -32,8 +32,6 @@ export const assetTypeLabel: Record<AssetType, string> = {
 export const statusLabel: Partial<Record<AuctionStatus, string>> = {
   upcoming: 'Sắp đấu giá',
   receiving_docs: 'Đang nhận hồ sơ',
-  // newly_reduced: 'Mới giảm giá',
-  // watch: 'Cần theo dõi',
   completed: 'Đã hoàn thành',
   unknown: 'Không rõ',
 };

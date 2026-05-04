@@ -135,7 +135,37 @@ router.get('/', async (req, res, next) => {
       return;
     }
 
-    // Khi có filter phức tạp, bắt buộc phải lookup trước
+    // Khi có filter phức tạp, tối ưu bằng cách truy vấn AuctionNotice trước để lấy sourceIds
+    const noticeMatchQuery = {};
+    if (req.query.province && req.query.province !== 'all') {
+      noticeMatchQuery.province = req.query.province;
+    }
+    if (req.query.type && req.query.type !== 'all') {
+      noticeMatchQuery.type = req.query.type;
+    }
+    if (req.query.organizer && req.query.organizer !== 'all') {
+      noticeMatchQuery.organizer = { $regex: escapeRegex(req.query.organizer), $options: 'i' };
+    }
+    if (req.query.status && req.query.status !== 'all') {
+      noticeMatchQuery.status = req.query.status;
+    }
+    if (req.query.maxPrice) {
+      noticeMatchQuery.currentPrice = { $lte: parseFloat(req.query.maxPrice) };
+    }
+
+    const matchingNotices = await require('../models/AuctionNotice').find(noticeMatchQuery).select('sourceId').lean();
+    const noticeSourceIds = matchingNotices.map(n => n.sourceId);
+
+    // Nếu không có notice nào thỏa mãn, trả về 0 kết quả luôn
+    if (noticeSourceIds.length === 0) {
+      return res.json({ items: [], pagination: { total: 0, page, limit, totalPages: 0 } });
+    }
+
+    // Lọc Duplicate theo những sourceIds vừa tìm được
+    dupFilter.sourceIds = { $in: noticeSourceIds };
+
+    // Vẫn giữ lookup và noticeMatch để đảm bảo _latestNotice_ mới thỏa mãn điều kiện
+    // (tránh trường hợp notice cũ thỏa mãn nhưng notice mới thì không)
     const noticeMatch = {
       latestNotice: { $ne: null },
     };
