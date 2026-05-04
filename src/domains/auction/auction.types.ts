@@ -29,7 +29,7 @@ export const assetTypeLabel: Record<AssetType, string> = {
   other: 'Khác',
 };
 
-export const statusLabel: Record<AuctionStatus, string> = {
+export const statusLabel: Partial<Record<AuctionStatus, string>> = {
   upcoming: 'Sắp đấu giá',
   receiving_docs: 'Đang nhận hồ sơ',
   // newly_reduced: 'Mới giảm giá',
