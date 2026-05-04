@@ -88,6 +88,8 @@ export interface DiscountedAuction {
   owner?: string;
   publishedAt: string;
   auctionDate?: string;
+  registrationStart?: string;
+  registrationEnd?: string;
   status: AuctionStatus;
   initialPrice: number;
   currentPrice: number;
