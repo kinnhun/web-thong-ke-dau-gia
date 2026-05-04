@@ -153,6 +153,24 @@ function hasConflictingIdentifiers(idsA, idsB) {
 }
 
 /**
+ * So sánh 2 bộ property identifiers xem có ĐỊNH DANH MẠNH nào trùng khớp không.
+ * Các định danh mạnh mang tính duy nhất (Biển số xe, Số khung, Sổ đỏ, Tàu).
+ * Trả về true nếu có bất kỳ định danh mạnh nào giống hệt nhau.
+ */
+function hasMatchingStrongIdentifiers(idsA, idsB) {
+  const strongKeys = [
+    'licensePlate', 'chassisNumber', 'engineNumber', 
+    'certificateNumber', 'certificateEntryNumber', 'shipNumber'
+  ];
+  for (const key of strongKeys) {
+    if (idsA[key] && idsB[key] && idsA[key] === idsB[key]) {
+      return true; // Khớp định danh duy nhất -> Chắc chắn 100% là trùng lặp
+    }
+  }
+  return false;
+}
+
+/**
  * Trích xuất số tài sản (đã loại bỏ ngày, năm, đơn vị hành chính)
  */
 function getNumberTokens(name) {
@@ -353,4 +371,5 @@ module.exports = {
   getNumberTokens,
   extractPropertyIdentifiers,
   hasConflictingIdentifiers,
+  hasMatchingStrongIdentifiers,
 };

@@ -14,7 +14,7 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers } = require('../utils/helpers');
+const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -534,22 +534,40 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     // 2. Fuzzy match từ local DB (giống 70-80%)
     const Model = type === 'auction' ? AuctionNotice : OrgSelection;
+    const targetProvince = extractProvince(name);
+    const dbQuery = { $text: { $search: name } };
+    if (targetProvince) dbQuery.province = targetProvince;
+
     const dbCandidates = await Model.find(
-      { $text: { $search: name } },
+      dbQuery,
       { score: { $meta: 'textScore' } }
     )
       .sort({ score: { $meta: 'textScore' } })
-      .limit(100)
+      .limit(150)
       .select('sourceId name')
       .lean();
 
+    // 3. Fallback bằng regex nếu có số cụ thể (khắc phục lỗi $text search bỏ sót)
+    const targetNumbers = getNumberTokens(name);
+    let dbCandidatesRegex = [];
+    if (targetNumbers.length > 0 && targetNumbers.length <= 5) {
+      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "\\\\b" + num + "\\\\b", $options: 'i' } }));
+      const regexDbQuery = { $and: regexQueries };
+      if (targetProvince) regexDbQuery.province = targetProvince;
+      
+      dbCandidatesRegex = await Model.find(regexDbQuery)
+        .limit(150)
+        .select('sourceId name')
+        .lean();
+    }
+
     // Gộp candidates
-    const candidates = [...apiCandidates, ...dbCandidates];
+    const candidates = [...apiCandidates, ...dbCandidates, ...dbCandidatesRegex];
 
     // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
     const targetCore = extractCoreIdentity(name);
     const targetCoreBigrams = getBigrams(targetCore);
-    const targetNumbers = getNumberTokens(name);
+    // targetNumbers already defined above
     const targetIdentifiers = extractPropertyIdentifiers(name); // ★ Trích xuất định danh chuẩn
 
     for (const c of candidates) {
@@ -563,10 +581,17 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
         continue;
       }
 
+      // BƯỚC 1.5: Định danh MẠNH trùng khớp tuyệt đối (VD: Cùng biển số xe, số khung, số sổ đỏ) → CHẤP NHẬN NGAY
+      if (hasMatchingStrongIdentifiers(targetIdentifiers, candidateIdentifiers)) {
+        relatedIds.push(c.sourceId);
+        continue;
+      }
+
       // BƯỚC 2: Cả hai có số nhưng KHÔNG CHUNG SỐ NÀO → REJECT
       const bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
+      let common = [];
       if (bothHaveNumbers) {
-        const common = targetNumbers.filter(t => candidateNumbers.includes(t));
+        common = targetNumbers.filter(t => candidateNumbers.includes(t));
         if (common.length === 0) continue;
       }
 
@@ -581,11 +606,14 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       }
 
       // Có số chung + core sim >= 60% → MATCH (số đã xác nhận cùng tài sản)
-      if (bothHaveNumbers && coreSim >= 0.60) {
-        const common = targetNumbers.filter(t => candidateNumbers.includes(t));
-        if (common.length > 0) {
-          relatedIds.push(c.sourceId);
-        }
+      if (bothHaveNumbers && coreSim >= 0.60 && common.length > 0) {
+        relatedIds.push(c.sourceId);
+        continue;
+      }
+
+      // CĂN HỘ: Cùng số căn hộ + cùng chứa chung ít nhất 2 số (Ví dụ căn 12A và Tòa 81) → MATCH dù text khác biệt nhiều
+      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && common.length >= 2 && coreSim >= 0.05) {
+        relatedIds.push(c.sourceId);
       }
     }
 
