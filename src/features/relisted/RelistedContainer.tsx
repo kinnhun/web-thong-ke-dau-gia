@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import {
   Bell,
   Bookmark,
@@ -60,6 +61,8 @@ const sortLabel: Record<SortKey, string> = {
 };
 
 export function RelistedContainer() {
+  const router = useRouter();
+
   const [view, setView] = useState<ViewMode>("table");
   const [sortKey, setSortKey] = useState<SortKey>("rounds_desc");
   const [keyword, setKeyword] = useState("");
@@ -83,6 +86,73 @@ export function RelistedContainer() {
     maxPrice: "",
     rounds: "all",
   });
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const q = router.query;
+    
+    const k = (q.keyword as string) || "";
+    const t = (q.type as AssetType | "all") || "all";
+    const p = (q.province as string)?.split(",").filter(Boolean) || [];
+    const o = (q.organizer as string) || "all";
+    const s = (q.status as string) || "all";
+    const minD = (q.minDiscount as string) || "";
+    const maxP = (q.maxPrice as string) || "";
+    const r = (q.rounds as string) || "all";
+    const pg = Number(q.page) || 1;
+    const v = (q.view as ViewMode) || "table";
+    const sk = (q.sortKey as SortKey) || "rounds_desc";
+
+    const isDifferent = 
+      appliedFilters.keyword !== k ||
+      appliedFilters.type !== t ||
+      appliedFilters.province.join(",") !== p.join(",") ||
+      appliedFilters.organizer !== o ||
+      appliedFilters.status !== s ||
+      appliedFilters.minDiscount !== minD ||
+      appliedFilters.maxPrice !== maxP ||
+      appliedFilters.rounds !== r ||
+      page !== pg ||
+      view !== v ||
+      sortKey !== sk;
+
+    if (isDifferent) {
+      setKeyword(k);
+      setType(t);
+      setProvince(p);
+      setOrganizer(o);
+      setStatus(s);
+      setMinDiscount(minD);
+      setMaxPrice(maxP);
+      setRounds(r);
+      setPage(pg);
+      setView(v);
+      setSortKey(sk);
+
+      setAppliedFilters({
+        keyword: k, type: t, province: p, organizer: o, status: s,
+        minDiscount: minD, maxPrice: maxP, rounds: r,
+      });
+    }
+  }, [router.isReady, router.query, appliedFilters, page, view, sortKey]);
+
+  const updateUrl = (filters: typeof appliedFilters, p: number, s: SortKey, v: ViewMode) => {
+    if (!router.isReady) return;
+    const query: Record<string, string> = {};
+    if (v !== "table") query.view = v;
+    if (s !== "rounds_desc") query.sortKey = s;
+    if (filters.keyword) query.keyword = filters.keyword;
+    if (filters.type !== "all") query.type = filters.type;
+    if (filters.province.length > 0) query.province = filters.province.join(",");
+    if (filters.organizer !== "all") query.organizer = filters.organizer;
+    if (filters.status !== "all") query.status = filters.status;
+    if (filters.minDiscount) query.minDiscount = filters.minDiscount;
+    if (filters.maxPrice) query.maxPrice = filters.maxPrice;
+    if (filters.rounds !== "all") query.rounds = filters.rounds;
+    if (p > 1) query.page = String(p);
+
+    router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
+  };
 
   const { data: filterOpts } = useRelistedFilterOptions();
 
@@ -127,14 +197,16 @@ export function RelistedContainer() {
     setMaxPrice("");
     setRounds("all");
     setPage(1);
-    setAppliedFilters({
-      keyword: "", type: "all", province: [], organizer: "all", status: "all",
+    const newFilters = {
+      keyword: "", type: "all" as const, province: [], organizer: "all", status: "all",
       minDiscount: "", maxPrice: "", rounds: "all"
-    });
+    };
+    setAppliedFilters(newFilters);
+    updateUrl(newFilters, 1, sortKey, view);
   };
 
   const handleSearch = () => {
-    setAppliedFilters({
+    const newFilters = {
       keyword,
       type,
       province,
@@ -143,8 +215,10 @@ export function RelistedContainer() {
       minDiscount,
       maxPrice,
       rounds,
-    });
+    };
+    setAppliedFilters(newFilters);
     setPage(1);
+    updateUrl(newFilters, 1, sortKey, view);
   };
 
   const typeOptions = useMemo(
@@ -303,7 +377,10 @@ export function RelistedContainer() {
           </div>
           <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label className="text-xs">Sắp xếp</Label>
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+            <Select value={sortKey} onValueChange={(v) => {
+              setSortKey(v as SortKey);
+              updateUrl(appliedFilters, page, v as SortKey, view);
+            }}>
               <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {Object.entries(sortLabel).map(([k, v]) => (
@@ -332,10 +409,16 @@ export function RelistedContainer() {
           <span className="font-medium text-foreground num">{total}</span> kết quả
         </div>
         <div className="inline-flex items-center rounded-md border bg-card p-0.5">
-          <button onClick={() => setView("table")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs cursor-pointer ${view === "table" ? "bg-secondary font-medium" : "text-muted-foreground"}`}>
+          <button onClick={() => {
+            setView("table");
+            updateUrl(appliedFilters, page, sortKey, "table");
+          }} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs cursor-pointer ${view === "table" ? "bg-secondary font-medium" : "text-muted-foreground"}`}>
             <List className="h-3.5 w-3.5" />Bảng
           </button>
-          <button onClick={() => setView("card")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs cursor-pointer ${view === "card" ? "bg-secondary font-medium" : "text-muted-foreground"}`}>
+          <button onClick={() => {
+            setView("card");
+            updateUrl(appliedFilters, page, sortKey, "card");
+          }} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs cursor-pointer ${view === "card" ? "bg-secondary font-medium" : "text-muted-foreground"}`}>
             <LayoutGrid className="h-3.5 w-3.5" />Card
           </button>
         </div>
@@ -472,7 +555,11 @@ export function RelistedContainer() {
       {totalPages > 1 && (
         <Pagination>
           <PaginationContent>
-            <PaginationItem><PaginationPrevious onClick={() => setPage(Math.max(1, page - 1))} className="cursor-pointer" /></PaginationItem>
+            <PaginationItem><PaginationPrevious onClick={() => {
+              const newPage = Math.max(1, page - 1);
+              setPage(newPage);
+              updateUrl(appliedFilters, newPage, sortKey, view);
+            }} className="cursor-pointer" /></PaginationItem>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               let p: number;
               if (totalPages <= 7) p = i + 1;
@@ -481,11 +568,18 @@ export function RelistedContainer() {
               else p = page - 3 + i;
               return (
                 <PaginationItem key={p}>
-                  <PaginationLink isActive={p === page} onClick={() => setPage(p)} className="cursor-pointer">{p}</PaginationLink>
+                  <PaginationLink isActive={p === page} onClick={() => {
+                    setPage(p);
+                    updateUrl(appliedFilters, p, sortKey, view);
+                  }} className="cursor-pointer">{p}</PaginationLink>
                 </PaginationItem>
               );
             })}
-            <PaginationItem><PaginationNext onClick={() => setPage(Math.min(totalPages, page + 1))} className="cursor-pointer" /></PaginationItem>
+            <PaginationItem><PaginationNext onClick={() => {
+              const newPage = Math.min(totalPages, page + 1);
+              setPage(newPage);
+              updateUrl(appliedFilters, newPage, sortKey, view);
+            }} className="cursor-pointer" /></PaginationItem>
           </PaginationContent>
         </Pagination>
       )}

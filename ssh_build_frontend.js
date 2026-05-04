@@ -3,15 +3,24 @@ const { Client } = require('ssh2');
 const conn = new Client();
 conn.on('ready', () => {
   console.log('Client :: ready');
-  conn.exec("bash -lc 'cd /var/www/web-thong-ke-dau-gia && npm run build && pm2 restart daugia-frontend'", (err, stream) => {
+  conn.sftp((err, sftp) => {
     if (err) throw err;
-    stream.on('close', (code, signal) => {
-      console.log('Stream :: close :: code: ' + code + ', signal: ' + signal);
-      conn.end();
-    }).on('data', (data) => {
-      process.stdout.write('STDOUT: ' + data);
-    }).stderr.on('data', (data) => {
-      process.stderr.write('STDERR: ' + data);
+    const localFile = 'd:/web-thong-ke-dau-gia/src/features/relisted/RelistedContainer.tsx';
+    const remoteFile = '/var/www/web-thong-ke-dau-gia/src/features/relisted/RelistedContainer.tsx';
+    sftp.fastPut(localFile, remoteFile, (err) => {
+      if (err) throw err;
+      console.log('File uploaded successfully. Building next.js...');
+      conn.exec("bash -lc 'cd /var/www/web-thong-ke-dau-gia && npm run build && pm2 restart daugia-frontend'", (err, stream) => {
+        if (err) throw err;
+        stream.on('close', (code, signal) => {
+          console.log('Stream :: close :: code: ' + code + ', signal: ' + signal);
+          conn.end();
+        }).on('data', (data) => {
+          process.stdout.write('STDOUT: ' + data);
+        }).stderr.on('data', (data) => {
+          process.stderr.write('STDERR: ' + data);
+        });
+      });
     });
   });
 }).connect({
