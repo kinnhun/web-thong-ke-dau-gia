@@ -222,8 +222,8 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   return (
     <div className="container mx-auto max-w-[1300px] px-3 sm:px-6 py-5 sm:py-8">
       <div className="mb-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/discounts"><ArrowLeft className="h-4 w-4" />Quay lại danh sách</Link>
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-1" />Quay lại danh sách
         </Button>
       </div>
 
