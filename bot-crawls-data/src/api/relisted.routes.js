@@ -76,6 +76,10 @@ router.get('/', async (req, res, next) => {
         || (req.query.organizer && req.query.organizer !== 'all')
         || (req.query.status && req.query.status !== 'all')
         || req.query.maxPrice
+        || req.query.auctionDateFrom
+        || req.query.auctionDateTo
+        || req.query.publishedAtFrom
+        || req.query.publishedAtTo
     );
 
     const baseProject = {
@@ -155,6 +159,16 @@ router.get('/', async (req, res, next) => {
     if (req.query.maxPrice) {
       noticeMatchQuery.currentPrice = { $lte: parseFloat(req.query.maxPrice) };
     }
+    if (req.query.auctionDateFrom || req.query.auctionDateTo) {
+      noticeMatchQuery.auctionDate = {};
+      if (req.query.auctionDateFrom) noticeMatchQuery.auctionDate.$gte = new Date(req.query.auctionDateFrom);
+      if (req.query.auctionDateTo) noticeMatchQuery.auctionDate.$lte = new Date(req.query.auctionDateTo);
+    }
+    if (req.query.publishedAtFrom || req.query.publishedAtTo) {
+      noticeMatchQuery.publishedAt = {};
+      if (req.query.publishedAtFrom) noticeMatchQuery.publishedAt.$gte = new Date(req.query.publishedAtFrom);
+      if (req.query.publishedAtTo) noticeMatchQuery.publishedAt.$lte = new Date(req.query.publishedAtTo);
+    }
 
     const matchingNotices = await require('../models/AuctionNotice').find(noticeMatchQuery).select('sourceId').lean();
     const noticeSourceIds = matchingNotices.map(n => n.sourceId);
@@ -187,6 +201,16 @@ router.get('/', async (req, res, next) => {
     }
     if (req.query.maxPrice) {
       noticeMatch.latestPrice = { $lte: parseFloat(req.query.maxPrice) };
+    }
+    if (req.query.auctionDateFrom || req.query.auctionDateTo) {
+      noticeMatch['latestNotice.auctionDate'] = {};
+      if (req.query.auctionDateFrom) noticeMatch['latestNotice.auctionDate'].$gte = new Date(req.query.auctionDateFrom);
+      if (req.query.auctionDateTo) noticeMatch['latestNotice.auctionDate'].$lte = new Date(req.query.auctionDateTo);
+    }
+    if (req.query.publishedAtFrom || req.query.publishedAtTo) {
+      noticeMatch['latestNotice.publishedAt'] = {};
+      if (req.query.publishedAtFrom) noticeMatch['latestNotice.publishedAt'].$gte = new Date(req.query.publishedAtFrom);
+      if (req.query.publishedAtTo) noticeMatch['latestNotice.publishedAt'].$lte = new Date(req.query.publishedAtTo);
     }
 
     const filterPipeline = [

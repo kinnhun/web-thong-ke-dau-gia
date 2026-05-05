@@ -16,7 +16,12 @@ import {
   Share2,
   History,
 } from "lucide-react";
-import { Select as AntdSelect } from "antd";
+import { Select as AntdSelect, DatePicker } from "antd";
+import dayjs from "dayjs";
+import "dayjs/locale/vi";
+
+const { RangePicker } = DatePicker;
+dayjs.locale("vi");
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,6 +78,8 @@ export function RelistedContainer() {
   const [minDiscount, setMinDiscount] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [rounds, setRounds] = useState<string>("all");
+  const [auctionDateRange, setAuctionDateRange] = useState<[string, string] | null>(null);
+  const [publishedAtRange, setPublishedAtRange] = useState<[string, string] | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -85,6 +92,10 @@ export function RelistedContainer() {
     minDiscount: "",
     maxPrice: "",
     rounds: "all",
+    auctionDateFrom: "",
+    auctionDateTo: "",
+    publishedAtFrom: "",
+    publishedAtTo: "",
   });
 
   useEffect(() => {
@@ -100,6 +111,10 @@ export function RelistedContainer() {
     const maxP = (q.maxPrice as string) || "";
     const r = (q.rounds as string) || "all";
     const pg = Number(q.page) || 1;
+    const adf = (q.auctionDateFrom as string) || "";
+    const adt = (q.auctionDateTo as string) || "";
+    const paf = (q.publishedAtFrom as string) || "";
+    const pat = (q.publishedAtTo as string) || "";
     const v = (q.view as ViewMode) || "table";
     const sk = (q.sortKey as SortKey) || "rounds_desc";
 
@@ -112,6 +127,10 @@ export function RelistedContainer() {
       appliedFilters.minDiscount !== minD ||
       appliedFilters.maxPrice !== maxP ||
       appliedFilters.rounds !== r ||
+      appliedFilters.auctionDateFrom !== adf ||
+      appliedFilters.auctionDateTo !== adt ||
+      appliedFilters.publishedAtFrom !== paf ||
+      appliedFilters.publishedAtTo !== pat ||
       page !== pg ||
       view !== v ||
       sortKey !== sk;
@@ -125,6 +144,8 @@ export function RelistedContainer() {
       setMinDiscount(minD);
       setMaxPrice(maxP);
       setRounds(r);
+      setAuctionDateRange(adf && adt ? [adf, adt] : null);
+      setPublishedAtRange(paf && pat ? [paf, pat] : null);
       setPage(pg);
       setView(v);
       setSortKey(sk);
@@ -132,6 +153,8 @@ export function RelistedContainer() {
       setAppliedFilters({
         keyword: k, type: t, province: p, organizer: o, status: s,
         minDiscount: minD, maxPrice: maxP, rounds: r,
+        auctionDateFrom: adf, auctionDateTo: adt,
+        publishedAtFrom: paf, publishedAtTo: pat,
       });
     }
   }, [router.isReady, router.query, appliedFilters, page, view, sortKey]);
@@ -149,6 +172,10 @@ export function RelistedContainer() {
     if (filters.minDiscount) query.minDiscount = filters.minDiscount;
     if (filters.maxPrice) query.maxPrice = filters.maxPrice;
     if (filters.rounds !== "all") query.rounds = filters.rounds;
+    if (filters.auctionDateFrom) query.auctionDateFrom = filters.auctionDateFrom;
+    if (filters.auctionDateTo) query.auctionDateTo = filters.auctionDateTo;
+    if (filters.publishedAtFrom) query.publishedAtFrom = filters.publishedAtFrom;
+    if (filters.publishedAtTo) query.publishedAtTo = filters.publishedAtTo;
     if (p > 1) query.page = String(p);
 
     router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
@@ -179,6 +206,10 @@ export function RelistedContainer() {
     minDiscount: appliedFilters.minDiscount || undefined,
     maxPrice: appliedFilters.maxPrice ? String(parseFloat(appliedFilters.maxPrice) * 1_000_000_000) : undefined,
     minRounds: appliedFilters.rounds !== "all" ? appliedFilters.rounds : undefined,
+    auctionDateFrom: appliedFilters.auctionDateFrom || undefined,
+    auctionDateTo: appliedFilters.auctionDateTo || undefined,
+    publishedAtFrom: appliedFilters.publishedAtFrom || undefined,
+    publishedAtTo: appliedFilters.publishedAtTo || undefined,
     sort: sortKey,
   });
 
@@ -199,8 +230,11 @@ export function RelistedContainer() {
     setPage(1);
     const newFilters = {
       keyword: "", type: "all" as const, province: [], organizer: "all", status: "all",
-      minDiscount: "", maxPrice: "", rounds: "all"
+      minDiscount: "", maxPrice: "", rounds: "all",
+      auctionDateFrom: "", auctionDateTo: "", publishedAtFrom: "", publishedAtTo: ""
     };
+    setAuctionDateRange(null);
+    setPublishedAtRange(null);
     setAppliedFilters(newFilters);
     updateUrl(newFilters, 1, sortKey, view);
   };
@@ -208,6 +242,10 @@ export function RelistedContainer() {
   const handleSearch = () => {
     const newFilters = {
       keyword, type, province, organizer, status, minDiscount, maxPrice, rounds,
+      auctionDateFrom: auctionDateRange?.[0] || "",
+      auctionDateTo: auctionDateRange?.[1] || "",
+      publishedAtFrom: publishedAtRange?.[0] || "",
+      publishedAtTo: publishedAtRange?.[1] || "",
     };
     setAppliedFilters(newFilters);
     setPage(1);
@@ -370,6 +408,38 @@ export function RelistedContainer() {
                 <SelectItem value="4">≥ 4 lần</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
+            <Label className="text-xs font-medium text-foreground/80">Thời gian tổ chức cuộc đấu giá</Label>
+            <RangePicker
+              className="h-10 w-full !rounded-lg !border-border !bg-background !px-3 hover:!border-primary/50 focus:!border-primary focus:!shadow-[0_0_0_2px_rgba(var(--primary),0.1)] [&_.ant-picker-input_input]:!text-xs [&_.ant-picker-input_input]:!font-medium [&_.ant-picker-input_input::placeholder]:!text-muted-foreground/60 [&_.ant-picker-suffix]:!text-muted-foreground/50 [&_.ant-picker-range-separator]:!text-muted-foreground/30"
+              format="DD/MM/YYYY"
+              placeholder={["Từ ngày", "Đến ngày"]}
+              value={auctionDateRange ? [dayjs(auctionDateRange[0]), dayjs(auctionDateRange[1])] : null}
+              onChange={(dates) => {
+                if (dates && dates[0] && dates[1]) {
+                  setAuctionDateRange([dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')]);
+                } else {
+                  setAuctionDateRange(null);
+                }
+              }}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
+            <Label className="text-xs font-medium text-foreground/80">Thời gian công khai việc đấu giá</Label>
+            <RangePicker
+              className="h-10 w-full !rounded-lg !border-border !bg-background !px-3 hover:!border-primary/50 focus:!border-primary focus:!shadow-[0_0_0_2px_rgba(var(--primary),0.1)] [&_.ant-picker-input_input]:!text-xs [&_.ant-picker-input_input]:!font-medium [&_.ant-picker-input_input::placeholder]:!text-muted-foreground/60 [&_.ant-picker-suffix]:!text-muted-foreground/50 [&_.ant-picker-range-separator]:!text-muted-foreground/30"
+              format="DD/MM/YYYY"
+              placeholder={["Từ ngày", "Đến ngày"]}
+              value={publishedAtRange ? [dayjs(publishedAtRange[0]), dayjs(publishedAtRange[1])] : null}
+              onChange={(dates) => {
+                if (dates && dates[0] && dates[1]) {
+                  setPublishedAtRange([dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')]);
+                } else {
+                  setPublishedAtRange(null);
+                }
+              }}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">% giảm tối thiểu</Label>

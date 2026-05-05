@@ -223,4 +223,8 @@ export interface DiscountedParams {
   minRounds?: string;
   sort?: string;
   status?: string;
+  auctionDateFrom?: string;
+  auctionDateTo?: string;
+  publishedAtFrom?: string;
+  publishedAtTo?: string;
 }
