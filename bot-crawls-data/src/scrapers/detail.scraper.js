@@ -125,17 +125,23 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
 
   const allIds = [...new Set([sourceId, ...relatedIds])].sort((a, b) => a - b);
 
-  // Tìm duplicate đã có chứa bất kỳ ID nào
-  let dup = await Duplicate.findOne({
+  // Tìm tất cả các duplicate đã có chứa bất kỳ ID nào
+  const existingDups = await Duplicate.find({
     sourceIds: { $in: allIds },
     type,
   });
 
-  if (dup) {
-    // Merge thêm IDs mới
-    const merged = [...new Set([...dup.sourceIds, ...allIds])].sort((a, b) => a - b);
-    dup.sourceIds = merged;
-    dup.name = name || dup.name;
+  if (existingDups.length > 0) {
+    // Thu thập tất cả các ID từ các duplicate tìm được
+    const existingIds = existingDups.reduce((acc, d) => acc.concat(d.sourceIds), []);
+    const merged = [...new Set([...allIds, ...existingIds])].sort((a, b) => a - b);
+    
+    // Xoá tất cả các bản ghi duplicate cũ này để gộp thành 1
+    const idsToDelete = existingDups.map(d => d._id);
+    await Duplicate.deleteMany({ _id: { $in: idsToDelete } });
+
+    // Tạo bản ghi duy nhất
+    dup = new Duplicate({ name: name || existingDups[0].name, sourceIds: merged, type });
   } else {
     dup = new Duplicate({ name, sourceIds: allIds, type });
   }
