@@ -551,7 +551,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     const targetNumbers = getNumberTokens(name);
     let dbCandidatesRegex = [];
     if (targetNumbers.length > 0 && targetNumbers.length <= 5) {
-      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "\\\\b" + num + "\\\\b", $options: 'i' } }));
+      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\))", $options: 'i' } }));
       const regexDbQuery = { $and: regexQueries };
       if (targetProvince) regexDbQuery.province = targetProvince;
       
