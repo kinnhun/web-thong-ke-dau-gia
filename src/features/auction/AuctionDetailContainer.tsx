@@ -18,6 +18,8 @@ import {
   User,
   Wallet,
   Wand2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -471,23 +473,33 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                       {totalHistoryPages > 1 && (
                         <div className="pt-2 border-t mt-2">
                           <Pagination>
-                            <PaginationContent className="justify-between gap-0">
+                            <PaginationContent className="justify-between">
                               <PaginationItem>
-                                <PaginationPrevious 
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
                                   onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
-                                  className={historyPage === 1 ? "pointer-events-none opacity-50 h-8 w-8 p-0" : "cursor-pointer h-8 w-8 p-0"}
-                                />
+                                  disabled={historyPage === 1}
+                                  className="h-8 w-8"
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                </Button>
                               </PaginationItem>
                               <PaginationItem>
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  {historyPage} / {totalHistoryPages}
+                                <span className="text-[10px] text-muted-foreground font-medium px-2 whitespace-nowrap">
+                                  Trang {historyPage} / {totalHistoryPages}
                                 </span>
                               </PaginationItem>
                               <PaginationItem>
-                                <PaginationNext 
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
                                   onClick={() => setHistoryPage(p => Math.min(totalHistoryPages, p + 1))}
-                                  className={historyPage === totalHistoryPages ? "pointer-events-none opacity-50 h-8 w-8 p-0" : "cursor-pointer h-8 w-8 p-0"}
-                                />
+                                  disabled={historyPage === totalHistoryPages}
+                                  className="h-8 w-8"
+                                >
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
                               </PaginationItem>
                             </PaginationContent>
                           </Pagination>
