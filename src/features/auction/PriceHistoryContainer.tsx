@@ -1,9 +1,18 @@
+import { useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft, Download, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuctionDetail } from "@/domains/auction";
 import { formatDate, formatVND, formatVNDShort } from "@/lib/format";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -18,6 +27,9 @@ interface PriceHistoryContainerProps {
 }
 
 export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
   const { data: auction, isLoading } = useAuctionDetail(id);
 
   if (isLoading || !auction) {
@@ -32,8 +44,14 @@ export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
   const entries = dup?.entries ?? [];
 
   // Build chart data from duplicate entries or fallback to single point
-  const chartData = entries.length > 0
-    ? entries.map((h) => ({
+  let chartEntries = entries;
+  if (entries.length > 100) {
+    const step = Math.ceil(entries.length / 100);
+    chartEntries = entries.filter((_, i) => i % step === 0 || i === entries.length - 1);
+  }
+
+  const chartData = chartEntries.length > 0
+    ? chartEntries.map((h) => ({
         date: h.publishedAt ? formatDate(h.publishedAt) : "—",
         price: h.price,
         round: `Lần ${h.publishRound || 1}`,
@@ -47,6 +65,9 @@ export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
   // Comparison: last vs prev
   const last = entries.length > 0 ? entries[entries.length - 1] : null;
   const prev = entries.length > 1 ? entries[entries.length - 2] : null;
+
+  const totalPages = Math.ceil(entries.length / pageSize);
+  const paginatedEntries = entries.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="container mx-auto max-w-[1200px] px-3 sm:px-6 py-5 sm:py-8 space-y-6">
@@ -125,7 +146,8 @@ export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
               </tr>
             </thead>
             <tbody>
-              {entries.length > 0 ? entries.map((h, i) => {
+              {entries.length > 0 ? paginatedEntries.map((h, sliceIndex) => {
+                const i = (page - 1) * pageSize + sliceIndex;
                 const first = entries[0].price;
                 const prevPrice = i > 0 ? entries[i - 1].price : h.price;
                 const dPrev = i > 0 && prevPrice ? ((h.price - prevPrice) / prevPrice) * 100 : 0;
@@ -163,6 +185,44 @@ export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="border-t px-5 py-4 flex items-center justify-center">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious 
+                    onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let p: number;
+                  if (totalPages <= 5) p = i + 1;
+                  else if (page <= 3) p = i + 1;
+                  else if (page >= totalPages - 2) p = totalPages - 4 + i;
+                  else p = page - 2 + i;
+                  return (
+                    <PaginationItem key={p}>
+                      <PaginationLink 
+                        isActive={p === page} 
+                        onClick={() => setPage(p)} 
+                        className="cursor-pointer"
+                      >
+                        {p}
+                      </PaginationLink>
+                    </PaginationItem>
+                  );
+                })}
+                <PaginationItem>
+                  <PaginationNext 
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </div>
     </div>
   );
