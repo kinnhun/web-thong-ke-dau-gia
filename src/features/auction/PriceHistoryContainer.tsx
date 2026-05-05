@@ -28,7 +28,7 @@ interface PriceHistoryContainerProps {
 
 export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const pageSize = 100;
 
   const { data: auction, isLoading } = useAuctionDetail(id);
 
@@ -195,12 +195,12 @@ export function PriceHistoryContainer({ id }: PriceHistoryContainerProps) {
                     className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                   />
                 </PaginationItem>
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                   let p: number;
-                  if (totalPages <= 5) p = i + 1;
-                  else if (page <= 3) p = i + 1;
-                  else if (page >= totalPages - 2) p = totalPages - 4 + i;
-                  else p = page - 2 + i;
+                  if (totalPages <= 7) p = i + 1;
+                  else if (page <= 4) p = i + 1;
+                  else if (page >= totalPages - 3) p = totalPages - 6 + i;
+                  else p = page - 3 + i;
                   return (
                     <PaginationItem key={p}>
                       <PaginationLink 

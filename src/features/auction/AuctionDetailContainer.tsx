@@ -31,6 +31,13 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useWatchlist } from "@/domains/watchlist/watchlist.hooks";
 import { triggerRecrawlItem, triggerRecrawlRelated } from "@/services/auction.service";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 interface AuctionDetailContainerProps {
   id: string;
@@ -43,6 +50,8 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   const { toggleWatch, isWatched } = useWatchlist();
   const [recrawling, setRecrawling] = useState(false);
   const [recrawlingRelated, setRecrawlingRelated] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPageSize = 100;
   const [relatedProgress, setRelatedProgress] = useState({ done: 0, total: 0 });
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const singlePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -421,38 +430,72 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                 <h3 className="font-semibold text-sm">Lịch sử giá</h3>
                 {dup && (
                   <Button variant="link" size="sm" asChild className="h-auto p-0 text-xs">
-                    <Link href={`/relisted`}>Xem tất cả</Link>
+                    <Link href={`/auction/${id}/history`}>Xem tất cả</Link>
                   </Button>
                 )}
               </div>
               <div className="space-y-2">
-                {entries.length > 0 ? (
-                  entries.slice().reverse().map((h, i) => {
-                    const isCurrent = h.sourceId === auction.sourceId;
-                    return (
-                      <div key={i} className={`flex items-center justify-between text-xs p-2 rounded transition-colors ${isCurrent ? 'bg-primary/10 border border-primary/20' : 'hover:bg-secondary/40'}`}>
-                        {isCurrent ? (
-                          <div className="flex-1">
-                            <div className="font-medium text-primary flex items-center gap-1">
-                              {h.publishRoundLabel || `Lần ${h.publishRound || entries.length - i}`}
-                              <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded ml-1">Đang xem</span>
-                            </div>
-                            <div className="text-muted-foreground">{h.publishedAt ? formatDate(h.publishedAt) : "—"}</div>
+                {entries.length > 0 ? (() => {
+                  const reversed = [...entries].reverse();
+                  const totalHistoryPages = Math.ceil(reversed.length / historyPageSize);
+                  const paginatedHistory = reversed.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize);
+                  
+                  return (
+                    <>
+                      {paginatedHistory.map((h, i) => {
+                        const isCurrent = h.sourceId === auction.sourceId;
+                        return (
+                          <div key={i} className={`flex items-center justify-between text-xs p-2 rounded transition-colors ${isCurrent ? 'bg-primary/10 border border-primary/20' : 'hover:bg-secondary/40'}`}>
+                            {isCurrent ? (
+                              <div className="flex-1">
+                                <div className="font-medium text-primary flex items-center gap-1">
+                                  {h.publishRoundLabel || `Lần ${h.publishRound || entries.length - ((historyPage - 1) * historyPageSize + i)}`}
+                                  <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded ml-1">Đang xem</span>
+                                </div>
+                                <div className="text-muted-foreground">{h.publishedAt ? formatDate(h.publishedAt) : "—"}</div>
+                              </div>
+                            ) : (
+                              <Link href={`/auction/${h.sourceId}`} className="flex-1 group">
+                                <div className="font-medium group-hover:text-primary transition-colors flex items-center gap-1">
+                                  {h.publishRoundLabel || `Lần ${h.publishRound || entries.length - ((historyPage - 1) * historyPageSize + i)}`}
+                                  <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                                <div className="text-muted-foreground">{h.publishedAt ? formatDate(h.publishedAt) : "—"}</div>
+                              </Link>
+                            )}
+                            <div className={`font-semibold num text-right ${isCurrent ? 'text-primary' : ''}`}>{h.price ? formatVND(h.price) : "—"}</div>
                           </div>
-                        ) : (
-                          <Link href={`/auction/${h.sourceId}`} className="flex-1 group">
-                            <div className="font-medium group-hover:text-primary transition-colors flex items-center gap-1">
-                              {h.publishRoundLabel || `Lần ${h.publishRound || entries.length - i}`}
-                              <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                            <div className="text-muted-foreground">{h.publishedAt ? formatDate(h.publishedAt) : "—"}</div>
-                          </Link>
-                        )}
-                        <div className={`font-semibold num text-right ${isCurrent ? 'text-primary' : ''}`}>{h.price ? formatVND(h.price) : "—"}</div>
-                      </div>
-                    );
-                  })
-                ) : (
+                        );
+                      })}
+                      
+                      {totalHistoryPages > 1 && (
+                        <div className="pt-2 border-t mt-2">
+                          <Pagination>
+                            <PaginationContent className="justify-between gap-0">
+                              <PaginationItem>
+                                <PaginationPrevious 
+                                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                                  className={historyPage === 1 ? "pointer-events-none opacity-50 h-8 w-8 p-0" : "cursor-pointer h-8 w-8 p-0"}
+                                />
+                              </PaginationItem>
+                              <PaginationItem>
+                                <span className="text-[10px] text-muted-foreground font-medium">
+                                  {historyPage} / {totalHistoryPages}
+                                </span>
+                              </PaginationItem>
+                              <PaginationItem>
+                                <PaginationNext 
+                                  onClick={() => setHistoryPage(p => Math.min(totalHistoryPages, p + 1))}
+                                  className={historyPage === totalHistoryPages ? "pointer-events-none opacity-50 h-8 w-8 p-0" : "cursor-pointer h-8 w-8 p-0"}
+                                />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        </div>
+                      )}
+                    </>
+                  );
+                })() : (
                   <div className="flex items-center justify-between text-xs">
                     <div>
                       <div className="font-medium">Lần 1</div>
