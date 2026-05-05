@@ -53,9 +53,16 @@ function extractCoreIdentity(name) {
   // 6. Xoá ngày tháng năm
   s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, ' ');
   s = s.replace(/\b(19\d{2}|20\d{2})\b/g, ' ');
-  // 7. Xoá stop words
+  // 7. Xoá các cụm thay đổi tên hành chính (nay là, trước đây là...) kể cả không có ngoặc
+  s = s.replace(/\b(nay|truoc|day)\s+(la|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh)/g, ' ');
+  // 8. Xoá đơn vị hành chính kèm TÊN (ví dụ: phường Võ Thị Sáu, quận Bình Thạnh)
+  s = s.replace(/\b(phuong|p)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(quan|q\.?|huyen|xa|tp|thanh pho))/g, ' ');
+  s = s.replace(/\b(quan|q)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|tp|thanh pho))/g, ' ');
+  s = s.replace(/\b(xa|huyen|thi xa|thi tran)\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|thanh pho))/g, ' ');
+
+  // 9. Xoá stop words
   s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia)\b/g, ' ');
-  // 8. Dọn dẹp
+  // 10. Dọn dẹp
   s = s.replace(/[,\.\(\):\-;"']/g, ' ').replace(/\s+/g, ' ').trim();
   return s;
 }
@@ -82,9 +89,13 @@ function extractPropertyIdentifiers(name) {
   const lotMatch = s.match(/\blo\s*(?:dat)?\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
   if (lotMatch) ids.lot = lotMatch[1];
 
-  // Số nhà X / Nhà số X
-  const houseMatch = s.match(/(?:so\s*nha|nha\s*so)\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
+  // Số nhà X / Nhà số X / Số X (ở đầu hoặc sau địa chỉ/tại)
+  const houseMatch = s.match(/(?:so\s*nha|nha\s*so|dia\s*chi|tai|[\s,])(?:so\s+)?([0-9]+[a-z]?(?:[/-][0-9]+[a-z]?)?)\s+[a-z]/i);
   if (houseMatch) ids.houseNumber = houseMatch[1];
+  else {
+    const houseMatchFallback = s.match(/^(?:so\s+)?([0-9]+[a-z]?(?:[/-][0-9]+[a-z]?)?)\s+[a-z]/i);
+    if (houseMatchFallback) ids.houseNumber = houseMatchFallback[1];
+  }
 
   // Căn hộ số X
   const aptMatch = s.match(/can\s*ho\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);

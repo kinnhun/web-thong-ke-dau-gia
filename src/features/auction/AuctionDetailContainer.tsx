@@ -169,10 +169,18 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
 
     try {
       const sourceIds = allEntries.map(e => e.sourceId).filter(Boolean);
-      await triggerRecrawlRelated(sourceIds, 'auction');
-      // Bắt đầu polling tự động
+      
+      // Chia nhỏ thành các đợt 500 ids để tránh lỗi 413 Payload Too Large
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < sourceIds.length; i += CHUNK_SIZE) {
+        const chunk = sourceIds.slice(i, i + CHUNK_SIZE);
+        await triggerRecrawlRelated(chunk, 'auction');
+      }
+
+      // Bắt đầu polling tự động sau khi đã gửi hết các trigger
       startPolling(totalEntries);
-    } catch {
+    } catch (err) {
+      console.error("Lỗi khi trigger cào liên quan:", err);
       setRecrawlingRelated(false);
       setRelatedProgress({ done: 0, total: 0 });
     }
