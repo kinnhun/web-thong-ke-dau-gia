@@ -207,14 +207,26 @@ export function RelistedContainer() {
 
   const handleSearch = () => {
     const newFilters = {
-      keyword,
-      type,
-      province,
-      organizer,
-      status,
-      minDiscount,
-      maxPrice,
-      rounds,
+      keyword, type, province, organizer, status, minDiscount, maxPrice, rounds,
+    };
+    setAppliedFilters(newFilters);
+    setPage(1);
+    updateUrl(newFilters, 1, sortKey, view);
+  };
+
+  const handleFilterChange = (key: keyof typeof appliedFilters, value: any) => {
+    // Cập nhật state tương ứng
+    if (key === 'type') setType(value);
+    else if (key === 'province') setProvince(value);
+    else if (key === 'organizer') setOrganizer(value);
+    else if (key === 'status') setStatus(value);
+    else if (key === 'rounds') setRounds(value);
+
+    // Cập nhật appliedFilters và URL luôn
+    const newFilters = {
+      ...appliedFilters,
+      keyword, minDiscount, maxPrice, // Lấy giá trị hiện tại của các input
+      [key]: value
     };
     setAppliedFilters(newFilters);
     setPage(1);
@@ -299,9 +311,7 @@ export function RelistedContainer() {
               placeholder="Chọn tổ chức đấu giá"
               options={organizerOptions}
               optionFilterProp="label"
-              onChange={(value) => {
-                setOrganizer((value as string) ?? "all");
-              }}
+              onChange={(value) => handleFilterChange('organizer', (value as string) ?? "all")}
               className="h-11 w-full [&_.ant-select-selector]:!min-h-11 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
@@ -317,9 +327,7 @@ export function RelistedContainer() {
               placeholder="Chọn một hoặc nhiều tỉnh/thành"
               options={provinceOptions}
               optionFilterProp="label"
-              onChange={(values) => {
-                setProvince(values);
-              }}
+              onChange={(values) => handleFilterChange('province', values)}
               className="h-9 w-full [&_.ant-select-selector]:!min-h-9 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-2 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!rounded [&_.ant-select-selection-item]:!bg-secondary [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
@@ -333,9 +341,7 @@ export function RelistedContainer() {
               placeholder="Chọn loại tài sản"
               options={typeOptions}
               optionFilterProp="label"
-              onChange={(value) => {
-                setType((value as AssetType | "all") ?? "all");
-              }}
+              onChange={(value) => handleFilterChange('type', (value as AssetType | "all") ?? "all")}
               className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
@@ -349,15 +355,13 @@ export function RelistedContainer() {
               placeholder="Chọn trạng thái"
               options={statusOptions}
               optionFilterProp="label"
-              onChange={(value) => {
-                setStatus((value as string) ?? "all");
-              }}
+              onChange={(value) => handleFilterChange('status', (value as string) ?? "all")}
               className="h-10 w-full [&_.ant-select-selector]:!min-h-10 [&_.ant-select-selector]:!rounded-lg [&_.ant-select-selector]:!border-border [&_.ant-select-selector]:!bg-background [&_.ant-select-selector]:!px-3 [&_.ant-select-selection-placeholder]:!text-muted-foreground [&_.ant-select-selection-item]:!text-foreground"
             />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Số lần ĐG</Label>
-            <Select value={rounds} onValueChange={(v) => setRounds(v)}>
+            <Select value={rounds} onValueChange={(v) => handleFilterChange('rounds', v)}>
               <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả</SelectItem>
