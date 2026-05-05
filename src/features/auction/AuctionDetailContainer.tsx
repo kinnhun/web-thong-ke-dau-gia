@@ -17,6 +17,7 @@ import {
   TrendingDown,
   User,
   Wallet,
+  Wand2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -275,6 +276,15 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           <Button variant="outline" size="sm" onClick={handleRecrawl} disabled={recrawling || recrawlingRelated}>
             {recrawling ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {recrawling ? "Đang cào..." : "Cào lại"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={async () => {
+            if (!auction) return;
+            try {
+              const { triggerScanDuplicateItem } = await import("@/services/auction.service");
+              await triggerScanDuplicateItem(auction.sourceId, auction.type);
+            } catch (err) { console.error(err); }
+          }}>
+            <Wand2 className="h-4 w-4 mr-1" /> Quét trùng lặp
           </Button>
           {auction.sourceUrl && (
             <Button size="sm" asChild>

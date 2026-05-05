@@ -681,6 +681,45 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.post('/trigger-scan-duplicate-item', async (req, res, next) => {
+  try {
+    const { handleDuplicate, searchDuplicatesByFuzzyName } = require('../scrapers/detail.scraper');
+    const sourceId = parseInt(req.body?.sourceId);
+    const type = req.body?.type || 'auction'; // 'auction' or 'org'
+    if (!sourceId) return res.status(400).json({ error: true, message: 'sourceId is required' });
+
+    const Model = type === 'org' ? OrgSelection : AuctionNotice;
+    const item = await Model.findOne({ sourceId });
+    if (!item) {
+      return res.status(404).json({ error: true, message: `Không tìm thấy ${type} #${sourceId}` });
+    }
+
+    res.json({
+      success: true,
+      message: `Hệ thống đang tiến hành quét trùng lặp cho ${type} #${sourceId} ngầm. Vui lòng tải lại trang sau vài giây.`,
+      sourceId,
+      status: 'processing'
+    });
+
+    Promise.resolve().then(async () => {
+      try {
+        if (type === 'auction') {
+          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, item.name, 'auction');
+          const allRelatedIds = [...new Set([...(item.relatedIds || []), ...exactNameRelatedIds])];
+          if (allRelatedIds.length > 0) {
+            console.log(`[SCAN BG] Bắt đầu gộp duplicate cho #${sourceId} với ${allRelatedIds.length} items:`, allRelatedIds);
+            await handleDuplicate(sourceId, item.name, allRelatedIds, 'auction');
+            console.log(`[SCAN BG] ✅ Hoàn thành cho #${sourceId}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[SCAN BG] ❌ Lỗi xử lý ngầm #${sourceId}:`, err.message);
+      }
+    });
+
+  } catch (err) { next(err); }
+});
+
 // Force re-crawl detail cho NHIỀU item liên quan (bài đăng lại) cùng lúc
 // ⚠️ Safety: max 100 items, lock chống spam, concurrency = 2, delay giữa chunks
 let _recrawlRelatedRunning = false;
