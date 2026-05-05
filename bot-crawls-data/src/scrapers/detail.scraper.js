@@ -1350,6 +1350,12 @@ async function getFuzzyNameGroups(Model, progressCallback) {
           continue;
         }
 
+        // BƯỚC 0.5: Trùng khớp định danh mạnh (Thửa + tờ bản đồ, biển số xe...) -> CHẤP NHẬN NGAY
+        if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
+          union(i, j);
+          continue;
+        }
+
         // BƯỚC 1: Kiểm tra số
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
