@@ -234,6 +234,17 @@ function jaccardSimilarity(setA, setB) {
   return intersectionSize / unionSize;
 }
 
+function overlapSimilarity(setA, setB) {
+  if (setA.size === 0 && setB.size === 0) return 1;
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersectionSize = 0;
+  const [smaller, larger] = setA.size < setB.size ? [setA, setB] : [setB, setA];
+  for (const item of smaller) {
+    if (larger.has(item)) intersectionSize++;
+  }
+  return intersectionSize / smaller.size;
+}
+
 /**
  * Chuyển chuỗi tiếng Việt thành slug URL
  */
@@ -386,6 +397,7 @@ module.exports = {
   PROVINCES,
   getBigrams,
   jaccardSimilarity,
+  overlapSimilarity,
   removeDiacritics,
   extractCoreIdentity,
   getNumberTokens,

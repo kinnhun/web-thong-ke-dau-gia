@@ -14,7 +14,7 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
+const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -525,17 +525,21 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     }
 
     // 1. Tìm trên API gốc (chính xác)
-    const res = await fetchAPI(endpoint, payload);
-    const apiCandidates = [];
-    if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
-      res.items.forEach(i => {
-        if (i.id && i.id !== sourceId) {
-          apiCandidates.push({
-            sourceId: i.id,
-            name: i.nameAsset || i.name || i.assetName || ''
-          });
-        }
-      });
+    let apiCandidates = [];
+    try {
+      const res = await fetchAPI(endpoint, payload);
+      if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
+        res.items.forEach(i => {
+          if (i.id && i.id !== sourceId) {
+            apiCandidates.push({
+              sourceId: i.id,
+              name: i.nameAsset || i.name || i.assetName || ''
+            });
+          }
+        });
+      }
+    } catch (apiErr) {
+      console.error(`[API Search] Lỗi khi tìm kiếm ${sourceId}:`, apiErr.message);
     }
 
     // 2. Fuzzy match từ local DB (giống 70-80%)
@@ -604,6 +608,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       // BƯỚC 3: So sánh LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
       const candidateCore = extractCoreIdentity(c.name);
       const coreSim = jaccardSimilarity(targetCoreBigrams, getBigrams(candidateCore));
+      const overlapSim = overlapSimilarity(targetCoreBigrams, getBigrams(candidateCore));
 
       // Core sim >= 80% → MATCH (rất chính xác vì đã lọc sạch rác)
       if (coreSim >= 0.80) {
@@ -613,6 +618,12 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
       // Có số chung + core sim >= 60% → MATCH (số đã xác nhận cùng tài sản)
       if (bothHaveNumbers && coreSim >= 0.60 && common.length > 0) {
+        relatedIds.push(c.sourceId);
+        continue;
+      }
+
+      // Overlap sim >= 85% + chung ít nhất 2 số → MATCH (1 bài là tóm tắt của bài kia)
+      if (bothHaveNumbers && overlapSim >= 0.85 && common.length >= 2) {
         relatedIds.push(c.sourceId);
         continue;
       }

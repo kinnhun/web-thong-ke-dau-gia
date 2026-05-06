@@ -206,10 +206,10 @@ export function RelistedContainer() {
     minDiscount: appliedFilters.minDiscount || undefined,
     maxPrice: appliedFilters.maxPrice ? String(parseFloat(appliedFilters.maxPrice) * 1_000_000_000) : undefined,
     minRounds: appliedFilters.rounds !== "all" ? appliedFilters.rounds : undefined,
-    auctionDateFrom: appliedFilters.auctionDateFrom || undefined,
-    auctionDateTo: appliedFilters.auctionDateTo || undefined,
-    publishedAtFrom: appliedFilters.publishedAtFrom || undefined,
-    publishedAtTo: appliedFilters.publishedAtTo || undefined,
+    auctionDateFrom: appliedFilters.auctionDateFrom ? dayjs(appliedFilters.auctionDateFrom).startOf('day').toISOString() : undefined,
+    auctionDateTo: appliedFilters.auctionDateTo ? dayjs(appliedFilters.auctionDateTo).endOf('day').toISOString() : undefined,
+    publishedAtFrom: appliedFilters.publishedAtFrom ? dayjs(appliedFilters.publishedAtFrom).startOf('day').toISOString() : undefined,
+    publishedAtTo: appliedFilters.publishedAtTo ? dayjs(appliedFilters.publishedAtTo).endOf('day').toISOString() : undefined,
     sort: sortKey,
   });
 
@@ -416,6 +416,12 @@ export function RelistedContainer() {
               format="DD/MM/YYYY"
               placeholder={["Từ ngày", "Đến ngày"]}
               value={auctionDateRange ? [dayjs(auctionDateRange[0]), dayjs(auctionDateRange[1])] : null}
+              presets={[
+                { label: 'Hôm nay', value: [dayjs().startOf('day'), dayjs().endOf('day')] },
+                { label: 'Tuần này', value: [dayjs().startOf('week'), dayjs().endOf('week')] },
+                { label: 'Tháng này', value: [dayjs().startOf('month'), dayjs().endOf('month')] },
+                { label: 'Tháng tới', value: [dayjs().add(1, 'month').startOf('month'), dayjs().add(1, 'month').endOf('month')] },
+              ]}
               onChange={(dates) => {
                 if (dates && dates[0] && dates[1]) {
                   setAuctionDateRange([dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')]);
@@ -432,6 +438,12 @@ export function RelistedContainer() {
               format="DD/MM/YYYY"
               placeholder={["Từ ngày", "Đến ngày"]}
               value={publishedAtRange ? [dayjs(publishedAtRange[0]), dayjs(publishedAtRange[1])] : null}
+              presets={[
+                { label: 'Hôm nay', value: [dayjs().startOf('day'), dayjs().endOf('day')] },
+                { label: 'Tuần này', value: [dayjs().startOf('week'), dayjs().endOf('week')] },
+                { label: 'Tháng này', value: [dayjs().startOf('month'), dayjs().endOf('month')] },
+                { label: 'Tháng trước', value: [dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')] },
+              ]}
               onChange={(dates) => {
                 if (dates && dates[0] && dates[1]) {
                   setPublishedAtRange([dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')]);
