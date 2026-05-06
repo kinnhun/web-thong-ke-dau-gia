@@ -631,6 +631,13 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       // CĂN HỘ: Cùng số căn hộ + cùng chứa chung ít nhất 2 số (Ví dụ căn 12A và Tòa 81) → MATCH dù text khác biệt nhiều
       if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && common.length >= 2 && coreSim >= 0.05) {
         relatedIds.push(c.sourceId);
+        continue;
+      }
+
+      // NHÀ PHỐ/ĐỊA CHỈ: Cùng số nhà và overlap >= 0.65 (Ví dụ 1 bài ghi chi tiết sổ đỏ, 1 bài chỉ ghi địa chỉ)
+      if (targetIdentifiers.houseNumber && targetIdentifiers.houseNumber === candidateIdentifiers.houseNumber && overlapSim >= 0.65) {
+        relatedIds.push(c.sourceId);
+        continue;
       }
     }
 
