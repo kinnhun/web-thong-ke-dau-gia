@@ -10,11 +10,22 @@ function removeDiacritics(str) {
  * phường/quận, ngày tháng, ngoặc đơn. Chỉ giữ lại phần phân biệt: số nhà + tên đường,
  * thửa đất, biển số xe, v.v.
  */
+/**
+ * Trích xuất "lõi danh tính" tài sản — loại bỏ toàn bộ văn bản pháp lý, tỉnh/thành,
+ * phường/quận, ngày tháng, ngoặc đơn. Chỉ giữ lại phần phân biệt: số nhà + tên đường,
+ * thửa đất, biển số xe, v.v.
+ */
 function extractCoreIdentity(name) {
   if (!name) return '';
   let s = removeDiacritics(name.toLowerCase());
-  // 1. Xoá ngoặc đơn
+
+  // 0. Xoá các tiền tố phổ biến
+  s = s.replace(/tai san dau gia (la|gom):?/g, ' ');
+  s = s.replace(/thong bao dau gia:?/g, ' ');
+
+  // 1. Xoá ngoặc đơn (thường chứa thông tin bổ sung hoặc tên cũ)
   s = s.replace(/\([^)]*\)/g, ' ');
+
   // 2. Xoá boilerplate pháp lý (dài trước, ngắn sau)
   s = s.replace(/quyen su dung dat,?\s*quyen so huu nha o va tai san khac gan lien voi dat/g, ' ');
   s = s.replace(/quyen su dung dat o va quyen so huu nha o/g, ' ');
@@ -28,6 +39,7 @@ function extractCoreIdentity(name) {
   s = s.replace(/can ho\s*(so)?/g, ' ');
   s = s.replace(/thua dat\s*(so)?/g, ' ');
   s = s.replace(/to ban do\s*(so)?/g, ' ');
+
   // 3. Xoá tên tỉnh/thành phố
   s = s.replace(/thanh pho ho chi minh/g, ' ');
   s = s.replace(/tp\.?\s*ho chi minh/g, ' ');
@@ -44,24 +56,30 @@ function extractCoreIdentity(name) {
     'vinh long','vinh phuc','yen bai','can tho','da nang',
   ];
   for (const p of provNamesNoDiac) {
-    s = s.replace(new RegExp(p.replace(/ /g, '\\s+'), 'g'), ' ');
+    s = s.replace(new RegExp('\\b' + p.replace(/ /g, '\\s+') + '\\b', 'g'), ' ');
   }
-  // 4. Xoá đơn vị hành chính kèm số
+
+  // 4. Xoá đơn vị hành chính kèm số (VD: phường 12, quận 1, p1, q1)
   s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, ' ');
+
   // 5. Xoá nhãn đơn vị hành chính
   s = s.replace(/\b(phuong|quan|huyen|thi xa|thi tran|xa|tinh|thanh pho|khu pho|to dan pho)\b/g, ' ');
+
   // 6. Xoá ngày tháng năm
   s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, ' ');
   s = s.replace(/\b(19\d{2}|20\d{2})\b/g, ' ');
-  // 7. Xoá các cụm thay đổi tên hành chính (nay là, trước đây là...) kể cả không có ngoặc
-  s = s.replace(/\b(nay|truoc|day)\s+(la|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh)/g, ' ');
+
+  // 7. Xoá các cụm thay đổi tên hành chính (nay là, trước đây là...)
+  s = s.replace(/\b(nay|truoc|day|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh|\s+phuong)/g, ' ');
+
   // 8. Xoá đơn vị hành chính kèm TÊN (ví dụ: phường Võ Thị Sáu, quận Bình Thạnh)
   s = s.replace(/\b(phuong|p)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(quan|q\.?|huyen|xa|tp|thanh pho))/g, ' ');
   s = s.replace(/\b(quan|q)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|tp|thanh pho))/g, ' ');
   s = s.replace(/\b(xa|huyen|thi xa|thi tran)\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|thanh pho))/g, ' ');
 
-  // 9. Xoá stop words
-  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia)\b/g, ' ');
+  // 9. Xoá stop words (thêm các từ thừa thãi trong đấu giá)
+  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia|thua|to|ban|do|giay|chung|nhan|qsdd|tai|san|gan|lien|dat)\b/g, ' ');
+
   // 10. Dọn dẹp
   s = s.replace(/[,\.\(\):\-;"']/g, ' ').replace(/\s+/g, ' ').trim();
   return s;
@@ -358,13 +376,23 @@ const PROVINCES = [
   'Hải Phòng', 'Đà Nẵng', 'Cần Thơ',
 ];
 
+function normalizeProvince(p) {
+  if (!p) return '';
+  if (p.includes('Hồ Chí Minh') || p.includes('HCM')) return 'TP. Hồ Chí Minh';
+  if (p === 'Hà Nội' || p === 'Ha Noi') return 'Hà Nội';
+  if (p === 'Đà Nẵng' || p === 'Da Nang') return 'Đà Nẵng';
+  if (p === 'Hải Phòng' || p === 'Hai Phong') return 'Hải Phòng';
+  if (p === 'Cần Thơ' || p === 'Can Tho') return 'Cần Thơ';
+  return p;
+}
+
 function extractProvince(text) {
   if (!text) return '';
   for (const p of PROVINCES) {
-    if (text.includes(p)) return p;
+    if (text.includes(p)) return normalizeProvince(p);
   }
   // Normalize TP. HCM variants
-  if (text.includes('Hồ Chí Minh')) return 'TP. Hồ Chí Minh';
+  if (text.includes('Hồ Chí Minh') || text.includes('HCM')) return 'TP. Hồ Chí Minh';
   return '';
 }
 
@@ -392,6 +420,7 @@ module.exports = {
   parsePrice,
   parseDate,
   extractProvince,
+  normalizeProvince,
   deriveStatus,
   delay,
   PROVINCES,

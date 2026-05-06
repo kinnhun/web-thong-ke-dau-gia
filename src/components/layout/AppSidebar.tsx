@@ -1,6 +1,5 @@
 import {
   BarChart3,
-  Bell,
   ChevronRight,
   Database,
   FileText,
@@ -36,6 +35,7 @@ const mainItems = [
   // { title: "Tài sản đăng lại", url: "/relisted", icon: History },
   { title: "Báo cáo thị trường", url: "/reports", icon: BarChart3 },
   // { title: "Cảnh báo & bộ lọc", url: "/alerts", icon: Bell },
+  { title: "TTDV BĐG TPHCM", url: "/organizers/l-trung-tam-dich-vu-ban-dau-gia-tai-san-tphcm", icon: History },
 ];
 
 const adminItems = [

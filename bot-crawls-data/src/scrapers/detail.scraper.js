@@ -553,20 +553,21 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       { score: { $meta: 'textScore' } }
     )
       .sort({ score: { $meta: 'textScore' } })
-      .limit(150)
+      .limit(300)
       .select('sourceId name')
       .lean();
 
     // 3. Fallback bằng regex nếu có số cụ thể (khắc phục lỗi $text search bỏ sót)
     const targetNumbers = getNumberTokens(name);
     let dbCandidatesRegex = [];
-    if (targetNumbers.length > 0 && targetNumbers.length <= 5) {
-      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\))", $options: 'i' } }));
-      const regexDbQuery = { $and: regexQueries };
+    if (targetNumbers.length > 0 && targetNumbers.length <= 10) {
+      // Dùng $or thay vì $and để tìm rộng hơn, sau đó filter lại bằng code
+      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
+      const regexDbQuery = { $or: regexQueries };
       if (targetProvince) regexDbQuery.province = targetProvince;
       
       dbCandidatesRegex = await Model.find(regexDbQuery)
-        .limit(150)
+        .limit(300)
         .select('sourceId name')
         .lean();
     }
@@ -577,8 +578,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
     const targetCore = extractCoreIdentity(name);
     const targetCoreBigrams = getBigrams(targetCore);
-    // targetNumbers already defined above
-    const targetIdentifiers = extractPropertyIdentifiers(name); // ★ Trích xuất định danh chuẩn
+    const targetIdentifiers = extractPropertyIdentifiers(name);
 
     for (const c of candidates) {
       if (c.sourceId === sourceId) continue;
@@ -597,18 +597,18 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
         continue;
       }
 
-      // BƯỚC 2: Cả hai có số nhưng KHÔNG CHUNG SỐ NÀO → REJECT
+      // BƯỚC 2: Kiểm tra số (Số nhà, số thửa, số tờ bản đồ...)
       const bothHaveNumbers = targetNumbers.length > 0 && candidateNumbers.length > 0;
-      let common = [];
+      let commonNumbers = [];
       if (bothHaveNumbers) {
-        common = targetNumbers.filter(t => candidateNumbers.includes(t));
-        if (common.length === 0) continue;
+        commonNumbers = targetNumbers.filter(t => candidateNumbers.includes(t));
       }
 
       // BƯỚC 3: So sánh LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
       const candidateCore = extractCoreIdentity(c.name);
-      const coreSim = jaccardSimilarity(targetCoreBigrams, getBigrams(candidateCore));
-      const overlapSim = overlapSimilarity(targetCoreBigrams, getBigrams(candidateCore));
+      const candidateCoreBigrams = getBigrams(candidateCore);
+      const coreSim = jaccardSimilarity(targetCoreBigrams, candidateCoreBigrams);
+      const overlapSim = overlapSimilarity(targetCoreBigrams, candidateCoreBigrams);
 
       // Core sim >= 80% → MATCH (rất chính xác vì đã lọc sạch rác)
       if (coreSim >= 0.80) {
@@ -616,26 +616,26 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
         continue;
       }
 
-      // Có số chung + core sim >= 60% → MATCH (số đã xác nhận cùng tài sản)
-      if (bothHaveNumbers && coreSim >= 0.60 && common.length > 0) {
+      // Có số chung + core sim >= 55% → MATCH (số đã xác nhận cùng tài sản)
+      if (bothHaveNumbers && coreSim >= 0.55 && commonNumbers.length > 0) {
         relatedIds.push(c.sourceId);
         continue;
       }
 
-      // Overlap sim >= 85% + chung ít nhất 2 số → MATCH (1 bài là tóm tắt của bài kia)
-      if (bothHaveNumbers && overlapSim >= 0.85 && common.length >= 2) {
+      // Overlap sim >= 85% + chung ít nhất 1 số → MATCH
+      if (bothHaveNumbers && overlapSim >= 0.85 && commonNumbers.length >= 1) {
         relatedIds.push(c.sourceId);
         continue;
       }
 
-      // CĂN HỘ: Cùng số căn hộ + cùng chứa chung ít nhất 2 số (Ví dụ căn 12A và Tòa 81) → MATCH dù text khác biệt nhiều
-      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && common.length >= 2 && coreSim >= 0.05) {
+      // CĂN HỘ: Cùng số căn hộ + core sim tương đối → MATCH
+      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && coreSim >= 0.30) {
         relatedIds.push(c.sourceId);
         continue;
       }
 
-      // NHÀ PHỐ/ĐỊA CHỈ: Cùng số nhà và overlap >= 0.65 (Ví dụ 1 bài ghi chi tiết sổ đỏ, 1 bài chỉ ghi địa chỉ)
-      if (targetIdentifiers.houseNumber && targetIdentifiers.houseNumber === candidateIdentifiers.houseNumber && overlapSim >= 0.65) {
+      // NHÀ PHỐ/ĐỊA CHỈ: Cùng số nhà và overlap >= 0.60
+      if (targetIdentifiers.houseNumber && targetIdentifiers.houseNumber === candidateIdentifiers.houseNumber && overlapSim >= 0.60) {
         relatedIds.push(c.sourceId);
         continue;
       }
