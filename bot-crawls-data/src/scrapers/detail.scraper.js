@@ -1779,11 +1779,17 @@ async function runOrganizerDuplicateScan(organizerName) {
  * Version của getFuzzyNameGroups nhưng chạy trên dữ liệu đã được nạp sẵn thay vì query DB lại
  */
 async function getFuzzyNameGroupsFiltered(items, progressCallback) {
+  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity } = require('../utils/helpers');
+
   const buckets = {};
   for (const item of items) {
     const prov = item.province || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
-    const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // Áp dụng chuẩn hóa NFC cho tên để tránh lỗi sai khác do bộ gõ tiếng Việt
+    const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
+    const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    
     if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
     buckets[prov][cleanName].push(item.sourceId);
   }
