@@ -1667,34 +1667,43 @@ async function runOrganizerDuplicateScan(organizerName) {
     const deleteRes = await Duplicate.deleteMany({ organizer: orgRegex });
     console.log(`[ORG DUPLICATE SCAN] 🗑️ Đã xoá ${deleteRes.deletedCount} nhóm cũ.`);
 
-    // 2. Lấy dữ liệu AuctionNotice của đơn vị này
-    await saveProgress('Đang tải dữ liệu AuctionNotice...');
-    const auctions = await AuctionNotice.find({ organizer: orgRegex })
-      .select('sourceId name province relatedIds')
+    // 2. Lấy TOÀN BỘ dữ liệu AuctionNotice để có thể gộp chéo đơn vị
+    await saveProgress('Đang tải toàn bộ dữ liệu AuctionNotice để đối chiếu chéo...');
+    const allAuctions = await AuctionNotice.find({ name: { $type: 'string', $ne: '' } })
+      .select('sourceId name province relatedIds organizer')
       .maxTimeMS(0)
       .lean();
     
-    console.log(`[ORG DUPLICATE SCAN] 📥 Đã tải ${auctions.length} tài sản từ DB.`);
-    log.itemsSkipped = auctions.length; // Lưu tổng số tài sản vào field itemsSkipped tạm thời để user thấy quy mô
-    await saveProgress(`Đã tải ${auctions.length} tài sản.`);
+    // Tìm các ID thuộc về đơn vị này
+    const orgAuctionIds = new Set(
+      allAuctions.filter(a => orgRegex.test(a.organizer)).map(a => a.sourceId)
+    );
 
-    if (auctions.length < 2) {
+    console.log(`[ORG DUPLICATE SCAN] 📥 Đã tải ${allAuctions.length} tài sản từ DB (${orgAuctionIds.size} thuộc đơn vị này).`);
+    log.itemsSkipped = orgAuctionIds.size; // Lưu tổng số tài sản vào field itemsSkipped tạm thời để user thấy quy mô
+    await saveProgress(`Đã tải ${orgAuctionIds.size} tài sản (đối chiếu chéo với ${allAuctions.length} tài sản hệ thống).`);
+
+    if (orgAuctionIds.size === 0) {
       log.status = 'completed';
       log.finishedAt = new Date();
-      await saveProgress('Đơn vị có ít hơn 2 bài đăng, không cần quét trùng lặp.');
-      console.log(`[ORG DUPLICATE SCAN] ⏭️ Kết thúc sớm (ít hơn 2 bản ghi).`);
+      await saveProgress('Đơn vị chưa có bài đăng nào, không cần quét trùng lặp.');
+      console.log(`[ORG DUPLICATE SCAN] ⏭️ Kết thúc sớm (0 bản ghi).`);
       return { success: true, logId: log._id };
     }
 
-    // 3. Gom nhóm theo relatedIds
+    // 3. Gom nhóm theo relatedIds (Toàn hệ thống)
     await saveProgress('Gom nhóm theo relatedIds...');
-    const relatedGroups = buildGraphGroups(auctions, (item) => item.relatedIds);
-    console.log(`[ORG DUPLICATE SCAN] 🔗 Tìm thấy ${relatedGroups.length} nhóm theo relatedIds.`);
+    const allRelatedGroups = buildGraphGroups(allAuctions, (item) => item.relatedIds);
+    // Chỉ giữ lại các nhóm có liên quan đến đơn vị này
+    const relatedGroups = allRelatedGroups.filter(g => g.ids.some(id => orgAuctionIds.has(id)));
+    console.log(`[ORG DUPLICATE SCAN] 🔗 Tìm thấy ${relatedGroups.length} nhóm theo relatedIds có chứa tài sản của đơn vị.`);
 
-    // 4. Gom nhóm theo tên (fuzzy)
+    // 4. Gom nhóm theo tên (fuzzy) (Toàn hệ thống)
     await saveProgress('Gom nhóm theo tên tương đồng...');
-    const nameGroups = await getFuzzyNameGroupsFiltered(auctions, saveProgress);
-    console.log(`[ORG DUPLICATE SCAN] 🏷️ Tìm thấy ${nameGroups.length} nhóm theo tên tương đồng.`);
+    const allNameGroups = await getFuzzyNameGroupsFiltered(allAuctions, saveProgress);
+    // Chỉ giữ lại các nhóm có liên quan đến đơn vị này
+    const nameGroups = allNameGroups.filter(g => g.ids.some(id => orgAuctionIds.has(id)));
+    console.log(`[ORG DUPLICATE SCAN] 🏷️ Tìm thấy ${nameGroups.length} nhóm theo tên tương đồng có chứa tài sản của đơn vị.`);
 
     // 5. Merge và cập nhật
     const mergedGroups = mergeDuplicateGroups(relatedGroups, nameGroups.map(g => g.ids));
@@ -1709,7 +1718,7 @@ async function runOrganizerDuplicateScan(organizerName) {
     }
 
     await saveProgress(`Đang cập nhật ${mergedGroups.length} nhóm trùng lặp...`);
-    const sourceMap = new Map(auctions.map(a => [a.sourceId, a]));
+    const sourceMap = new Map(allAuctions.map(a => [a.sourceId, a]));
     
     // Đảm bảo các nhóm mới tạo có đầy đủ thông tin organizer từ tham số đầu vào
     const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction');
