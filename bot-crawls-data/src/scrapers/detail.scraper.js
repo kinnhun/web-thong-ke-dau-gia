@@ -1698,7 +1698,14 @@ async function runOrganizerDuplicateScan(organizerName) {
 
     await saveProgress(`Đang cập nhật ${mergedGroups.length} nhóm trùng lặp...`);
     const sourceMap = new Map(auctions.map(a => [a.sourceId, a]));
+    
+    // Đảm bảo các nhóm mới tạo có đầy đủ thông tin organizer từ tham số đầu vào
     const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction');
+    operations.forEach(op => {
+      if (op.updateOne.update.$set) {
+        op.updateOne.update.$set.organizer = organizerName;
+      }
+    });
 
     for (let index = 0; index < operations.length; index += progressEvery) {
       await ensureNotCancelled();
@@ -1713,13 +1720,39 @@ async function runOrganizerDuplicateScan(organizerName) {
     console.log(`[ORG DUPLICATE SCAN] 🛠️ Đang cập nhật chi tiết cho ${mergedGroups.length} nhóm...`);
     let processedEntries = 0;
     for (const group of mergedGroups) {
-      const allIds = [...new Set(group)];
+      const allIds = [...new Set(group)].sort((a, b) => a - b);
       const entries = await buildDuplicateEntries(allIds, 'auction');
       const summary = summarizeDuplicateEntries(entries, 'auction');
+      
+      // Nếu không có rootId từ history API, dùng ID nhỏ nhất làm gốc
+      const finalRootId = summary.rootId || allIds[0];
+
+      // Cập nhật nhóm Duplicate
       await Duplicate.updateOne(
         { type: 'auction', sourceIds: { $in: allIds } },
-        { $set: summary }
+        { 
+          $set: { 
+            ...summary, 
+            rootId: finalRootId,
+            organizer: organizerName 
+          } 
+        }
       );
+
+      // Cập nhật ngược lại từng AuctionNotice
+      for (const entry of entries) {
+        await AuctionNotice.updateOne(
+          { sourceId: entry.sourceId },
+          { 
+            $set: { 
+              publishRound: entry.publishRound,
+              publishRoundLabel: entry.publishRoundLabel || `Thông báo công khai lần ${entry.publishRound}`,
+              rootId: finalRootId
+            }
+          }
+        );
+      }
+
       processedEntries++;
       if (processedEntries % 5 === 0) {
         console.log(`[ORG DUPLICATE SCAN]   - Tiến độ rebuild: ${processedEntries}/${mergedGroups.length}`);

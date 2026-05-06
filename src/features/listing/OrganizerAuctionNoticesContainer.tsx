@@ -168,6 +168,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
       organizer: fixedOrganizer,
       sort: sortKey === 'price_asc' || sortKey === 'price_desc' ? 'currentPrice' : 'publishedAt',
       order: sortKey === 'oldest' || sortKey === 'price_asc' ? 'asc' : 'desc',
+      unique: 'true', // ★ Gộp các bài đăng lại của cùng 1 tài sản
     };
     if (appliedFilters.keyword) p.search = appliedFilters.keyword;
     if (appliedFilters.type !== "all") p.type = appliedFilters.type;

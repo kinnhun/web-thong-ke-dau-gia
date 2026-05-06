@@ -130,6 +130,41 @@ router.get('/auctions', async (req, res, next) => {
     }
     const sort = { [req.query.sort || 'publishedAt']: req.query.order === 'asc' ? 1 : -1 };
 
+    // Chế độ gộp theo tài sản (chỉ lấy bản tin mới nhất của mỗi tài sản)
+    if (req.query.unique === 'true') {
+      const pipeline = [
+        { $match: filter },
+        { $sort: { publishedAt: -1, sourceId: -1 } },
+        { 
+          $group: { 
+            _id: { $ifNull: ["$rootId", "$sourceId"] }, 
+            doc: { $first: "$$ROOT" } 
+          } 
+        },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { publishedAt: -1 } },
+      ];
+
+      const [allItems, totalCountResult] = await Promise.all([
+        AuctionNotice.aggregate([
+          ...pipeline,
+          { $skip: skip },
+          { $limit: limit }
+        ]),
+        AuctionNotice.aggregate([
+          { $match: filter },
+          { $group: { _id: { $ifNull: ["$rootId", "$sourceId"] } } },
+          { $count: "count" }
+        ])
+      ]);
+
+      const total = totalCountResult[0]?.count || 0;
+      return res.json({
+        items: allItems.map(transformAuction),
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+      });
+    }
+
     const [items, total] = await Promise.all([
       AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
       AuctionNotice.countDocuments(filter),
