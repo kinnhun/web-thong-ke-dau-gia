@@ -134,10 +134,54 @@ router.get('/auctions', async (req, res, next) => {
       AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
       AuctionNotice.countDocuments(filter),
     ]);
-    // Log filter for debugging
-    console.log('[DEBUG] /api/auctions filter:', JSON.stringify(filter, null, 2));
+
+    // ⚡ Đồng bộ giá với bản ghi Detail (Duplicate) để tránh lệch giá giữa List và Detail
+    const sourceIds = items.map(i => i.sourceId);
+    const duplicates = await Duplicate.find({ sourceIds: { $in: sourceIds } }).lean();
+    
+    const dupMap = new Map();
+    duplicates.forEach(d => {
+      if (d.sourceIds) {
+        d.sourceIds.forEach(sid => dupMap.set(sid, d));
+      }
+    });
+
+    let enrichedItems = items.map(item => {
+      const transformed = transformAuction(item);
+      const dup = dupMap.get(item.sourceId);
+      if (dup) {
+        return {
+          ...transformed,
+          // Lấy giá từ nhóm trùng lặp (giá lần đầu tiên và giá mới nhất)
+          initialPrice: dup.firstPrice || transformed.initialPrice,
+          currentPrice: dup.latestPrice || transformed.currentPrice,
+          publishRound: dup.relistCount || transformed.publishRound,
+          isAggregated: true,
+          duplicateId: dup._id.toString()
+        };
+      }
+      return transformed;
+    });
+
+    // Nếu FE yêu cầu unique (chỉ hiện 1 đại diện cho mỗi tài sản trên 1 trang)
+    if (req.query.unique === 'true') {
+      const seenGroups = new Set();
+      const uniqueItems = [];
+      for (const item of enrichedItems) {
+        if (item.duplicateId) {
+          if (!seenGroups.has(item.duplicateId)) {
+            seenGroups.add(item.duplicateId);
+            uniqueItems.push(item);
+          }
+        } else {
+          uniqueItems.push(item);
+        }
+      }
+      enrichedItems = uniqueItems;
+    }
+
     res.json({
-      items: items.map(transformAuction),
+      items: enrichedItems,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (err) { next(err); }

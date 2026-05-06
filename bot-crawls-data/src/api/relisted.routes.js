@@ -100,8 +100,9 @@ router.get('/', async (req, res, next) => {
       registrationStart: '$latestNotice.registrationStart',
       registrationEnd: '$latestNotice.registrationEnd',
       status: '$latestNotice.status',
-      initialPrice: '$latestNotice.initialPrice',
-      currentPrice: '$latestNotice.currentPrice',
+      initialPrice: '$firstPrice',
+      currentPrice: '$latestPrice',
+      publishRound: '$relistCount',
     };
 
     if (!hasNoticeFilters) {
