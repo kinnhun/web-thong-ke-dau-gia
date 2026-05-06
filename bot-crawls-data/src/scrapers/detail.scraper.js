@@ -14,7 +14,7 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
+const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -1310,7 +1310,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
 
   const buckets = {};
   for (const item of items) {
-    const prov = item.province || 'unknown';
+    const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
     const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
@@ -1779,7 +1779,7 @@ async function runOrganizerDuplicateScan(organizerName) {
  * Version của getFuzzyNameGroups nhưng chạy trên dữ liệu đã được nạp sẵn thay vì query DB lại
  */
 async function getFuzzyNameGroupsFiltered(items, progressCallback) {
-  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity } = require('../utils/helpers');
+  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity, normalizeProvince } = require('../utils/helpers');
 
   const buckets = {};
   for (const item of items) {
