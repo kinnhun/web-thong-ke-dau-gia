@@ -1868,6 +1868,7 @@ module.exports = {
   fetchPublishHistory,
   handleDuplicate,
   searchDuplicatesByFuzzyName,
+  getFuzzyNameGroupsFiltered,
   buildDuplicateEntries,
   recrawlMissingAuctionDetails,
   crawlDetails,

@@ -739,7 +739,7 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
         await Model.updateOne({ _id: item._id }, { $set: updates });
         console.log(`[RECRAWL BG] Đã cập nhật DB thành công cho #${sourceId}.`);
 
-        if (type === 'auction') {
+        if (type !== 'org') {
           const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
           const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
           if (allRelatedIds.length > 0) {
@@ -774,7 +774,7 @@ router.post('/trigger-scan-duplicate-item', async (req, res, next) => {
     }
 
     const log = await CrawlLog.create({
-      type: 'single_duplicate_scan',
+      type: 'duplicate_scan',
       startedAt: new Date(),
       status: 'running',
       itemsUpdated: 0,
@@ -791,7 +791,7 @@ router.post('/trigger-scan-duplicate-item', async (req, res, next) => {
 
     Promise.resolve().then(async () => {
       try {
-        if (type === 'auction') {
+        if (type !== 'org') {
           const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, item.name, 'auction');
           const allRelatedIds = [...new Set([...(item.relatedIds || []), ...exactNameRelatedIds])];
           
@@ -816,7 +816,7 @@ router.post('/trigger-scan-duplicate-item', async (req, res, next) => {
              log.errorMessages.push(`Không tìm thấy bài đăng nào có thể gộp với #${sourceId}.`);
           }
         } else {
-           log.errorMessages.push(`Tính năng quét trùng lặp đơn lẻ chỉ mới hỗ trợ cho loại 'auction'.`);
+           log.errorMessages.push(`Tính năng quét trùng lặp đơn lẻ chưa hỗ trợ cho loại 'org'.`);
         }
         log.status = 'completed';
       } catch (err) {
