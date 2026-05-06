@@ -1,44 +1,25 @@
 import Head from "next/head";
-import { useEffect } from "react";
 import type { ReactElement } from "react";
-import { useRouter } from "next/router";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { RelistedContainer } from "@/features/relisted/RelistedContainer";
+import { OrganizerAuctionNoticesContainer } from "@/features/listing/OrganizerAuctionNoticesContainer";
 
 const ORGANIZER_NAME = "Trung tâm Dịch vụ bán đấu giá tài sản TPHCM";
 
 export default function LTrungTamDichVuBanDauGiaTaiSanTphcmPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    if (router.query.organizer === ORGANIZER_NAME) return;
-
-    router.replace(
-      {
-        pathname: router.pathname,
-        query: {
-          ...router.query,
-          organizer: ORGANIZER_NAME,
-        },
-      },
-      undefined,
-      { shallow: true }
-    );
-  }, [router, router.isReady, router.pathname, router.query]);
-
-  const isReady = router.isReady && router.query.organizer === ORGANIZER_NAME;
-
   return (
     <>
       <Head>
-        <title>{ORGANIZER_NAME} | AuctionWatch</title>
+        <title>Trung tâm Dịch vụ bán đấu giá tài sản TPHCM | AuctionWatch</title>
         <meta
           name="description"
-          content={`Trang riêng cho tổ chức đấu giá ${ORGANIZER_NAME}, dùng cùng bộ lọc với /discounts hiện tại`}
+          content="Tất cả thông báo đấu giá của Trung tâm Dịch vụ bán đấu giá tài sản TPHCM, gồm cả bài đăng một lần và bài đăng lại."
         />
       </Head>
-      {isReady ? <RelistedContainer /> : null}
+      <OrganizerAuctionNoticesContainer
+        fixedOrganizer={ORGANIZER_NAME}
+        title="Trung tâm Dịch vụ bán đấu giá tài sản TPHCM"
+        description="Toàn bộ bài đăng của đơn vị này, bao gồm cả bài đăng một lần và bài đăng lại với bộ lọc nâng cao."
+      />
     </>
   );
 }

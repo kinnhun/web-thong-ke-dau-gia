@@ -69,31 +69,73 @@ const AUCTION_LIST_FIELDS = {
   propertyTypeName: 1, propertyAmount: 1, properties: 1,
 };
 
+
 router.get('/auctions', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
     const filter = {};
+    require('fs').writeFileSync('scratch/backend_query.json', JSON.stringify(req.query));
     if (req.query.type) filter.type = req.query.type;
     const provinceFilter = buildProvinceFilter(req.query.province);
     if (provinceFilter) filter.province = provinceFilter;
+    if (req.query.organizer) {
+      filter.organizer = { $regex: escapeRegex(req.query.organizer), $options: 'i' };
+    }
     if (req.query.status) filter.status = req.query.status;
     const searchFilter = buildTextSearchFilter(req.query.search);
     if (searchFilter) Object.assign(filter, searchFilter);
-    if (req.query.minPrice || req.query.maxPrice) {
-      filter.currentPrice = {};
-      if (req.query.minPrice) filter.currentPrice.$gte = parseInt(req.query.minPrice);
-      if (req.query.maxPrice) filter.currentPrice.$lte = parseInt(req.query.maxPrice);
+    if (req.query.maxPrice) {
+      const maxP = parseFloat(req.query.maxPrice);
+      if (!isNaN(maxP)) {
+        filter.currentPrice = filter.currentPrice || {};
+        filter.currentPrice.$lte = maxP;
+      }
+    }
+    if (req.query.minPrice) {
+      const minP = parseFloat(req.query.minPrice);
+      if (!isNaN(minP)) {
+        filter.currentPrice = filter.currentPrice || {};
+        filter.currentPrice.$gte = minP;
+      }
+    }
+    if (req.query.rounds && req.query.rounds !== 'all') {
+      const r = parseInt(req.query.rounds);
+      if (!isNaN(r)) filter.publishRound = { $gte: r };
+    }
+    if (req.query.auctionDateFrom || req.query.auctionDateTo) {
+      filter.auctionDate = {};
+      if (req.query.auctionDateFrom && req.query.auctionDateFrom !== "") {
+        const d = new Date(req.query.auctionDateFrom);
+        if (!isNaN(d.getTime())) filter.auctionDate.$gte = d;
+      }
+      if (req.query.auctionDateTo && req.query.auctionDateTo !== "") {
+        const d = new Date(req.query.auctionDateTo);
+        if (!isNaN(d.getTime())) filter.auctionDate.$lte = d;
+      }
+      if (Object.keys(filter.auctionDate).length === 0) delete filter.auctionDate;
+    }
+    if (req.query.publishedAtFrom || req.query.publishedAtTo) {
+      filter.publishedAt = {};
+      if (req.query.publishedAtFrom && req.query.publishedAtFrom !== "") {
+        const d = new Date(req.query.publishedAtFrom);
+        if (!isNaN(d.getTime())) filter.publishedAt.$gte = d;
+      }
+      if (req.query.publishedAtTo && req.query.publishedAtTo !== "") {
+        const d = new Date(req.query.publishedAtTo);
+        if (!isNaN(d.getTime())) filter.publishedAt.$lte = d;
+      }
+      if (Object.keys(filter.publishedAt).length === 0) delete filter.publishedAt;
     }
     const sort = { [req.query.sort || 'publishedAt']: req.query.order === 'asc' ? 1 : -1 };
 
-    // Nếu không có filter → dùng estimatedDocumentCount (O(1) thay vì O(N))
-    const hasFilter = Object.keys(filter).length > 0;
     const [items, total] = await Promise.all([
       AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
-      hasFilter ? AuctionNotice.countDocuments(filter) : AuctionNotice.estimatedDocumentCount(),
+      AuctionNotice.countDocuments(filter),
     ]);
+    // Log filter for debugging
+    console.log('[DEBUG] /api/auctions filter:', JSON.stringify(filter, null, 2));
     res.json({
       items: items.map(transformAuction),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -101,7 +143,9 @@ router.get('/auctions', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+
 const StatCache = require('../models/StatCache');
+
 
 router.get('/auctions/stats', async (req, res, next) => {
   try {
@@ -1462,6 +1506,45 @@ router.get('/tmp/full-crawl/status', async (req, res, next) => {
         updatedAt: aggregateLog.updatedAt,
         workerCount: aggregateLog.workerCount || 0,
       } : null,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/trigger-organizer-duplicate-scan', async (req, res, next) => {
+  try {
+    const { runOrganizerDuplicateScan } = require('../scrapers/detail.scraper');
+    const { organizer } = req.body;
+
+    if (!organizer) {
+      return res.status(400).json({ success: false, message: 'Thiếu tên đơn vị tổ chức.' });
+    }
+
+    const runningLog = await CrawlLog.findOne({
+      status: 'running',
+      type: { $in: ['duplicate_scan', 'organizer_duplicate_scan', 'mega_detail_crawl'] },
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: `Đang có tiến trình ${runningLog.type} chạy nền. Vui lòng chờ hoàn tất.`,
+      });
+    }
+
+    let startedLogId = null;
+    (async () => {
+      try {
+        const result = await runOrganizerDuplicateScan(organizer);
+        startedLogId = result?.logId || null;
+      } catch (err) {
+        console.error('[TRIGGER] Error starting organizer duplicate scan:', err);
+      }
+    })();
+
+    res.json({
+      success: true,
+      message: `Đã bắt đầu quét trùng lặp cho đơn vị: ${organizer}.`,
+      logId: startedLogId,
     });
   } catch (err) { next(err); }
 });

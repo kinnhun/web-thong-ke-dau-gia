@@ -11,6 +11,8 @@ import {
   MapPin,
   Search,
   SlidersHorizontal,
+  Table as TableIcon,
+  LayoutGrid,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,13 +53,26 @@ const sortMap: Record<SortKey, { sort: string; order: string }> = {
   price_asc: { sort: "currentPrice", order: "asc" },
 };
 
-export function ListingContainer() {
+interface ListingContainerProps {
+  fixedOrganizer?: string;
+  title?: string;
+  description?: string;
+  hideOrganizer?: boolean;
+}
+
+export function ListingContainer({
+  fixedOrganizer,
+  title = "Thông báo công khai việc đấu giá",
+  description = "Danh sách thông báo đấu giá tài sản từ Cổng Đấu Giá Tài Sản Quốc Gia",
+  hideOrganizer = false,
+}: ListingContainerProps) {
   const [keyword, setKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [province, setProvince] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   const pageSize = 20;
 
   const { data: filterOpts } = useFilterOptions();
@@ -80,8 +95,9 @@ export function ListingContainer() {
     };
     if (keyword) p.search = keyword;
     if (province.length > 0) p.province = province.join(",");
+    if (fixedOrganizer) p.organizer = fixedOrganizer;
     return p;
-  }, [page, pageSize, sortKey, keyword, province]);
+  }, [fixedOrganizer, page, pageSize, sortKey, keyword, province]);
 
   const { data, isLoading, isFetching } = useAuctions(params);
 
@@ -115,12 +131,12 @@ export function ListingContainer() {
     <div className="container mx-auto max-w-[1300px] px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6">
       {/* Header */}
       <header>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <h1 suppressHydrationWarning className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
           <Gavel className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-          Thông báo công khai việc đấu giá
+          {title}
         </h1>
         <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-          Danh sách thông báo đấu giá tài sản từ Cổng Đấu Giá Tài Sản Quốc Gia
+          {description}
         </p>
       </header>
 
@@ -196,11 +212,33 @@ export function ListingContainer() {
         )}
       </div>
 
-      {/* Result count */}
+      {/* Result count and View toggle */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          Tổng số <strong className="num text-foreground">{total.toLocaleString("vi-VN")}</strong> bản ghi
-        </span>
+        <div className="flex items-center gap-4">
+          <span>
+            Tổng số <strong className="num text-foreground">{total.toLocaleString("vi-VN")}</strong> bản ghi
+          </span>
+          <div className="hidden sm:flex items-center border rounded-md p-0.5 bg-muted/30">
+            <Button
+              variant={viewMode === 'card' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 w-7 p-0 rounded-sm"
+              onClick={() => setViewMode('card')}
+              title="Dạng lưới"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 w-7 p-0 rounded-sm"
+              onClick={() => setViewMode('table')}
+              title="Dạng bảng"
+            >
+              <TableIcon className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
         {isFetching && <Loader2 className="h-4 w-4 animate-spin" />}
       </div>
 
@@ -213,9 +251,83 @@ export function ListingContainer() {
         <div className="rounded-xl border bg-card px-6 py-16 text-center text-muted-foreground">
           Không tìm thấy kết quả nào.
         </div>
+      ) : viewMode === 'table' ? (
+        <div className="overflow-x-auto rounded-xl border bg-card">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-muted/50 text-muted-foreground font-medium border-b">
+              <tr>
+                <th className="px-4 py-3 font-semibold text-foreground">Thông tin tài sản</th>
+                <th className="px-3 py-3 font-semibold text-foreground">Khu vực</th>
+                <th className="px-3 py-3 font-semibold text-foreground text-right">Giá đầu</th>
+                <th className="px-3 py-3 font-semibold text-foreground text-right">Giá hiện tại</th>
+                <th className="px-3 py-3 font-semibold text-foreground text-right">Giảm</th>
+                <th className="px-3 py-3 font-semibold text-foreground text-center">Lần ĐG</th>
+                <th className="px-3 py-3 font-semibold text-foreground">Thời gian tham gia</th>
+                <th className="px-3 py-3 font-semibold text-foreground">Thời gian tổ chức</th>
+                <th className="px-3 py-3 font-semibold text-foreground">Trạng thái</th>
+                <th className="px-4 py-3 font-semibold text-foreground text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {items.map((item: any) => {
+                const initialPrice = Number(item.initialPrice) || 0;
+                const currentPrice = Number(item.currentPrice) || 0;
+                const drop = initialPrice - currentPrice;
+                const dropPercent = initialPrice > 0 ? (drop / initialPrice) * 100 : 0;
+                
+                return (
+                  <tr key={item.sourceId} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 min-w-[350px]">
+                      <Link href={`/auction/${item.sourceId}`} className="font-medium text-primary hover:underline">
+                        {item.name}
+                      </Link>
+                      <div className="text-[10px] text-muted-foreground mt-1">ID: {item.sourceId} • {formatDate(item.publishedAt)}</div>
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">{item.province}</td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap num">{initialPrice > 0 ? formatVND(initialPrice) : "—"}</td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap num font-medium text-foreground">{currentPrice > 0 ? formatVND(currentPrice) : "—"}</td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap">
+                      {drop > 0 ? (
+                        <div className="flex flex-col items-end">
+                          <span className="num text-rose-600">-{formatVND(drop)}</span>
+                          <span className="text-[10px] text-rose-500">-{dropPercent.toFixed(1)}%</span>
+                        </div>
+                      ) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-center whitespace-nowrap">
+                      {item.publishRound && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${Number(item.publishRound) > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                          Lần {item.publishRound}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-[10px]">
+                      <div className="flex flex-col">
+                        <span>{formatDate(item.registrationStart)}</span>
+                        <span className="text-muted-foreground">→ {formatDate(item.registrationEnd)}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-[10px]">{formatDate(item.auctionDate)}</td>
+                    <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={item.status} /></td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link href={`/auction/${item.sourceId}`} className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
+                          <FileText className="h-3.5 w-3.5" />
+                        </Link>
+                        <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="space-y-2">
-          {items.map((item: Record<string, unknown>) => {
+          {items.map((item: any) => {
             const sourceId = item.sourceId as number;
             const name = (item.name as string) || (item.shortDescription as string) || "Không có tên";
             const publishedAt = item.publishedAt as string;
@@ -234,7 +346,6 @@ export function ListingContainer() {
                 className="rounded-xl border bg-card hover:border-foreground/15 transition-colors"
               >
                 <div className="p-4 sm:p-5">
-                  {/* Title */}
                   <div className="flex items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary mt-0.5">
                       <FileText className="h-4 w-4" />
@@ -247,15 +358,20 @@ export function ListingContainer() {
                         Thông báo việc đấu giá đối với danh mục tài sản: {name}
                       </Link>
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <StatusBadge status={status as import("@/domains/auction").AuctionStatus} />
+                        <StatusBadge status={status as any} />
                         {province && (
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <MapPin className="h-3 w-3" />{province}
                           </span>
                         )}
-                        {organizer && (
+                        {!hideOrganizer && organizer && (
                           <span className="text-xs text-muted-foreground truncate max-w-[300px]" title={organizer}>
                             {organizer}
+                          </span>
+                        )}
+                        {item.publishRound && Number(item.publishRound) > 1 && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wider">
+                            Lần {item.publishRound}
                           </span>
                         )}
                         {initialPrice > 0 && (
@@ -278,7 +394,6 @@ export function ListingContainer() {
                     )}
                   </div>
 
-                  {/* Date row */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 mt-3 pt-3 border-t text-xs text-muted-foreground">
                     <div>
                       <div className="font-medium text-foreground/60 mb-0.5">Thời gian tham gia</div>

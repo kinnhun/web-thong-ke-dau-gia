@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
  * Theo dõi tiến trình crawl
  */
 const crawlLogSchema = new mongoose.Schema({
-  type: { type: String, enum: ['auction_notice', 'org_selection', 'detail', 'org_detail', 'duplicate_scan', 'recrawl_missing_properties', 'mega_detail_crawl', 'crawl_duplicate_details'], required: true },
+  type: { type: String, enum: ['auction_notice', 'org_selection', 'detail', 'org_detail', 'duplicate_scan', 'organizer_duplicate_scan', 'recrawl_missing_properties', 'mega_detail_crawl', 'crawl_duplicate_details'], required: true },
   startedAt: { type: Date, default: Date.now },
   finishedAt: Date,
   status: { type: String, enum: ['running', 'completed', 'failed', 'early_stopped'], default: 'running' },

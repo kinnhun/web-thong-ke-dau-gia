@@ -165,6 +165,11 @@ export async function triggerDuplicateScan() {
   return data;
 }
 
+export async function triggerOrganizerDuplicateScan(organizer: string) {
+  const { data } = await httpClient.post('/api/trigger-organizer-duplicate-scan', { organizer });
+  return data;
+}
+
 export async function triggerRecrawlItem(sourceId: number, type = 'auction') {
   const { data } = await httpClient.post('/api/trigger-recrawl-item', { sourceId, type });
   return data;

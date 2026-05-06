@@ -1599,6 +1599,230 @@ async function runFullDuplicateScan() {
   }
 }
 
+async function runOrganizerDuplicateScan(organizerName) {
+  if (!organizerName) throw new Error('Organizer name is required');
+  
+  duplicateScanState.isRunning = true;
+  duplicateScanState.cancelRequested = false;
+
+  const log = await CrawlLog.create({
+    type: 'organizer_duplicate_scan',
+    startedAt: new Date(),
+    status: 'running',
+    itemsUpdated: 0,
+    itemsSkipped: 0,
+    pagesProcessed: 0,
+    errorMessages: [`Bắt đầu quét duplicate cho đơn vị: ${organizerName}`],
+  });
+
+  const progressEvery = 10;
+
+  const saveProgress = async (message) => {
+    if (message) {
+      console.log(`[ORG DUPLICATE SCAN] ${message}`);
+      const currentMessages = Array.isArray(log.errorMessages) ? log.errorMessages : [];
+      log.errorMessages = [...currentMessages.slice(-4), message];
+    }
+    try {
+      await CrawlLog.updateOne({ _id: log._id }, {
+        $set: {
+          errorMessages: log.errorMessages,
+          status: log.status,
+          finishedAt: log.finishedAt,
+          itemsUpdated: log.itemsUpdated,
+          itemsSkipped: log.itemsSkipped,
+          pagesProcessed: log.pagesProcessed,
+        }
+      });
+    } catch (e) { }
+  };
+
+  const ensureNotCancelled = async (message) => {
+    if (!duplicateScanState.cancelRequested) return;
+    log.status = 'failed';
+    log.finishedAt = new Date();
+    const cancelMessage = message || 'Tiến trình đã được dừng thủ công.';
+    log.errorMessages = [...(log.errorMessages || []).slice(-4), cancelMessage];
+    await CrawlLog.updateOne({ _id: log._id }, { $set: { errorMessages: log.errorMessages, status: log.status, finishedAt: log.finishedAt } });
+    throw new Error(cancelMessage);
+  };
+
+  try {
+    // 1. Xoá các bản ghi duplicate cũ của riêng đơn vị này để tạo mới
+    const orgRegex = new RegExp(organizerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    console.log(`\n[ORG DUPLICATE SCAN] 🚀 Bắt đầu quét cho: ${organizerName}`);
+    await saveProgress('Đang xoá dữ liệu duplicate cũ của đơn vị này...');
+    const deleteRes = await Duplicate.deleteMany({ organizer: orgRegex });
+    console.log(`[ORG DUPLICATE SCAN] 🗑️ Đã xoá ${deleteRes.deletedCount} nhóm cũ.`);
+
+    // 2. Lấy dữ liệu AuctionNotice của đơn vị này
+    await saveProgress('Đang tải dữ liệu AuctionNotice...');
+    const auctions = await AuctionNotice.find({ organizer: orgRegex })
+      .select('sourceId name province relatedIds')
+      .maxTimeMS(0)
+      .lean();
+    
+    console.log(`[ORG DUPLICATE SCAN] 📥 Đã tải ${auctions.length} tài sản từ DB.`);
+    log.itemsSkipped = auctions.length; // Lưu tổng số tài sản vào field itemsSkipped tạm thời để user thấy quy mô
+    await saveProgress(`Đã tải ${auctions.length} tài sản.`);
+
+    if (auctions.length < 2) {
+      log.status = 'completed';
+      log.finishedAt = new Date();
+      await saveProgress('Đơn vị có ít hơn 2 bài đăng, không cần quét trùng lặp.');
+      console.log(`[ORG DUPLICATE SCAN] ⏭️ Kết thúc sớm (ít hơn 2 bản ghi).`);
+      return { success: true, logId: log._id };
+    }
+
+    // 3. Gom nhóm theo relatedIds
+    await saveProgress('Gom nhóm theo relatedIds...');
+    const relatedGroups = buildGraphGroups(auctions, (item) => item.relatedIds);
+    console.log(`[ORG DUPLICATE SCAN] 🔗 Tìm thấy ${relatedGroups.length} nhóm theo relatedIds.`);
+
+    // 4. Gom nhóm theo tên (fuzzy)
+    await saveProgress('Gom nhóm theo tên tương đồng...');
+    const nameGroups = await getFuzzyNameGroupsFiltered(auctions, saveProgress);
+    console.log(`[ORG DUPLICATE SCAN] 🏷️ Tìm thấy ${nameGroups.length} nhóm theo tên tương đồng.`);
+
+    // 5. Merge và cập nhật
+    const mergedGroups = mergeDuplicateGroups(relatedGroups, nameGroups.map(g => g.ids));
+    console.log(`[ORG DUPLICATE SCAN] 📦 Sau khi gộp: ${mergedGroups.length} nhóm trùng lặp.`);
+
+    if (mergedGroups.length === 0) {
+      log.status = 'completed';
+      log.finishedAt = new Date();
+      await saveProgress('Không tìm thấy bài đăng trùng lặp nào cho đơn vị này.');
+      console.log(`[ORG DUPLICATE SCAN] ✅ Không có trùng lặp.`);
+      return { success: true, logId: log._id };
+    }
+
+    await saveProgress(`Đang cập nhật ${mergedGroups.length} nhóm trùng lặp...`);
+    const sourceMap = new Map(auctions.map(a => [a.sourceId, a]));
+    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction');
+
+    for (let index = 0; index < operations.length; index += progressEvery) {
+      await ensureNotCancelled();
+      const batch = operations.slice(index, index + progressEvery);
+      await Duplicate.bulkWrite(batch, { ordered: false });
+      log.itemsUpdated += batch.length;
+      await saveProgress(`Đã cập nhật ${Math.min(index + batch.length, operations.length)}/${operations.length} nhóm`);
+    }
+
+    // 6. Rebuild entries (giá, ngày...) cho các nhóm vừa tạo
+    await saveProgress('Đang cập nhật thông tin chi tiết (giá, ngày...) cho các nhóm...');
+    console.log(`[ORG DUPLICATE SCAN] 🛠️ Đang cập nhật chi tiết cho ${mergedGroups.length} nhóm...`);
+    let processedEntries = 0;
+    for (const group of mergedGroups) {
+      const allIds = [...new Set(group)];
+      const entries = await buildDuplicateEntries(allIds, 'auction');
+      const summary = summarizeDuplicateEntries(entries, 'auction');
+      await Duplicate.updateOne(
+        { type: 'auction', sourceIds: { $in: allIds } },
+        { $set: summary }
+      );
+      processedEntries++;
+      if (processedEntries % 5 === 0) {
+        console.log(`[ORG DUPLICATE SCAN]   - Tiến độ rebuild: ${processedEntries}/${mergedGroups.length}`);
+      }
+    }
+
+    log.status = 'completed';
+    log.finishedAt = new Date();
+    await saveProgress('Quét trùng lặp đơn vị hoàn tất.');
+    console.log(`[ORG DUPLICATE SCAN] ✨ Hoàn tất!`);
+    return { success: true, logId: log._id };
+  } catch (err) {
+    log.status = 'failed';
+    log.finishedAt = new Date();
+    log.errorMessages = [...(log.errorMessages || []), err.message];
+    await CrawlLog.updateOne({ _id: log._id }, { $set: { status: log.status, finishedAt: log.finishedAt, errorMessages: log.errorMessages } });
+    throw err;
+  } finally {
+    resetDuplicateScanState();
+  }
+}
+
+/**
+ * Version của getFuzzyNameGroups nhưng chạy trên dữ liệu đã được nạp sẵn thay vì query DB lại
+ */
+async function getFuzzyNameGroupsFiltered(items, progressCallback) {
+  const buckets = {};
+  for (const item of items) {
+    const prov = item.province || 'unknown';
+    if (!buckets[prov]) buckets[prov] = {};
+    const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
+    buckets[prov][cleanName].push(item.sourceId);
+  }
+
+  const allFuzzyGroups = [];
+  const provKeys = Object.keys(buckets);
+  for (const prov of provKeys) {
+    const cleanNames = Object.keys(buckets[prov]);
+    if (cleanNames.length === 0) continue;
+
+    const data = cleanNames.map((name, i) => ({
+      index: i,
+      coreBigrams: getBigrams(extractCoreIdentity(name)),
+      numbers: getNumberTokens(name),
+      identifiers: extractPropertyIdentifiers(name),
+      sourceIds: buckets[prov][name]
+    }));
+
+    data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
+    const parent = Array.from({ length: data.length }, (_, i) => i);
+    const find = (i) => {
+      if (parent[i] === i) return i;
+      return parent[i] = find(parent[i]);
+    };
+    const union = (i, j) => {
+      const rootI = find(i);
+      const rootJ = find(j);
+      if (rootI !== rootJ) parent[rootI] = rootJ;
+    };
+
+    for (let i = 0; i < data.length; i++) {
+      const sizeA = data[i].coreBigrams.size;
+      if (sizeA === 0) continue;
+      const maxSizeB = sizeA / 0.60;
+      for (let j = i + 1; j < data.length; j++) {
+        const sizeB = data[j].coreBigrams.size;
+        if (sizeB === 0) continue;
+        if (sizeB > maxSizeB) break;
+        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) continue;
+        if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
+          union(i, j);
+          continue;
+        }
+        const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
+        if (bothHaveNumbers) {
+          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
+          if (common.length === 0) continue;
+        }
+        const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
+        if (coreSim >= 0.80) {
+          union(i, j);
+        } else if (bothHaveNumbers && coreSim >= 0.60) {
+          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
+          if (common.length > 0) union(i, j);
+        }
+      }
+    }
+
+    const provGroups = {};
+    for (let i = 0; i < data.length; i++) {
+      const root = find(i);
+      if (!provGroups[root]) provGroups[root] = [];
+      provGroups[root].push(...data[i].sourceIds);
+    }
+    for (const root in provGroups) {
+      const ids = [...new Set(provGroups[root])];
+      if (ids.length >= 2) allFuzzyGroups.push({ ids: ids });
+    }
+  }
+  return allFuzzyGroups;
+}
+
 module.exports = {
   fetchAuctionItemDetail,
   fetchOrgItemDetail,
@@ -1613,7 +1837,9 @@ module.exports = {
   rebuildAllDuplicateEntries,
   crawlDuplicateGroupsDetail,
   runFullDuplicateScan,
+  runOrganizerDuplicateScan,
   requestDuplicateScanCancel,
   getDuplicateScanState,
   setSkipDetailCrawl,
 };
+
