@@ -1367,7 +1367,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
 
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
-        if (sizeB > maxSizeB) break;
+        if (sizeB > maxSizeB) continue;
 
         // BƯỚC 0: Xung đột ĐỊNH DANH (VD: Thửa đất số 01 vs Thửa đất số 02) → REJECT NGAY
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
@@ -1827,7 +1827,7 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       for (let j = i + 1; j < data.length; j++) {
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
-        if (sizeB > maxSizeB) break;
+        if (sizeB > maxSizeB) continue;
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) continue;
         if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
           union(i, j);

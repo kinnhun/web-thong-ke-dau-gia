@@ -19,7 +19,7 @@ function removeDiacritics(str) {
  */
 function extractCoreIdentity(name) {
   if (!name) return '';
-  let s = removeDiacritics(name.toLowerCase());
+  let s = removeDiacritics(name.normalize('NFC').toLowerCase());
 
   // 0. Xoá các tiền tố phổ biến
   s = s.replace(/tai san dau gia (la|gom):?/g, ' ');
@@ -41,6 +41,20 @@ function extractCoreIdentity(name) {
   s = s.replace(/can ho\s*(so)?/g, ' ');
   s = s.replace(/thua dat\s*(so)?/g, ' ');
   s = s.replace(/to ban do\s*(so)?/g, ' ');
+
+  // 2.1 Xoá boilerplate THA, Kê biên (mới thêm)
+  s = s.replace(/bien ban ve viec ke bien,?\s*xu ly tai san/g, ' ');
+  s = s.replace(/chi cuc thi hanh an dan su/g, ' ');
+  s = s.replace(/cuc thi hanh an dan su/g, ' ');
+  s = s.replace(/ngay\s*\d{1,2}\s*thang\s*\d{1,2}\s*nam\s*\d{4}/g, ' ');
+  s = s.replace(/luc\s*\d{1,2}\s*gio\s*\d{1,2}\s*phut/g, ' ');
+  s = s.replace(/duoc ubnd\s*[a-z0-9\s]{1,30}\s*cap/g, ' ');
+  s = s.replace(/giay chung nhan quyen su dung dat/g, ' ');
+  s = s.replace(/giay chung nhan quyen so huu nha o/g, ' ');
+  s = s.replace(/quy dinh tai dieu\s*\d+[a-z]?/g, ' ');
+  s = s.replace(/theo quy dinh cua phap luat/g, ' ');
+  s = s.replace(/tu nguyen thao do de tra lai hien trang/g, ' ');
+  s = s.replace(/thong tin tai san theo/g, ' ');
 
   // 3. Xoá tên tỉnh/thành phố
   s = s.replace(/thanh pho ho chi minh/g, ' ');
@@ -79,13 +93,20 @@ function extractCoreIdentity(name) {
   s = s.replace(/\b(quan|q)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|tp|thanh pho))/g, ' ');
   s = s.replace(/\b(xa|huyen|thi xa|thi tran)\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|thanh pho))/g, ' ');
 
-  // 9. Xoá stop words (thêm các từ thừa thãi trong đấu giá)
-  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia|thua|to|ban|do|giay|chung|nhan|qsdd|tai|san|gan|lien|dat)\b/g, ' ');
+  // 9. Xoá các đặc điểm kỹ thuật rác (diện tích xây dựng, sàn, kết cấu...)
+  s = s.replace(/dien tich (xay dung|su dung|san|rieng|chung)[\s\d,\.m2]{1,30}/g, ' ');
+  s = s.replace(/ket cau:?\s*[a-z0-9\s,]{1,50}(?=\.|$)/g, ' ');
+  s = s.replace(/lo gioi duong\s*[a-z0-9\s,]{1,30}/g, ' ');
+  s = s.replace(/phan xay dung them khong duoc ban dau gia/g, ' ');
 
-  // 10. Dọn dẹp
+  // 10. Xoá stop words (thêm các từ thừa thãi trong đấu giá)
+  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia|thua|to|ban|do|giay|chung|nhan|qsdd|tai|san|gan|lien|dat|gom|gom|bao|thanh|hinh|thuc|muc|dich|thoi|han|nguon|goc|nhu|theo|chi|phi|chiu)\b/g, ' ');
+
+  // 11. Dọn dẹp
   s = s.replace(/[,\.\(\):\-;"']/g, ' ').replace(/\s+/g, ' ').trim();
   return s;
 }
+
 
 /**
  * Trích xuất các ĐỊNH DANH TÀI SẢN có cấu trúc (thửa đất số X, tờ bản đồ số X, lô X, v.v.)
@@ -135,7 +156,8 @@ function extractPropertyIdentifiers(name) {
   if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.-]/g, '').toUpperCase();
 
   // Thêm nhận diện địa chỉ rút gọn (Số nhà + Tên đường)
-  const addressMatch = s.match(/(?:so|tai|dia\s*chi)\s*(\d+[a-z]?(?:\/\d+[a-z]?)*)\s+([a-z\s]{2,30})(?:phuong|quan|huyen|xa|tp|thanh|hcm|$|,)/i);
+  // Cải tiến regex để bỏ qua các từ đệm như "thửa đất", "tại", "số"
+  const addressMatch = s.match(/(?:so|tai|dia\s*chi|dia\s*chi\s*thua\s*dat)[:\s]*(\d+[a-z]?(?:\/\d+[a-z]?)*)\s+([a-z\s]{2,30})(?:phuong|quan|huyen|xa|tp|thanh|hcm|$|,)/i);
   if (addressMatch) {
     ids.streetAddress = `${addressMatch[1]} ${addressMatch[2].trim()}`;
   }
