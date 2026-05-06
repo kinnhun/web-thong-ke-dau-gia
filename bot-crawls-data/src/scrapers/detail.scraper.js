@@ -546,7 +546,13 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     const Model = type === 'auction' ? AuctionNotice : OrgSelection;
     const targetProvince = extractProvince(name);
     const dbQuery = { $text: { $search: name } };
-    if (targetProvince) dbQuery.province = targetProvince;
+    if (targetProvince) {
+      if (targetProvince === 'TP. Hồ Chí Minh') {
+        dbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
+      } else {
+        dbQuery.province = targetProvince;
+      }
+    }
 
     const dbCandidates = await Model.find(
       dbQuery,
@@ -564,7 +570,13 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       // Dùng $or thay vì $and để tìm rộng hơn, sau đó filter lại bằng code
       const regexQueries = targetNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
       const regexDbQuery = { $or: regexQueries };
-      if (targetProvince) regexDbQuery.province = targetProvince;
+      if (targetProvince) {
+        if (targetProvince === 'TP. Hồ Chí Minh') {
+          regexDbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
+        } else {
+          regexDbQuery.province = targetProvince;
+        }
+      }
       
       dbCandidatesRegex = await Model.find(regexDbQuery)
         .limit(300)
@@ -1783,7 +1795,7 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
 
   const buckets = {};
   for (const item of items) {
-    const prov = item.province || 'unknown';
+    const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
     
     // Áp dụng chuẩn hóa NFC cho tên để tránh lỗi sai khác do bộ gõ tiếng Việt
