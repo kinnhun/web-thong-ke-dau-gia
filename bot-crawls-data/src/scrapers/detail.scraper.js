@@ -1325,8 +1325,8 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
     const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
-    buckets[prov][cleanName].push(item.sourceId);
+    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
+    buckets[prov][cleanName].sourceIds.push(item.sourceId);
   }
 
   const allFuzzyGroups = [];
@@ -1338,13 +1338,16 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     if (cleanNames.length === 0) continue;
 
     // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH
-    const data = cleanNames.map((name, i) => ({
-      index: i,
-      coreBigrams: getBigrams(extractCoreIdentity(name)),
-      numbers: getNumberTokens(name),
-      identifiers: extractPropertyIdentifiers(name),
-      sourceIds: buckets[prov][name]
-    }));
+    const data = cleanNames.map((cleanName, i) => {
+      const originalName = buckets[prov][cleanName].name;
+      return {
+        index: i,
+        coreBigrams: getBigrams(extractCoreIdentity(originalName)),
+        numbers: getNumberTokens(originalName),
+        identifiers: extractPropertyIdentifiers(originalName),
+        sourceIds: buckets[prov][cleanName].sourceIds
+      };
+    });
 
     // Sắp xếp theo kích thước core bigrams để tối ưu hoá break sớm
     data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
@@ -1379,7 +1382,6 @@ async function getFuzzyNameGroups(Model, progressCallback) {
 
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
-        if (sizeB > maxSizeB) continue;
 
         // BƯỚC 0: Xung đột ĐỊNH DANH (VD: Thửa đất số 01 vs Thửa đất số 02) → REJECT NGAY
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
@@ -1391,6 +1393,8 @@ async function getFuzzyNameGroups(Model, progressCallback) {
           union(i, j);
           continue;
         }
+
+        if (sizeB > maxSizeB) continue;
 
         // BƯỚC 1: Kiểm tra số
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
@@ -1811,8 +1815,8 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
     const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
     const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
     
-    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = [];
-    buckets[prov][cleanName].push(item.sourceId);
+    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
+    buckets[prov][cleanName].sourceIds.push(item.sourceId);
   }
 
   const allFuzzyGroups = [];
@@ -1821,13 +1825,16 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
     const cleanNames = Object.keys(buckets[prov]);
     if (cleanNames.length === 0) continue;
 
-    const data = cleanNames.map((name, i) => ({
-      index: i,
-      coreBigrams: getBigrams(extractCoreIdentity(name)),
-      numbers: getNumberTokens(name),
-      identifiers: extractPropertyIdentifiers(name),
-      sourceIds: buckets[prov][name]
-    }));
+    const data = cleanNames.map((cleanName, i) => {
+      const originalName = buckets[prov][cleanName].name;
+      return {
+        index: i,
+        coreBigrams: getBigrams(extractCoreIdentity(originalName)),
+        numbers: getNumberTokens(originalName),
+        identifiers: extractPropertyIdentifiers(originalName),
+        sourceIds: buckets[prov][cleanName].sourceIds
+      };
+    });
 
     data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
     const parent = Array.from({ length: data.length }, (_, i) => i);
@@ -1848,12 +1855,12 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       for (let j = i + 1; j < data.length; j++) {
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
-        if (sizeB > maxSizeB) continue;
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) continue;
         if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
           union(i, j);
           continue;
         }
+        if (sizeB > maxSizeB) continue;
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
           const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
