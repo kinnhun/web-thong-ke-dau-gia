@@ -10,7 +10,7 @@ let reconnectTimer = null;
  * - Auto-reconnect khi mất kết nối
  * - Timeout hợp lý để không treo vô hạn
  */
-async function connectDB() {
+async function connectDB(attempt = 1) {
   if (isConnected) return;
 
   try {
@@ -18,27 +18,32 @@ async function connectDB() {
       // Connection pool: giới hạn số connection song song
       maxPoolSize: 10,         // Tối đa 10 connection (default 100 → quá nhiều cho VPS nhỏ)
       minPoolSize: 2,          // Giữ ít nhất 2 connection sẵn sàng
-      
+
       // Timeout settings
-      serverSelectionTimeoutMS: 10000,  // 10s timeout khi chọn server
+      // 30s để tunnel kịp switch port (WARP block port 22 → tunnel thử port 443 mất ~15s)
+      serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 300000,          // 5 minutes socket idle timeout
-      connectTimeoutMS: 10000,          // 10s connection timeout
-      
+      connectTimeoutMS: 15000,          // 15s connection timeout
+
       // Heartbeat: kiểm tra server còn sống
       heartbeatFrequencyMS: 10000,      // Ping server mỗi 10s
-      
+
       // Write concern: ghi xong mới trả kết quả (an toàn dữ liệu)
       w: 1,
-      
+
       // Auto-index: tắt ở production để giảm tải startup
-      autoIndex: true,
+      autoIndex: process.env.NODE_ENV !== 'production',
     });
 
     isConnected = true;
     console.log(`✅ MongoDB connected: ${config.mongo.uri} (pool: 2-10)`);
   } catch (err) {
-    console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1);
+    console.error(`❌ MongoDB connection error (attempt ${attempt}): ${err.message}`);
+    // Không exit ngay - tunnel SSH cần thời gian khởi động/switch port khi dùng WARP/1.1.1.1
+    const delay = Math.min(5000 * attempt, 30000); // 5s, 10s, 15s... tối đa 30s
+    console.log(`🔄 Retry in ${delay / 1000}s...`);
+    await new Promise((r) => setTimeout(r, delay));
+    return connectDB(attempt + 1);
   }
 }
 
@@ -68,27 +73,28 @@ mongoose.connection.on('reconnected', () => {
 
 function scheduleReconnect() {
   if (reconnectTimer) return; // Đang đợi reconnect rồi
-  
+
+  // Đợi 5s để tunnel SSH kịp reconnect/switch port (WARP scenario)
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
     if (isConnected) return;
-    
+
     console.log('🔄 Đang thử kết nối lại MongoDB...');
     try {
       await mongoose.connect(config.mongo.uri, {
         maxPoolSize: 10,
         minPoolSize: 2,
-        serverSelectionTimeoutMS: 10000,
+        serverSelectionTimeoutMS: 30000, // 30s để tunnel kịp switch port
         socketTimeoutMS: 300000,
-        connectTimeoutMS: 10000,
+        connectTimeoutMS: 15000,
       });
       isConnected = true;
       console.log('✅ MongoDB đã kết nối lại thành công');
     } catch (err) {
       console.error('❌ Reconnect thất bại:', err.message);
-      scheduleReconnect(); // Thử lại sau 10s
+      scheduleReconnect(); // Thử lại
     }
-  }, 10000); // Đợi 10s trước khi thử lại
+  }, 5000); // Đợi 5s trước khi thử lại
 }
 
 // ──────────────────────────────────

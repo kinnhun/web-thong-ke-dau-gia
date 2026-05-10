@@ -42,3 +42,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# tunnel
+.tunnel-url
+
+# temp files
+install_log*.txt
+mongodb.msi
+mongodb_data/

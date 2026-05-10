@@ -1882,4 +1882,26 @@ function transformAuction(doc) {
   };
 }
 
+// ═══════════════════════════════════
+// TUNNEL URL (hiển thị link share trên admin)
+// ═══════════════════════════════════
+
+router.get('/system/tunnel-url', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  // File .tunnel-url nằm ở root project (ngang hàng với package.json)
+  const tunnelFile = path.join(__dirname, '..', '..', '..', '.tunnel-url');
+  try {
+    if (fs.existsSync(tunnelFile)) {
+      const url = fs.readFileSync(tunnelFile, 'utf8').trim();
+      if (url) {
+        return res.json({ url, active: true });
+      }
+    }
+    res.json({ url: null, active: false, message: 'Tunnel chưa chạy hoặc chưa kết nối.' });
+  } catch (err) {
+    res.json({ url: null, active: false, message: err.message });
+  }
+});
+
 module.exports = router;

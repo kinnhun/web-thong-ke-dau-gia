@@ -2,7 +2,7 @@ require('dotenv').config();
 
 module.exports = {
   mongo: {
-    uri: process.env.MONGO_URI || 'mongodb://localhost:27017/thong_ke_dau_gia',
+    uri: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/thong_ke_dau_gia',
   },
   crawl: {
     concurrency: parseInt(process.env.CRAWL_CONCURRENCY || '5', 10),

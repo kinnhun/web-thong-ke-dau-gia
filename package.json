@@ -10,7 +10,11 @@
     "dev:backend": "cd bot-crawls-data && npm start",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "build": "next build",
-    "start": "next start",
+    "start:frontend": "next start -p 1234",
+    "start:backend": "cd bot-crawls-data && npm start",
+    "start:tunnel": "node start_cloudflare_tunnel.js",
+    "start:db": "node start_mongo_tunnel.js",
+    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\" \"npm run start:tunnel\" \"npm run start:db\"",
     "lint": "eslint"
   },
   "dependencies": {
@@ -43,6 +47,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cloudflared": "^0.7.1",
     "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",

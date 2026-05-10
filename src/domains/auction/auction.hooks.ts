@@ -20,6 +20,7 @@ import {
   fetchCrawlLogs,
   fetchAuctions,
   fetchCollections,
+  fetchTunnelUrl,
 } from '@/services/auction.service';
 
 // ═══════════════════════════════════
@@ -195,5 +196,14 @@ export function useCollections() {
     queryKey: ['system-collections'],
     queryFn: fetchCollections,
     staleTime: 60_000,
+  });
+}
+
+export function useTunnelUrl() {
+  return useQuery({
+    queryKey: ['system-tunnel-url'],
+    queryFn: fetchTunnelUrl,
+    staleTime: 30_000,
+    refetchInterval: 30_000, // Kiểm tra lại mỗi 30s
   });
 }

@@ -209,3 +209,8 @@ export async function setSkipDetailCrawlSetting(skip: boolean) {
   const { data } = await httpClient.post('/api/skip-detail-crawl-setting', { skip });
   return data;
 }
+
+export async function fetchTunnelUrl(): Promise<{ url: string | null; active: boolean; message?: string }> {
+  const { data } = await httpClient.get('/api/system/tunnel-url');
+  return data;
+}

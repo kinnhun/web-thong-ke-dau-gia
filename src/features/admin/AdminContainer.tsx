@@ -2,12 +2,12 @@ import { useState } from "react";
 import {
   AlertCircle, CheckCircle2, Database, Eye, GitMerge,
   Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
-  TrendingDown, Layers, FileBarChart, Download,
+  TrendingDown, Layers, FileBarChart, Download, Copy, ExternalLink, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useCrawlLogs, useAuctions, useDashboardStats, useCollections } from "@/domains/auction";
+import { useCrawlLogs, useAuctions, useDashboardStats, useCollections, useTunnelUrl } from "@/domains/auction";
 import { formatDate } from "@/lib/format";
 import {
   triggerListCrawl,
@@ -57,6 +57,16 @@ export function AdminContainer() {
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
   const { data: stats } = useDashboardStats();
   const { data: collectionsData, isLoading: collectionsLoading } = useCollections();
+  const { data: tunnelData } = useTunnelUrl();
+  const [copied, setCopied] = useState(false);
+
+  const copyTunnelUrl = () => {
+    if (tunnelData?.url) {
+      navigator.clipboard.writeText(tunnelData.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const rawRecords = rawAuctions?.items || [];
   const crawlLogPayload = crawlLogs;
@@ -161,6 +171,51 @@ export function AdminContainer() {
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Crawler, chuẩn hóa, ghép tài sản và xử lý lỗi</p>
         </div>
       </header>
+
+      {/* Tunnel URL Section — luôn hiện */}
+      <section className={`rounded-xl border px-4 py-3 sm:px-5 sm:py-4 ${tunnelData?.active ? "border-primary/20 bg-primary/5" : "border-border bg-secondary/30"}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <Globe className={`h-4 w-4 ${tunnelData?.active ? "text-primary" : "text-muted-foreground"}`} />
+            <span className={`text-xs sm:text-sm font-medium ${tunnelData?.active ? "text-primary" : "text-muted-foreground"}`}>Link truy cập từ xa</span>
+          </div>
+          {tunnelData?.active && tunnelData?.url ? (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <code className="text-xs sm:text-sm font-mono bg-background/80 border rounded px-2.5 py-1.5 truncate flex-1 select-all">
+                {tunnelData.url}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+                onClick={copyTunnelUrl}
+              >
+                {copied ? (
+                  <><CheckCircle2 className="h-3.5 w-3.5 text-new-badge" /><span className="text-xs">Đã copy</span></>
+                ) : (
+                  <><Copy className="h-3.5 w-3.5" /><span className="text-xs">Copy</span></>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+                onClick={() => window.open(tunnelData.url!, '_blank')}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="text-xs hidden sm:inline">Mở</span>
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Cloudflare Tunnel đang kết nối... (tự động retry)</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {actionResult && (
         <div className={`rounded-lg border px-4 py-2.5 text-sm flex items-center gap-2 ${actionResult.startsWith("✅") ? "bg-new-badge-soft border-new-badge/20 text-new-badge" : "bg-discount-deep-soft border-discount-deep/20 text-discount-deep"}`}>
