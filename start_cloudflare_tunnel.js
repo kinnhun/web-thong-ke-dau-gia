@@ -1,9 +1,10 @@
 /**
- * Cloudflare Tunnel wrapper
- * - Chạy cloudflared tunnel → capture URL
+ * Localhost.run Tunnel wrapper
+ * - Tự động bật WARP 1.1.1.1 (để cào web không bị chặn IP)
+ * - Dùng localhost.run qua SSH để tạo Tunnel (vượt lỗi 500 của Cloudflare, không bị màn hình chờ như localtunnel)
  * - Ghi URL vào file .tunnel-url để admin page có thể đọc
  */
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -11,28 +12,30 @@ const TUNNEL_URL_FILE = path.join(__dirname, '.tunnel-url');
 const LOCAL_PORT = 1234;
 let retryCount = 0;
 
-// Tìm binary cloudflared từ node_modules
-function findCloudflaredBin() {
+function startWarp() {
   try {
-    const cloudflared = require('cloudflared');
-    if (cloudflared.bin && fs.existsSync(cloudflared.bin)) return cloudflared.bin;
-  } catch (e) {}
-  
-  // Fallback: global
-  return 'cloudflared';
+    console.log('🛡️ Bật 1.1.1.1 WARP để cào dữ liệu...');
+    execSync('warp-cli connect', { stdio: 'ignore' });
+    return new Promise(resolve => setTimeout(resolve, 3000));
+  } catch (err) {
+    console.log('⚠️ Không thể tự động bật WARP. Bạn có thể cần tự bật bằng tay.');
+    return Promise.resolve();
+  }
 }
 
-function startTunnel() {
-  const bin = findCloudflaredBin();
+async function startTunnel() {
   retryCount++;
-  console.log(`🔌 [Attempt ${retryCount}] Starting Cloudflare Tunnel...`);
+  console.log(`🔌 [Attempt ${retryCount}] Starting Tunnel (localhost.run)...`);
   
-  // Xóa URL cũ
+  if (retryCount === 1) {
+    await startWarp();
+  }
+
   try { fs.unlinkSync(TUNNEL_URL_FILE); } catch (e) {}
 
-  const child = spawn(bin, ['tunnel', '--url', `http://localhost:${LOCAL_PORT}`], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
+  // Chạy ssh tunnel tới localhost.run
+  const child = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', `80:localhost:${LOCAL_PORT}`, 'nokey@localhost.run'], {
+    stdio: ['ignore', 'pipe', 'pipe']
   });
 
   let urlFound = false;
@@ -40,32 +43,24 @@ function startTunnel() {
 
   function handleOutput(data) {
     const text = data.toString();
-    
-    // Log tất cả output để debug
     const lines = text.split('\n').filter(l => l.trim());
+    
     for (const line of lines) {
-      // Bỏ qua log dài/spam
-      if (line.includes('INF ')) {
-        const msg = line.replace(/^.*INF /, '').trim();
-        if (msg && !msg.includes('Registered tunnel connection')) {
-          console.log(`  ℹ️  ${msg}`);
-        }
-      }
-      if (line.includes('ERR ')) {
-        lastError = line.replace(/^.*ERR /, '').trim();
+      if (line.includes('ERR') || line.toLowerCase().includes('error')) {
+        lastError = line.trim();
         console.error(`  ❌ ${lastError}`);
       }
     }
     
-    // Extract URL
-    const urlMatch = text.match(/https:\/\/[a-zA-Z0-9\-]+\.trycloudflare\.com/);
+    // Extract URL (localhost.run trả về dạng https://*.lhr.life)
+    const urlMatch = text.match(/https:\/\/[a-zA-Z0-9\-]+\.lhr\.life/);
     if (urlMatch && !urlFound) {
       urlFound = true;
       const url = urlMatch[0];
       fs.writeFileSync(TUNNEL_URL_FILE, url, 'utf8');
       console.log(`🚀 Tunnel URL: ${url}`);
       console.log(`📋 URL saved to .tunnel-url`);
-      retryCount = 0; // Reset retry count on success
+      retryCount = 0;
     }
   }
 
@@ -73,11 +68,11 @@ function startTunnel() {
   child.stderr.on('data', handleOutput);
 
   child.on('error', (err) => {
-    console.error('❌ Cloudflare tunnel spawn error:', err.message);
+    console.error('❌ Tunnel spawn error:', err.message);
   });
 
   child.on('exit', (code) => {
-    const delay = Math.min(5000 * retryCount, 30000); // Backoff: 5s, 10s, 15s... max 30s
+    const delay = Math.min(5000 * retryCount, 30000);
     if (lastError) {
       console.log(`⚠️ Tunnel exited (code ${code}): ${lastError}`);
     } else {
@@ -85,12 +80,10 @@ function startTunnel() {
     }
     console.log(`🔄 Retrying in ${delay / 1000}s...`);
     
-    // Xóa URL file khi tunnel chết
     try { fs.unlinkSync(TUNNEL_URL_FILE); } catch (e) {}
     setTimeout(startTunnel, delay);
   });
 
-  // Graceful shutdown
   const cleanup = () => {
     child.kill();
     try { fs.unlinkSync(TUNNEL_URL_FILE); } catch (e) {}

@@ -210,7 +210,7 @@ export function AdminContainer() {
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Cloudflare Tunnel đang kết nối... (tự động retry)</span>
+                <span>Tunnel đang kết nối... (tự động bật WARP)</span>
               </div>
             </div>
           )}
