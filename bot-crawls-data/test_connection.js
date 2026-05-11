@@ -6,7 +6,8 @@ async function test() {
   console.log('Connecting to:', uri);
   try {
     await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000
+      serverSelectionTimeoutMS: 5000,
+      family: 4 // Fix 1.1.1.1 WARP connection issue
     });
     console.log('✅ MongoDB connected successfully!');
     await mongoose.connection.close();

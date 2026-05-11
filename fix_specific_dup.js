@@ -1,10 +1,10 @@
-const mongoose = require('/var/www/web-thong-ke-dau-gia/node_modules/mongoose');
-const AuctionNotice = require('/var/www/web-thong-ke-dau-gia/bot-crawls-data/src/models/AuctionNotice');
-const Duplicate = require('/var/www/web-thong-ke-dau-gia/bot-crawls-data/src/models/Duplicate');
-const { buildDuplicateEntries, summarizeDuplicateEntries } = require('/var/www/web-thong-ke-dau-gia/bot-crawls-data/src/scrapers/detail.scraper');
+const mongoose = require('mongoose');
+const AuctionNotice = require('./bot-crawls-data/src/models/AuctionNotice');
+const Duplicate = require('./bot-crawls-data/src/models/Duplicate');
+const { buildDuplicateEntries, summarizeDuplicateEntries } = require('./bot-crawls-data/src/scrapers/detail.scraper');
 
 async function fixSpecificDuplicate() {
-  await mongoose.connect('mongodb://localhost:27017/thong_ke_dau_gia');
+  await mongoose.connect('mongodb://127.0.0.1:27017/thong_ke_dau_gia');
   
   const ids = [382830, 414997].sort((a,b) => a - b);
   

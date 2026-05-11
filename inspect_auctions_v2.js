@@ -1,5 +1,5 @@
-const mongoose = require('/var/www/web-thong-ke-dau-gia/node_modules/mongoose');
-const AuctionNotice = require('/var/www/web-thong-ke-dau-gia/bot-crawls-data/src/models/AuctionNotice');
+const mongoose = require('mongoose');
+const AuctionNotice = require('./bot-crawls-data/src/models/AuctionNotice');
 
 async function inspect() {
   await mongoose.connect('mongodb://localhost:27017/web-dau-gia-dev');

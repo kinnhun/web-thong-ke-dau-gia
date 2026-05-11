@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
-const AuctionNotice = require('/var/www/web-thong-ke-dau-gia/bot-crawls-data/src/models/AuctionNotice');
+const AuctionNotice = require('./bot-crawls-data/src/models/AuctionNotice');
 
-mongoose.connect('mongodb://localhost:27017/thong_ke_dau_gia').then(async () => {
+mongoose.connect('mongodb://127.0.0.1:27017/thong_ke_dau_gia').then(async () => {
   try {
     const a = await AuctionNotice.findOne({ sourceId: 383858 }).select('rootId duplicateId').lean();
     console.log('383858:', a);

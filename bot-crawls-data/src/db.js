@@ -31,6 +31,9 @@ async function connectDB(attempt = 1) {
       // Write concern: ghi xong mới trả kết quả (an toàn dữ liệu)
       w: 1,
 
+      // Fix 1.1.1.1 / WARP connection issue by forcing IPv4
+      family: 4,
+
       // Auto-index: tắt ở production để giảm tải startup
       autoIndex: process.env.NODE_ENV !== 'production',
     });
@@ -87,6 +90,7 @@ function scheduleReconnect() {
         serverSelectionTimeoutMS: 30000, // 30s để tunnel kịp switch port
         socketTimeoutMS: 300000,
         connectTimeoutMS: 15000,
+        family: 4, // Fix 1.1.1.1 / WARP
       });
       isConnected = true;
       console.log('✅ MongoDB đã kết nối lại thành công');

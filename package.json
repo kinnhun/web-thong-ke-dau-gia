@@ -12,9 +12,7 @@
     "build": "next build",
     "start:frontend": "next start -p 1234",
     "start:backend": "cd bot-crawls-data && npm start",
-    "start:tunnel": "node start_cloudflare_tunnel.js",
-    "start:db": "node start_mongo_tunnel.js",
-    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\" \"npm run start:tunnel\" \"npm run start:db\"",
+    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\"",
     "lint": "eslint"
   },
   "dependencies": {
@@ -39,7 +37,6 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
-    "ssh2": "^1.17.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
@@ -47,7 +44,6 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "cloudflared": "^0.7.1",
     "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
