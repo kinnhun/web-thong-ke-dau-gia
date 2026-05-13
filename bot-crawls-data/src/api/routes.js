@@ -237,8 +237,27 @@ router.get('/auctions/:id', async (req, res, next) => {
       }
     }
 
-    // ★ Bỏ live-scrape: trả 404 ngay thay vì block 10-30s để cào
-    if (!item) return res.status(404).json({ error: true, message: 'Không tìm thấy' });
+    // ★ Live-scrape: Nếu không có trong DB → thử cào trực tiếp từ nguồn
+    if (!item) {
+      try {
+        console.log(`[LIVE-SCRAPE] #${id} không có trong DB, đang thử cào trực tiếp...`);
+        const { fetchAuctionItemDetail } = require('../scrapers/detail.scraper');
+        const { updates, files } = await fetchAuctionItemDetail(parseInt(id));
+        if (updates && (updates.name || updates.initialPrice)) {
+          // Lưu tạm vào DB để lần sau không phải cào lại
+          updates.sourceId = parseInt(id);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files) updates.files = files;
+          item = await AuctionNotice.create(updates);
+          item = item.toObject();
+        }
+      } catch (err) {
+        console.error(`[LIVE-SCRAPE] ❌ Lỗi khi cào #${id}:`, err.message);
+      }
+    }
+
+    if (!item) return res.status(404).json({ error: true, message: 'Không tìm thấy tài sản này trên hệ thống và nguồn tin.' });
 
     // Tìm related items + duplicate group song song (2 queries thay vì tuần tự)
     const dupType = isOrg ? 'org' : 'auction';
@@ -960,10 +979,10 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
     const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
     const maxMegaLimit = await Model.countDocuments({ sourceId: { $exists: true, $ne: null } });
     const rawLimit = Number(req.body?.limit);
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxMegaLimit) : maxMegaLimit;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxMegaLimit) : 5000;
     const rawConcurrency = Number(req.body?.concurrency);
-    const requestedConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 20;
-    const concurrency = Math.max(1, Math.min(requestedConcurrency, 100)); // Cấp max 100 cho crawl tốc độ cao
+    const requestedConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 10;
+    const concurrency = Math.max(1, Math.min(requestedConcurrency, 30)); // Giới hạn max 30 để tránh block browser
 
     const runningHeavyLog = await CrawlLog.findOne({
       status: 'running',
@@ -1053,19 +1072,20 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
         ]
       };
 
-    const items = await Model.find(missingDetailQuery)
+    const cursor = Model.find(missingDetailQuery)
       .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
       .sort({ lastCrawledAt: 1, publishedAt: -1 })
       .limit(limit)
-      .lean();
+      .cursor();
 
+    const totalCount = limit;
     const log = await CrawlLog.create({
       type: 'mega_detail_crawl',
       startedAt: new Date(),
       status: 'running',
-      totalPages: items.length,
+      totalPages: totalCount,
       pagesProcessed: 0,
-      itemsInserted: items.length,
+      itemsInserted: totalCount,
       itemsUpdated: 0,
       itemsSkipped: 0,
       errorMessages: [],
@@ -1078,7 +1098,6 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
       let ok = 0;
       let fail = 0;
       let processed = 0;
-      let index = 0;
 
       const persistProgress = async (force = false) => {
         log.pagesProcessed = processed;
@@ -1087,9 +1106,8 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
         log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
         log.recentNotices = recentNotices;
 
-        if (force || processed % 1000 === 0 || processed === items.length) {
+        if (force || processed % 10 === 0) {
           await log.save();
-          console.log(`[MEGA-DETAIL] ${processed}/${items.length}... OK: ${ok}, lỗi: ${fail}, concurrency: ${concurrency}`);
         }
       };
 
@@ -1123,13 +1141,11 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
           if (recentNotices.length < 5) {
             recentNotices.push({
               sourceId: item.sourceId,
-              name: updates.name || item.name,
+              name: (updates.name || item.name || "").substring(0, 100),
               province: updates.province || item.province,
               publishedAt: updates.publishedAt || item.publishedAt,
             });
           }
-
-          console.log(`[CRAWLED] ${item.sourceId}`);
 
           ok++;
         } catch (err) {
@@ -1142,15 +1158,19 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
         }
       };
 
-      const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-        while (index < items.length) {
-          const item = items[index++];
-          await processItem(item);
-        }
-      });
-
       try {
-        console.log(`[MEGA-DETAIL] Bắt đầu mega crawl ${items.length} ${type}, concurrency=${concurrency}`);
+        console.log(`[MEGA-DETAIL] Bắt đầu mega crawl ${totalCount} ${type}, concurrency=${concurrency}`);
+        
+        const workers = [];
+        for (let i = 0; i < concurrency; i++) {
+          workers.push((async () => {
+            let item;
+            while ((item = await cursor.next())) {
+              await processItem(item);
+            }
+          })());
+        }
+
         await Promise.all(workers);
         log.status = 'completed';
         log.finishedAt = new Date();
@@ -1170,8 +1190,8 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: `Đã bắt đầu mega crawl ${items.length}/${maxMegaLimit} detail ${type} trong nền, chạy song song ${concurrency} worker`,
-      totalMatched: items.length,
+      message: `Đã bắt đầu mega crawl ${totalCount}/${maxMegaLimit} detail ${type} trong nền, chạy song song ${concurrency} worker`,
+      totalMatched: totalCount,
       concurrency,
       logId: log._id,
     });
@@ -1446,18 +1466,35 @@ router.post('/trigger-list-crawl', async (req, res, next) => {
 function launchTmpFullCrawl(startPage) {
   const normalizedStartPage = Number.isFinite(startPage) && startPage > 0 ? Math.floor(startPage) : 1;
   const isWindows = process.platform === 'win32';
-  const command = isWindows
-    ? `set CRAWL_DELAY_MS=0&& node src/crawler.js --type=auction --maxPages=0 --startPage=${normalizedStartPage} --pageSize=100 --listOnly=true`
-    : [
+  const path = require('path');
+  const backendDir = path.resolve(__dirname, '../../'); // D:\web-thong-ke-dau-gia\bot-crawls-data
+
+  let command;
+  if (isWindows) {
+    command = `node src/crawler.js --type=auction --maxPages=0 --startPage=${normalizedStartPage} --pageSize=100 --listOnly=true`;
+  } else {
+    command = [
       'cd /var/www/web-thong-ke-dau-gia/bot-crawls-data',
       'pm2 delete mass-crawl || true',
       `pm2 start src/crawler.js --name mass-crawl -- --type=auction --maxPages=0 --startPage=${normalizedStartPage} --pageSize=100 --listOnly=true`,
       'pm2 save',
     ].join(' && ');
+  }
 
-  exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
-    if (error) console.error('[TMP-FULL-CRAWL] start failed:', error.message, stderr);
-    else console.log('[TMP-FULL-CRAWL] started:', stdout);
+  const execOptions = {
+    cwd: backendDir,
+    env: { ...process.env, CRAWL_DELAY_MS: '0' },
+    timeout: 30000
+  };
+
+  exec(command, execOptions, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`[TMP-FULL-CRAWL] ❌ Lỗi khởi động (Trang ${normalizedStartPage}):`, error.message);
+      if (stderr) console.error(`[STDERR]: ${stderr}`);
+    } else {
+      console.log(`[TMP-FULL-CRAWL] ✅ Đã bắt đầu từ trang ${normalizedStartPage}`);
+      if (stdout) console.log(`[STDOUT]: ${stdout.substring(0, 200)}...`);
+    }
   });
 
   return normalizedStartPage;

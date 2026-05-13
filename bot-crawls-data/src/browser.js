@@ -122,7 +122,12 @@ async function createManagedPage() {
 }
 
 async function ensureBrowserContext(forceReset = false) {
-  const nextTask = contextLock.then(async () => {
+  // Lock này chỉ dùng để bảo vệ việc khởi tạo/reset browser/page
+  const currentLock = contextLock;
+  
+  const nextTask = (async () => {
+    await currentLock; // Đợi các tác vụ khởi tạo trước đó xong
+
     if (forceReset) {
       await cleanupPage(page);
       page = null;
@@ -154,7 +159,7 @@ async function ensureBrowserContext(forceReset = false) {
     }
 
     return page;
-  });
+  })();
 
   contextLock = nextTask.catch(() => {});
   return nextTask;
@@ -165,6 +170,7 @@ async function evaluateWithRecovery(executor, label, retries = 2) {
 
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     try {
+      // Chỉ lock phần chuẩn bị context, không lock phần thực thi executor
       const activePage = await ensureBrowserContext(attempt > 1);
       return await executor(activePage);
     } catch (error) {
@@ -175,9 +181,6 @@ async function evaluateWithRecovery(executor, label, retries = 2) {
       }
 
       console.warn(`⚠️ ${label} lỗi page lifecycle (lần ${attempt}/${retries + 1}): ${error.message}`);
-      await cleanupPage(page);
-      page = null;
-      isReady = false;
       await sleep(1500 * attempt);
     }
   }
