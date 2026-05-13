@@ -76,7 +76,6 @@ router.get('/auctions', async (req, res, next) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
     const filter = {};
-    require('fs').writeFileSync('scratch/backend_query.json', JSON.stringify(req.query));
     if (req.query.type) filter.type = req.query.type;
     const provinceFilter = buildProvinceFilter(req.query.province);
     if (provinceFilter) filter.province = provinceFilter;
@@ -128,7 +127,17 @@ router.get('/auctions', async (req, res, next) => {
       }
       if (Object.keys(filter.publishedAt).length === 0) delete filter.publishedAt;
     }
-    const sort = { [req.query.sort || 'publishedAt']: req.query.order === 'asc' ? 1 : -1 };
+    let sortField = req.query.sort || 'publishedAt';
+    let sortOrder = req.query.order === 'asc' ? 1 : -1;
+
+    // Handle field:order format (e.g., publishedAt:desc)
+    if (sortField.includes(':')) {
+      const [field, order] = sortField.split(':');
+      sortField = field;
+      sortOrder = order.toLowerCase() === 'asc' ? 1 : -1;
+    }
+
+    const sort = { [sortField]: sortOrder };
 
     const [items, total] = await Promise.all([
       AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
@@ -184,7 +193,10 @@ router.get('/auctions', async (req, res, next) => {
       items: enrichedItems,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
-  } catch (err) { next(err); }
+  } catch (err) { 
+    console.error(`[API ERROR] /auctions:`, err);
+    next(err); 
+  }
 });
 
 
@@ -1868,10 +1880,10 @@ function transformAuction(doc) {
     publishRoundLabel: doc.publishRoundLabel || '',
     rootId: doc.rootId || null,
     relatedIds: doc.relatedIds || [],
-    publishedAt: doc.publishedAt ? doc.publishedAt.toISOString() : '',
-    auctionDate: doc.auctionDate ? doc.auctionDate.toISOString() : '',
-    registrationStart: doc.registrationStart ? doc.registrationStart.toISOString() : '',
-    registrationEnd: doc.registrationEnd ? doc.registrationEnd.toISOString() : '',
+    publishedAt: doc.publishedAt ? new Date(doc.publishedAt).toISOString() : '',
+    auctionDate: doc.auctionDate ? new Date(doc.auctionDate).toISOString() : '',
+    registrationStart: doc.registrationStart ? new Date(doc.registrationStart).toISOString() : '',
+    registrationEnd: doc.registrationEnd ? new Date(doc.registrationEnd).toISOString() : '',
     status: doc.status || 'unknown',
     organizer: doc.organizer || '', owner: doc.owner || '',
     sourceUrl: doc.sourceUrl || '',

@@ -565,10 +565,26 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     // 3. Fallback bằng regex nếu có số cụ thể (khắc phục lỗi $text search bỏ sót)
     const targetNumbers = getNumberTokens(name);
+    const targetIdentifiers = extractPropertyIdentifiers(name);
     let dbCandidatesRegex = [];
-    if (targetNumbers.length > 0 && targetNumbers.length <= 10) {
-      // Dùng $or thay vì $and để tìm rộng hơn, sau đó filter lại bằng code
-      const regexQueries = targetNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
+    
+    // Nếu có quá nhiều số (>10), ta chỉ lọc lấy các số "quan trọng" để search regex
+    let searchNumbers = targetNumbers;
+    if (targetNumbers.length > 10) {
+      searchNumbers = [];
+      if (targetIdentifiers.plotNumber) searchNumbers.push(targetIdentifiers.plotNumber);
+      if (targetIdentifiers.mapSheet) searchNumbers.push(targetIdentifiers.mapSheet);
+      if (targetIdentifiers.houseNumber) searchNumbers.push(targetIdentifiers.houseNumber);
+      if (targetIdentifiers.certificateNumber) searchNumbers.push(targetIdentifiers.certificateNumber);
+      if (targetIdentifiers.licensePlate) searchNumbers.push(targetIdentifiers.licensePlate);
+      
+      // Thêm các số có định dạng đặc biệt (chứa / hoặc - hoặc dài)
+      const specialNums = targetNumbers.filter(n => n.includes('/') || n.includes('-') || n.length >= 5);
+      searchNumbers = [...new Set([...searchNumbers, ...specialNums])].slice(0, 10);
+    }
+
+    if (searchNumbers.length > 0) {
+      const regexQueries = searchNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
       const regexDbQuery = { $or: regexQueries };
       if (targetProvince) {
         if (targetProvince === 'TP. Hồ Chí Minh') {
@@ -584,13 +600,46 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
         .lean();
     }
 
+    // 4. Tìm kiếm chính xác theo Plot/Map hoặc GCN (nếu có)
+    let dbCandidatesStrong = [];
+    if ((targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) || targetIdentifiers.certificateNumber || targetIdentifiers.licensePlate) {
+        const strongQueries = [];
+        if (targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) {
+            // Tìm các bản ghi có chứa cả plot và map trong name
+            strongQueries.push({
+                $and: [
+                    { name: { $regex: "(^|\\s)" + targetIdentifiers.plotNumber + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } },
+                    { name: { $regex: "(^|\\s)" + targetIdentifiers.mapSheet + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }
+                ]
+            });
+        }
+        if (targetIdentifiers.certificateNumber) {
+            strongQueries.push({ name: { $regex: targetIdentifiers.certificateNumber, $options: 'i' } });
+        }
+        if (targetIdentifiers.licensePlate) {
+            strongQueries.push({ name: { $regex: targetIdentifiers.licensePlate, $options: 'i' } });
+        }
+
+        if (strongQueries.length > 0) {
+            const strongDbQuery = { $or: strongQueries };
+            if (targetProvince) {
+                if (targetProvince === 'TP. Hồ Chí Minh') {
+                    strongDbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
+                } else {
+                    strongDbQuery.province = targetProvince;
+                }
+            }
+            dbCandidatesStrong = await Model.find(strongDbQuery).limit(100).select('sourceId name').lean();
+        }
+    }
+
     // Gộp candidates
-    const candidates = [...apiCandidates, ...dbCandidates, ...dbCandidatesRegex];
+    const candidates = [...apiCandidates, ...dbCandidates, ...dbCandidatesRegex, ...dbCandidatesStrong];
 
     // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH (đã loại bỏ boilerplate pháp lý)
     const targetCore = extractCoreIdentity(name);
     const targetCoreBigrams = getBigrams(targetCore);
-    const targetIdentifiers = extractPropertyIdentifiers(name);
+    // targetIdentifiers đã extract ở trên
 
     for (const c of candidates) {
       if (c.sourceId === sourceId) continue;
@@ -640,8 +689,8 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
         continue;
       }
 
-      // CĂN HỘ: Cùng số căn hộ + core sim tương đối → MATCH
-      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && coreSim >= 0.30) {
+      // CĂN HỘ: Cùng số căn hộ + tương đồng tương đối → MATCH
+      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && (coreSim >= 0.20 || ovSim >= 0.33)) {
         relatedIds.push(c.sourceId);
         continue;
       }
