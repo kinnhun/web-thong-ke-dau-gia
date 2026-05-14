@@ -1657,20 +1657,28 @@ router.post('/trigger-organizer-duplicate-scan', async (req, res, next) => {
       });
     }
 
-    let startedLogId = null;
+    // Khởi tạo log trước để có ID trả về ngay cho Client
+    const log = new CrawlLog({
+      type: 'organizer_duplicate_scan',
+      status: 'running',
+      startedAt: new Date(),
+      errorMessages: [`Bắt đầu quét trùng lặp cho đơn vị: ${organizer}`]
+    });
+    await log.save();
+
+    // Chạy nền
     (async () => {
       try {
-        const result = await runOrganizerDuplicateScan(organizer);
-        startedLogId = result?.logId || null;
+        await runOrganizerDuplicateScan(organizer, log);
       } catch (err) {
-        console.error('[TRIGGER] Error starting organizer duplicate scan:', err);
+        console.error('[TRIGGER] Error in organizer duplicate scan:', err);
       }
     })();
 
     res.json({
       success: true,
       message: `Đã bắt đầu quét trùng lặp cho đơn vị: ${organizer}.`,
-      logId: startedLogId,
+      logId: log._id,
     });
   } catch (err) { next(err); }
 });

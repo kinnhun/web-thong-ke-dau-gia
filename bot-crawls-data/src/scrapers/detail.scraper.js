@@ -345,7 +345,7 @@ function summarizeDuplicateEntries(entries, type) {
   };
 }
 
-function buildGraphGroups(items, getRelatedIds) {
+async function buildGraphGroups(items, getRelatedIds) {
   const adjacency = new Map();
 
   const ensureNode = (id) => {
@@ -355,7 +355,8 @@ function buildGraphGroups(items, getRelatedIds) {
     return adjacency.get(id);
   };
 
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     if (!item || !item.sourceId) continue;
 
     const sourceId = item.sourceId;
@@ -367,12 +368,22 @@ function buildGraphGroups(items, getRelatedIds) {
       node.add(relatedId);
       ensureNode(relatedId).add(sourceId);
     }
+
+    if (i % 10000 === 0) {
+      await new Promise(r => setImmediate(r));
+    }
   }
 
   const visited = new Set();
   const groups = [];
 
+  let idx = 0;
   for (const sourceId of adjacency.keys()) {
+    idx++;
+    if (idx % 10000 === 0) {
+      await new Promise(r => setImmediate(r));
+    }
+
     if (visited.has(sourceId)) continue;
 
     const stack = [sourceId];
@@ -398,6 +409,7 @@ function buildGraphGroups(items, getRelatedIds) {
 
   return groups;
 }
+
 
 function mergeDuplicateGroups(...groupSets) {
   const adjacency = new Map();
@@ -1556,7 +1568,7 @@ async function runFullDuplicateScan() {
   const processTypeGroups = async (type, label, rawItems, nameGroups) => {
     await ensureNotCancelled(`Đã dừng trước khi xử lý ${label}.`);
     await saveProgress(`Đang gom cụm ${label} theo relatedIds...`);
-    const relatedGroups = buildGraphGroups(rawItems, (item) => item.relatedIds);
+    const relatedGroups = await buildGraphGroups(rawItems, (item) => item.relatedIds);
 
     await ensureNotCancelled(`Đã dừng khi đang gom cụm ${label}.`);
     await saveProgress(`Đang gom cụm ${label} theo tên (${nameGroups.length} nhóm tên)...`);
@@ -1664,13 +1676,13 @@ async function runFullDuplicateScan() {
   }
 }
 
-async function runOrganizerDuplicateScan(organizerName) {
+async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
   if (!organizerName) throw new Error('Organizer name is required');
   
   duplicateScanState.isRunning = true;
   duplicateScanState.cancelRequested = false;
 
-  const log = await CrawlLog.create({
+  const log = existingLog || await CrawlLog.create({
     type: 'organizer_duplicate_scan',
     startedAt: new Date(),
     status: 'running',
@@ -1685,23 +1697,23 @@ async function runOrganizerDuplicateScan(organizerName) {
   const saveProgress = async (message) => {
     if (message) {
       console.log(`[ORG DUPLICATE SCAN] ${message}`);
-      const currentMessages = Array.isArray(log.errorMessages) ? log.errorMessages : [];
-      log.errorMessages = [...currentMessages.slice(-4), message];
     }
     try {
       await CrawlLog.updateOne({ _id: log._id }, {
         $set: {
-          errorMessages: log.errorMessages,
           status: log.status,
           finishedAt: log.finishedAt,
           itemsUpdated: log.itemsUpdated,
           itemsSkipped: log.itemsSkipped,
           pagesProcessed: log.pagesProcessed,
+          updatedAt: new Date()
+        },
+        $push: {
+          errorMessages: { $each: message ? [message] : [], $slice: -20 }
         }
       });
     } catch (e) { }
   };
-
   const ensureNotCancelled = async (message) => {
     if (!duplicateScanState.cancelRequested) return;
     log.status = 'failed';
@@ -1746,9 +1758,9 @@ async function runOrganizerDuplicateScan(organizerName) {
 
     // 3. Gom nhóm theo relatedIds (Toàn hệ thống)
     await saveProgress('Gom nhóm theo relatedIds...');
-    const allRelatedGroups = buildGraphGroups(allAuctions, (item) => item.relatedIds);
+    const allRelatedGroups = await buildGraphGroups(allAuctions, (item) => item.relatedIds);
     // Chỉ giữ lại các nhóm có liên quan đến đơn vị này
-    const relatedGroups = allRelatedGroups.filter(g => g.ids.some(id => orgAuctionIds.has(id)));
+    const relatedGroups = allRelatedGroups.filter(g => Array.isArray(g) && g.some(id => orgAuctionIds.has(id)));
     console.log(`[ORG DUPLICATE SCAN] 🔗 Tìm thấy ${relatedGroups.length} nhóm theo relatedIds có chứa tài sản của đơn vị.`);
 
     // 4. Gom nhóm theo tên (fuzzy) (Toàn hệ thống)
@@ -1856,7 +1868,8 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
   const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity, normalizeProvince } = require('../utils/helpers');
 
   const buckets = {};
-  for (const item of items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
     const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
     
@@ -1866,11 +1879,18 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
     
     if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
     buckets[prov][cleanName].sourceIds.push(item.sourceId);
+
+    // Yield to event loop every 10,000 items to prevent socket hang up
+    if (idx % 10000 === 0) {
+      await new Promise(r => setImmediate(r));
+    }
   }
 
   const allFuzzyGroups = [];
   const provKeys = Object.keys(buckets);
-  for (const prov of provKeys) {
+  
+  for (let pIdx = 0; pIdx < provKeys.length; pIdx++) {
+    const prov = provKeys[pIdx];
     const cleanNames = Object.keys(buckets[prov]);
     if (cleanNames.length === 0) continue;
 
@@ -1897,24 +1917,56 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       if (rootI !== rootJ) parent[rootI] = rootJ;
     };
 
+    if (progressCallback) await progressCallback(`Đang so sánh fuzzy tỉnh ${prov} (${pIdx + 1}/${provKeys.length}) với ${data.length} tên duy nhất...`);
+
+    const isLargeBucket = data.length > 2000;
+    
     for (let i = 0; i < data.length; i++) {
+      // Yield to event loop every 100 outer iterations to prevent proxy socket hang up
+      if (i > 0 && i % 100 === 0) {
+        await new Promise(r => setImmediate(r));
+      }
+
       const sizeA = data[i].coreBigrams.size;
       if (sizeA === 0) continue;
       const maxSizeB = sizeA / 0.60;
+
+      // Optimasi cho bucket lớn (như 'unknown' tỉnh): chỉ so sánh nếu có chung số hoặc định danh mạnh
+      const hasStrongA = data[i].identifiers.strong.size > 0;
+      const hasNumbersA = data[i].numbers.length > 0;
+
       for (let j = i + 1; j < data.length; j++) {
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
+        if (sizeB > maxSizeB) continue;
+
+        // BƯỚC 0: Nếu bucket quá lớn, buộc phải có điểm chung tối thiểu để so sánh tiếp
+        if (isLargeBucket) {
+          const hasMatchingStrong = hasStrongA && data[j].identifiers.strong.size > 0 && 
+                                   [...data[i].identifiers.strong].some(id => data[j].identifiers.strong.has(id));
+          
+          if (!hasMatchingStrong) {
+            const hasNumbersB = data[j].numbers.length > 0;
+            if (!hasNumbersA || !hasNumbersB) continue; // Bucket lớn mà không có số hoặc không trùng định danh -> skip
+            
+            const commonNums = data[i].numbers.filter(t => data[j].numbers.includes(t));
+            if (commonNums.length === 0) continue; // Không chung số -> skip
+          }
+        }
+
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) continue;
+        
         if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
           union(i, j);
           continue;
         }
-        if (sizeB > maxSizeB) continue;
+        
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
           const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
           if (common.length === 0) continue;
         }
+        
         const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
         if (coreSim >= 0.80) {
           union(i, j);
@@ -1938,6 +1990,7 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
   }
   return allFuzzyGroups;
 }
+
 
 module.exports = {
   fetchAuctionItemDetail,
