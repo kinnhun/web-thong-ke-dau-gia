@@ -1980,6 +1980,106 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
   return allFuzzyGroups;
 }
 
+function isOrgDetailIncomplete(item) {
+  return item.detailScraped !== true
+    || !item.startingPrice
+    || !item.province
+    || !item.name
+    || !item.sourceUrl;
+}
+
+async function runFixMissingData() {
+  const log = await CrawlLog.create({
+    type: 'fix_missing_data',
+    status: 'running',
+    itemsUpdated: 0,
+    itemsSkipped: 0,
+    pagesProcessed: 0,
+    errorMessages: []
+  });
+
+  try {
+    const auctionCursor = AuctionNotice.find().lean().cursor();
+    let auctionCount = 0;
+    for await (const doc of auctionCursor) {
+      if (isAuctionDetailIncomplete(doc)) {
+        try {
+          const { updates, files } = await fetchAuctionItemDetail(doc.sourceId);
+          if (updates && Object.keys(updates).length > 0) {
+            updates.detailScraped = true;
+            updates.lastCrawledAt = new Date();
+            if (files && files.length > 0) updates.files = files;
+            await AuctionNotice.updateOne({ _id: doc._id }, { $set: updates });
+            
+            const currentName = updates.name || doc.name;
+            if (currentName) {
+               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'auction');
+               const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+               if (allRelatedIds.length > 0) {
+                 await handleDuplicate(doc.sourceId, currentName, allRelatedIds, 'auction');
+               }
+            }
+            log.itemsUpdated += 1;
+          } else {
+            log.itemsSkipped += 1;
+          }
+        } catch (err) {
+          log.errorMessages.push(`[Auction #${doc.sourceId}] ${err.message}`);
+        }
+        
+        auctionCount++;
+        if (auctionCount % 10 === 0) {
+          await CrawlLog.updateOne({ _id: log._id }, { $set: { itemsUpdated: log.itemsUpdated, itemsSkipped: log.itemsSkipped, errorMessages: log.errorMessages } });
+        }
+      }
+    }
+
+    const orgCursor = OrgSelection.find().lean().cursor();
+    let orgCount = 0;
+    for await (const doc of orgCursor) {
+      if (isOrgDetailIncomplete(doc)) {
+        try {
+          const { updates, files } = await fetchOrgItemDetail(doc.sourceId);
+          if (updates && Object.keys(updates).length > 0) {
+            updates.detailScraped = true;
+            updates.lastCrawledAt = new Date();
+            if (files && files.length > 0) updates.files = files;
+            await OrgSelection.updateOne({ _id: doc._id }, { $set: updates });
+            
+            const currentName = updates.name || doc.name;
+            if (currentName) {
+               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'org');
+               const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+               if (allRelatedIds.length > 0) {
+                 await handleDuplicate(doc.sourceId, currentName, allRelatedIds, 'org');
+               }
+            }
+            log.itemsUpdated += 1;
+          } else {
+            log.itemsSkipped += 1;
+          }
+        } catch (err) {
+          log.errorMessages.push(`[Org #${doc.sourceId}] ${err.message}`);
+        }
+        
+        orgCount++;
+        if (orgCount % 10 === 0) {
+          await CrawlLog.updateOne({ _id: log._id }, { $set: { itemsUpdated: log.itemsUpdated, itemsSkipped: log.itemsSkipped, errorMessages: log.errorMessages } });
+        }
+      }
+    }
+
+    log.status = 'completed';
+    log.finishedAt = new Date();
+    await log.save();
+  } catch (err) {
+    log.status = 'failed';
+    log.finishedAt = new Date();
+    log.errorMessages.push(err.message);
+    await log.save();
+  }
+}
+
 
 module.exports = {
   fetchAuctionItemDetail,
@@ -2000,5 +2100,6 @@ module.exports = {
   requestDuplicateScanCancel,
   getDuplicateScanState,
   setSkipDetailCrawl,
+  runFixMissingData,
 };
 

@@ -740,6 +740,17 @@ router.post('/trigger-detail-crawl', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.post('/trigger-fix-missing-data', async (req, res, next) => {
+  try {
+    const { runFixMissingData } = require('../scrapers/detail.scraper');
+    
+    // Chạy ngầm không đợi
+    runFixMissingData().catch(err => console.error('[TRIGGER] Lỗi Fix Missing Data:', err));
+    
+    res.json({ success: true, message: `Đã khởi chạy tiến trình quét và sửa dữ liệu lỗi/thiếu ngầm.` });
+  } catch (err) { next(err); }
+});
+
 // Force re-crawl detail cho 1 item cụ thể (bỏ qua detailScraped)
 router.post('/trigger-recrawl-item', async (req, res, next) => {
   try {
