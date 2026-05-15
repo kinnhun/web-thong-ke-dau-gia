@@ -256,14 +256,15 @@ function buildDuplicateEntriesFromItems(sourceIds, items, type) {
 }
 
 function isAuctionDetailIncomplete(item) {
+  // Chỉ kiểm tra các trường có thể lấy được từ API Detail
   return item.detailScraped !== true
     || !Array.isArray(item.properties)
     || item.properties.length === 0
     || !item.initialPrice
-    || !item.currentPrice
     || !item.address
-    || !item.organizer
-    || !item.owner;
+    || !item.name
+    || !item.province
+    || !item.sourceUrl;
 }
 
 async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
@@ -271,7 +272,7 @@ async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
   if (ids.length === 0) return { updated: 0, skipped: 0, errors: 0 };
 
   const items = await AuctionNotice.find({ sourceId: { $in: ids } })
-    .select('_id sourceId detailScraped properties initialPrice currentPrice address organizer owner')
+    .select('_id sourceId detailScraped properties initialPrice address name province')
     .lean();
   const itemBySourceId = new Map(items.map((item) => [item.sourceId, item]));
   const force = options.force === true;
@@ -536,51 +537,22 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       payload.nameAsset = name.trim();
     }
 
-    // 1. Tìm trên API gốc (chính xác)
-    let apiCandidates = [];
-    try {
-      const res = await fetchAPI(endpoint, payload);
-      if (res && res.items && res.items.length >= 2 && res.rowCount < 100) {
-        res.items.forEach(i => {
-          if (i.id && i.id !== sourceId) {
-            apiCandidates.push({
-              sourceId: i.id,
-              name: i.nameAsset || i.name || i.assetName || ''
-            });
-          }
-        });
-      }
-    } catch (apiErr) {
-      console.error(`[API Search] Lỗi khi tìm kiếm ${sourceId}:`, apiErr.message);
-    }
+    // ★ TỐI ƯU TỐC ĐỘ VÀ CHỐNG CHẾT MONGODB (Parallel Execution + Force Text Index)
+    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // 2. Fuzzy match từ local DB (giống 70-80%)
     const Model = type === 'auction' ? AuctionNotice : OrgSelection;
     const targetProvince = extractProvince(name);
+    const provMatch = targetProvince === 'TP. Hồ Chí Minh' 
+        ? ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh', null, ''] 
+        : targetProvince ? [targetProvince, null, ''] : null;
+
+    // 1. Query: $text search tổng quát
     const dbQuery = { $text: { $search: name } };
-    if (targetProvince) {
-      if (targetProvince === 'TP. Hồ Chí Minh') {
-        dbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
-      } else {
-        dbQuery.province = targetProvince;
-      }
-    }
+    if (provMatch) dbQuery.province = { $in: provMatch };
 
-    const dbCandidates = await Model.find(
-      dbQuery,
-      { score: { $meta: 'textScore' } }
-    )
-      .sort({ score: { $meta: 'textScore' } })
-      .limit(300)
-      .select('sourceId name')
-      .lean();
-
-    // 3. Fallback bằng regex nếu có số cụ thể (khắc phục lỗi $text search bỏ sót)
+    // 2. Query: Fallback regex cho các số quan trọng
     const targetNumbers = getNumberTokens(name);
     const targetIdentifiers = extractPropertyIdentifiers(name);
-    let dbCandidatesRegex = [];
-    
-    // Nếu có quá nhiều số (>10), ta chỉ lọc lấy các số "quan trọng" để search regex
     let searchNumbers = targetNumbers;
     if (targetNumbers.length > 10) {
       searchNumbers = [];
@@ -589,60 +561,71 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       if (targetIdentifiers.houseNumber) searchNumbers.push(targetIdentifiers.houseNumber);
       if (targetIdentifiers.certificateNumber) searchNumbers.push(targetIdentifiers.certificateNumber);
       if (targetIdentifiers.licensePlate) searchNumbers.push(targetIdentifiers.licensePlate);
-      
-      // Thêm các số có định dạng đặc biệt (chứa / hoặc - hoặc dài)
       const specialNums = targetNumbers.filter(n => n.includes('/') || n.includes('-') || n.length >= 5);
       searchNumbers = [...new Set([...searchNumbers, ...specialNums])].slice(0, 10);
     }
 
+    let regexDbQuery = null;
     if (searchNumbers.length > 0) {
-      const regexQueries = searchNumbers.map(num => ({ name: { $regex: "(^|\\s)" + num + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
-      const regexDbQuery = { $or: regexQueries };
-      if (targetProvince) {
-        if (targetProvince === 'TP. Hồ Chí Minh') {
-          regexDbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
-        } else {
-          regexDbQuery.province = targetProvince;
-        }
-      }
-      
-      dbCandidatesRegex = await Model.find(regexDbQuery)
-        .limit(300)
-        .select('sourceId name')
-        .lean();
+      const regexQueries = searchNumbers.map(num => ({ name: { $regex: "(^|\\s)" + escapeRegex(num) + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
+      regexDbQuery = { 
+        $text: { $search: searchNumbers.map(n => `"${n}"`).join(' ') }, // ★ ÉP dùng Text Index, triệt tiêu hoàn toàn COLLSCAN
+        $or: regexQueries 
+      };
+      if (provMatch) regexDbQuery.province = { $in: provMatch };
     }
 
-    // 4. Tìm kiếm chính xác theo Plot/Map hoặc GCN (nếu có)
-    let dbCandidatesStrong = [];
-    if ((targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) || targetIdentifiers.certificateNumber || targetIdentifiers.licensePlate) {
+    // 3. Query: Định danh mạnh (Sổ đỏ, Biển số, Số khung...)
+    let strongDbQuery = null;
+    if ((targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) || targetIdentifiers.certificateNumber || targetIdentifiers.licensePlate || targetIdentifiers.chassisNumber || targetIdentifiers.engineNumber || targetIdentifiers.taxCode || targetIdentifiers.serialNumber) {
         const strongQueries = [];
+        const strongTokens = [];
         if (targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) {
-            // Tìm các bản ghi có chứa cả plot và map trong name
             strongQueries.push({
                 $and: [
-                    { name: { $regex: "(^|\\s)" + targetIdentifiers.plotNumber + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } },
-                    { name: { $regex: "(^|\\s)" + targetIdentifiers.mapSheet + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }
+                    { name: { $regex: "(^|\\s)" + escapeRegex(targetIdentifiers.plotNumber) + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } },
+                    { name: { $regex: "(^|\\s)" + escapeRegex(targetIdentifiers.mapSheet) + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }
                 ]
             });
+            strongTokens.push(targetIdentifiers.plotNumber, targetIdentifiers.mapSheet);
         }
-        if (targetIdentifiers.certificateNumber) {
-            strongQueries.push({ name: { $regex: targetIdentifiers.certificateNumber, $options: 'i' } });
-        }
-        if (targetIdentifiers.licensePlate) {
-            strongQueries.push({ name: { $regex: targetIdentifiers.licensePlate, $options: 'i' } });
-        }
+        const pushStrong = (idVal) => {
+            if (idVal) {
+                strongQueries.push({ name: { $regex: escapeRegex(idVal), $options: 'i' } });
+                strongTokens.push(idVal);
+            }
+        };
+        pushStrong(targetIdentifiers.certificateNumber);
+        pushStrong(targetIdentifiers.licensePlate);
+        pushStrong(targetIdentifiers.chassisNumber);
+        pushStrong(targetIdentifiers.engineNumber);
+        pushStrong(targetIdentifiers.taxCode);
+        pushStrong(targetIdentifiers.serialNumber);
 
         if (strongQueries.length > 0) {
-            const strongDbQuery = { $or: strongQueries };
-            if (targetProvince) {
-                if (targetProvince === 'TP. Hồ Chí Minh') {
-                    strongDbQuery.province = { $in: ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh'] };
-                } else {
-                    strongDbQuery.province = targetProvince;
-                }
-            }
-            dbCandidatesStrong = await Model.find(strongDbQuery).limit(100).select('sourceId name').lean();
+            strongDbQuery = { 
+                $text: { $search: strongTokens.map(t => `"${t}"`).join(' ') }, // ★ ÉP dùng Text Index
+                $or: strongQueries 
+            };
+            if (provMatch) strongDbQuery.province = { $in: provMatch };
         }
+    }
+
+    // ★ THỰC THI TẤT CẢ QUERIES (API + 3 DB QUERIES) SONG SONG
+    const [apiRes, dbCandidates, dbCandidatesRegex, dbCandidatesStrong] = await Promise.all([
+      fetchAPI(endpoint, payload).catch(err => { console.error(`[API Search] Lỗi ${sourceId}:`, err.message); return null; }),
+      Model.find(dbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(300).select('sourceId name').lean(),
+      regexDbQuery ? Model.find(regexDbQuery).limit(100).select('sourceId name').lean() : Promise.resolve([]),
+      strongDbQuery ? Model.find(strongDbQuery).limit(100).select('sourceId name').lean() : Promise.resolve([])
+    ]);
+
+    let apiCandidates = [];
+    if (apiRes && apiRes.items && apiRes.items.length >= 2 && apiRes.rowCount < 100) {
+      apiRes.items.forEach(i => {
+        if (i.id && i.id !== sourceId) {
+          apiCandidates.push({ sourceId: i.id, name: i.nameAsset || i.name || i.assetName || '' });
+        }
+      });
     }
 
     // Gộp candidates
@@ -702,7 +685,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       }
 
       // CĂN HỘ: Cùng số căn hộ + tương đồng tương đối → MATCH
-      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && (coreSim >= 0.20 || ovSim >= 0.33)) {
+      if (targetIdentifiers.apartment && targetIdentifiers.apartment === candidateIdentifiers.apartment && (coreSim >= 0.20 || overlapSim >= 0.33)) {
         relatedIds.push(c.sourceId);
         continue;
       }
@@ -716,7 +699,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     relatedIds = [...new Set(relatedIds)];
   } catch (err) {
-    // ignore
+    console.error(`[Duplicate Scan Error] ${sourceId}:`, err.message);
   }
   return relatedIds;
 }
@@ -748,6 +731,9 @@ function normalizePropertyRows(allItems) {
 async function fetchAuctionItemDetail(sourceId) {
   const updates = {};
   let files = [];
+  
+  // Tự động tạo URL gốc để vá lỗi thiếu URL
+  updates.sourceUrl = `https://dgts.moj.gov.vn/thong-bao-cong-khai/${sourceId}.html`;
 
   // ⚡ Gọi 3 API song song thay vì tuần tự
   const [propResult, viewResult, pubResult] = await Promise.allSettled([
@@ -836,6 +822,9 @@ async function fetchAuctionItemDetail(sourceId) {
 async function fetchOrgItemDetail(sourceId) {
   const updates = {};
   let files = [];
+
+  // Tự động tạo URL gốc
+  updates.sourceUrl = `https://dgts.moj.gov.vn/lua-chon-to-chuc/${sourceId}.html`;
 
   // ⚡ Gọi 2 API song song
   const [propResult, editResult] = await Promise.allSettled([

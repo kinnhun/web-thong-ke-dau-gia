@@ -148,7 +148,7 @@ function extractPropertyIdentifiers(name) {
   if (mapMatch) ids.mapSheet = mapMatch[1];
 
   // Lô / Thửa / Ô / Khu (Tránh nhầm với "Lộ giới", "Ở")
-  const lotMatch = s.match(/(?:\blô\b|\bthửa\b|\bô\b|\bkhu\b|\bblock\b)\s*[:\.]?\s*([a-z0-9\-]+)/i);
+  const lotMatch = s.match(/(?:\blo\b|\bthua\b|\bo\b|\bkhu\b|\bblock\b)\s*[:\.]?\s*([a-z0-9\-]+)/i);
   if (lotMatch) ids.lot = lotMatch[1];
 
   // Số nhà X / Nhà số X / Số X (ở đầu hoặc sau địa chỉ/tại)
@@ -266,10 +266,10 @@ function hasConflictingIdentifiers(idsA, idsB) {
     }
   }
 
-  // Conflict diện tích
+  // Conflict diện tích (độ lệch cho phép < 2m2)
   if (idsA.area && idsB.area) {
     const diff = Math.abs(parseFloat(idsA.area) - parseFloat(idsB.area));
-    if (diff > 0.1) return true;
+    if (diff > 2.0) return true;
   }
 
   return false;
