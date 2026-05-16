@@ -1920,6 +1920,83 @@ router.post('/trigger-kill-duplicate-scan', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Gộp 2 nhóm duplicate thủ công
+router.post('/duplicates/merge', async (req, res, next) => {
+  try {
+    const { sourceId1, sourceId2, type = 'auction' } = req.body;
+    if (!sourceId1 || !sourceId2) return res.status(400).json({ error: 'Missing sourceId1 or sourceId2' });
+
+    const { handleDuplicate } = require('../scrapers/detail.scraper');
+    
+    // Đơn giản là gọi handleDuplicate với cả 2 ID, nó sẽ tự tìm 2 nhóm cũ và gộp lại
+    await handleDuplicate(sourceId1, null, [sourceId2], type);
+    
+    res.json({ success: true, message: `Đã gộp nhóm chứa #${sourceId1} và #${sourceId2}` });
+  } catch (err) { next(err); }
+});
+
+// Tách một số ID ra khỏi nhóm duplicate
+router.post('/duplicates/split', async (req, res, next) => {
+  try {
+    const { sourceIds, type = 'auction' } = req.body;
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) return res.status(400).json({ error: 'sourceIds must be an array' });
+
+    const { handleDuplicate } = require('../scrapers/detail.scraper');
+    
+    // 1. Tìm nhóm hiện tại chứa các ID này
+    const dup = await Duplicate.findOne({ sourceIds: { $in: sourceIds }, type });
+    if (!dup) return res.status(404).json({ error: 'Group not found' });
+
+    // 2. Loại bỏ IDs khỏi nhóm cũ
+    const remainingIds = dup.sourceIds.filter(id => !sourceIds.includes(id));
+    
+    if (remainingIds.length === 0) {
+        await Duplicate.deleteOne({ _id: dup._id });
+    } else {
+        dup.sourceIds = remainingIds;
+        await dup.save();
+        // Rebuild lại entries cho nhóm cũ
+        await handleDuplicate(remainingIds[0], null, remainingIds.slice(1), type);
+    }
+
+    // 3. Tạo nhóm mới từ các ID bị tách ra
+    if (sourceIds.length >= 2) {
+        await handleDuplicate(sourceIds[0], null, sourceIds.slice(1), type);
+    } else {
+        // Nếu chỉ tách 1 ID ra làm "đơn lẻ" -> xóa rootId của nó trong AuctionNotice
+        const Model = type === 'org' ? OrgSelection : AuctionNotice;
+        await Model.updateOne({ sourceId: sourceIds[0] }, { $unset: { rootId: "" }, $set: { relatedIds: [] } });
+    }
+
+    res.json({ success: true, message: `Đã tách ${sourceIds.length} bài viết ra khỏi nhóm cũ.` });
+  } catch (err) { next(err); }
+});
+
+// Xoá hẳn một ID khỏi bất kỳ nhóm duplicate nào
+router.post('/duplicates/remove-id', async (req, res, next) => {
+    try {
+      const { sourceId, type = 'auction' } = req.body;
+      if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
+  
+      const { handleDuplicate } = require('../scrapers/detail.scraper');
+      const dup = await Duplicate.findOne({ sourceIds: sourceId, type });
+      if (!dup) return res.json({ success: true, message: 'ID không nằm trong nhóm nào.' });
+  
+      dup.sourceIds = dup.sourceIds.filter(id => id !== sourceId);
+      if (dup.sourceIds.length < 2) {
+        await Duplicate.deleteOne({ _id: dup._id });
+      } else {
+        await dup.save();
+        await handleDuplicate(dup.sourceIds[0], null, dup.sourceIds.slice(1), type);
+      }
+  
+      const Model = type === 'org' ? OrgSelection : AuctionNotice;
+      await Model.updateOne({ sourceId }, { $unset: { rootId: "" }, $set: { relatedIds: [] } });
+  
+      res.json({ success: true, message: `Đã loại bỏ #${sourceId} khỏi nhóm trùng lặp.` });
+    } catch (err) { next(err); }
+  });
+
 // ═══════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════
@@ -1931,7 +2008,8 @@ function transformAuction(doc) {
     type: doc.type || (doc.startingPrice ? 'org' : 'other'), province: doc.province || '',
     address: doc.address || '',
     initialPrice: doc.initialPrice || doc.startingPrice || 0, currentPrice: doc.currentPrice || doc.startingPrice || 0,
-    deposit: doc.deposit || 0, applicationFee: doc.applicationFee || 0,
+    deposit: doc.deposit || 0, depositPercent: doc.depositPercent || '',
+    applicationFee: doc.applicationFee || 0,
     publishRound: doc.publishRound || 1,
     publishRoundLabel: doc.publishRoundLabel || '',
     rootId: doc.rootId || null,

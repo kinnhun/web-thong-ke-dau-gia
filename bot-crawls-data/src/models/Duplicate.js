@@ -26,6 +26,8 @@ const duplicateSchema = new mongoose.Schema({
   sourceIds: [Number],
   type: { type: String, enum: ['auction', 'org'], default: 'auction' },
   province: { type: String, index: true },
+  district: { type: String, index: true },
+  commune: { type: String, index: true },
   organizer: { type: String, index: true },
 
   // Chi tiết từng lần đăng (sắp xếp theo thời gian)

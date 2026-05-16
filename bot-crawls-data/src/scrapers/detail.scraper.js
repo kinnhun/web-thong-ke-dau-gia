@@ -151,9 +151,17 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
   dup.entries = entries;
   dup.relistCount = entries.length;
 
-  // Lấy province và organizer từ các entry
+  // Lấy province, district, commune và organizer từ các entry
   const Model = type === 'org' ? OrgSelection : AuctionNotice;
-  const dbItems = await Model.find({ sourceId: { $in: dup.sourceIds } }).select('province organizer').lean();
+  const dbItems = await Model.find({ sourceId: { $in: dup.sourceIds } }).select('province organizer name').lean();
+  
+  const firstItem = dbItems[0];
+  if (firstItem) {
+    const ids = extractPropertyIdentifiers(firstItem.name);
+    if (ids.district) dup.district = ids.district;
+    if (ids.commune) dup.commune = ids.commune;
+  }
+
   const prov = dbItems.find(i => i.province)?.province;
   const org = dbItems.find(i => i.organizer)?.organizer;
   if (prov) dup.province = prov;
@@ -507,6 +515,8 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
             priceDropPercent: summary.priceDropPercent,
             rootId: summary.rootId,
             province: items.find((item) => item.province)?.province || null,
+            district: (() => { const ids = extractPropertyIdentifiers(items[0]?.name); return ids.district || null; })(),
+            commune: (() => { const ids = extractPropertyIdentifiers(items[0]?.name); return ids.commune || null; })(),
             organizer: items.find((item) => item.organizer)?.organizer || null,
           },
         },
@@ -575,11 +585,21 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
       if (provMatch) regexDbQuery.province = { $in: provMatch };
     }
 
-    // 3. Query: Định danh mạnh (Sổ đỏ, Biển số, Số khung...)
+    // 3. Query: Định danh mạnh (Sổ đỏ, Biển số, Số khung, Hợp đồng, Khoản nợ...)
     let strongDbQuery = null;
-    if ((targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) || targetIdentifiers.certificateNumber || targetIdentifiers.licensePlate || targetIdentifiers.chassisNumber || targetIdentifiers.engineNumber || targetIdentifiers.taxCode || targetIdentifiers.serialNumber) {
+    const strongKeys = [
+      'licensePlate', 'chassisNumber', 'engineNumber', 
+      'certificateNumber', 'certificateEntryNumber', 'shipNumber', 
+      'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'
+    ];
+    
+    const hasAnyStrongKey = strongKeys.some(k => targetIdentifiers[k]) || (targetIdentifiers.plotNumber && targetIdentifiers.mapSheet);
+
+    if (hasAnyStrongKey) {
         const strongQueries = [];
         const strongTokens = [];
+
+        // Thửa + Tờ (phải đi cùng nhau mới là định danh mạnh)
         if (targetIdentifiers.plotNumber && targetIdentifiers.mapSheet) {
             strongQueries.push({
                 $and: [
@@ -589,18 +609,19 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
             });
             strongTokens.push(targetIdentifiers.plotNumber, targetIdentifiers.mapSheet);
         }
+
         const pushStrong = (idVal) => {
             if (idVal) {
+                // Thoát các ký tự đặc biệt cho regex và tìm kiếm chính xác
                 strongQueries.push({ name: { $regex: escapeRegex(idVal), $options: 'i' } });
                 strongTokens.push(idVal);
             }
         };
-        pushStrong(targetIdentifiers.certificateNumber);
-        pushStrong(targetIdentifiers.licensePlate);
-        pushStrong(targetIdentifiers.chassisNumber);
-        pushStrong(targetIdentifiers.engineNumber);
-        pushStrong(targetIdentifiers.taxCode);
-        pushStrong(targetIdentifiers.serialNumber);
+
+        // Đẩy tất cả các định danh mạnh vào câu truy vấn
+        for (const key of strongKeys) {
+            pushStrong(targetIdentifiers[key]);
+        }
 
         if (strongQueries.length > 0) {
             strongDbQuery = { 
@@ -855,6 +876,7 @@ async function fetchOrgItemDetail(sourceId) {
         .map((p) => p.depositPercent)
         .filter(Boolean);
       updates.startingPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
+      updates.deposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
       updates.depositPercent = percentDeposits.length === 1
         ? percentDeposits[0]
         : percentDeposits.length > 1
@@ -1600,19 +1622,21 @@ async function runFullDuplicateScan() {
     await saveProgress('Đang xoá dữ liệu duplicate cũ để tạo mới hoàn toàn...');
     await Duplicate.deleteMany({});
 
-    const auctions = await AuctionNotice.find({ relatedIds: { $exists: true, $not: { $size: 0 } } })
-      .select('sourceId relatedIds')
+    await saveProgress('Đang tải dữ liệu AuctionNotice...');
+    const auctions = await AuctionNotice.find({})
+      .select('sourceId relatedIds name province')
       .maxTimeMS(0)
       .lean();
-    await saveProgress('Đang gom nhóm AuctionNotice (tương đồng >70%)...');
+    await saveProgress(`Đang gom nhóm AuctionNotice (${auctions.length} bài)...`);
     const nameGroupsAuction = await getFuzzyNameGroups(AuctionNotice, saveProgress);
     await processTypeGroups('auction', 'AuctionNotice', auctions, nameGroupsAuction);
 
-    const orgs = await OrgSelection.find({ relatedIds: { $exists: true, $not: { $size: 0 } } })
-      .select('sourceId relatedIds')
+    await saveProgress('Đang tải dữ liệu OrgSelection...');
+    const orgs = await OrgSelection.find({})
+      .select('sourceId relatedIds name province')
       .maxTimeMS(0)
       .lean();
-    await saveProgress('Đang gom nhóm OrgSelection (tương đồng >70%)...');
+    await saveProgress(`Đang gom nhóm OrgSelection (${orgs.length} bài)...`);
     const nameGroupsOrg = await getFuzzyNameGroups(OrgSelection, saveProgress);
     await processTypeGroups('org', 'OrgSelection', orgs, nameGroupsOrg);
 

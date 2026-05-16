@@ -83,7 +83,8 @@ const auctionNoticeSchema = new mongoose.Schema({
     name: String,            // Tên tài sản (vd: "Căn tin", "Nhà giữ xe")
     amount: String,          // Số lượng
     startPrice: Number,      // Giá khởi điểm
-    deposit: Number,         // Tiền đặt trước
+    deposit: Number,         // Tiền đặt trước (số tiền tuyệt đối)
+    depositPercent: String,  // Tỷ lệ % tiền đặt trước (nếu có)
     place: String,           // Nơi có tài sản
     quality: String,         // Chất lượng / mô tả
   }],

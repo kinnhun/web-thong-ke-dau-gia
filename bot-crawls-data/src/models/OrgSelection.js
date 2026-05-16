@@ -33,6 +33,8 @@ const orgSelectionSchema = new mongoose.Schema({
   // Detail scraped info
   assetDescription: String,
   startingPrice: Number,
+  deposit: Number,
+  depositPercent: String,
   requirements: String,
 
   // Attached files
@@ -47,6 +49,7 @@ const orgSelectionSchema = new mongoose.Schema({
     amount: String,
     startPrice: Number,
     deposit: Number,
+    depositPercent: String,
     place: String,
     quality: String,
   }],

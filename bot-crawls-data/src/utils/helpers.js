@@ -21,7 +21,15 @@ function extractCoreIdentity(name) {
   if (!name) return '';
   let s = removeDiacritics(name.normalize('NFC').toLowerCase());
 
-  // 0. Xoá các tiền tố phổ biến
+  // 0. Chuẩn hoá các từ viết tắt phổ biến trước khi xử lý
+  s = s.replace(/\bqsdd\b/g, 'quyen su dung dat');
+  s = s.replace(/\bgcn\b/g, 'giay chung nhan');
+  s = s.replace(/\bbks\b/g, 'bien kiem soat');
+  s = s.replace(/\btbd\b/g, 'to ban do');
+  s = s.replace(/\bhdtd\b/g, 'hop dong tin dung');
+  s = s.replace(/\bhdtc\b/g, 'hop dong the chap');
+
+  // 0.1 Xoá các tiền tố phổ biến
   s = s.replace(/tai san dau gia (la|gom):?/g, ' ');
   s = s.replace(/thong bao dau gia:?/g, ' ');
 
@@ -139,73 +147,58 @@ function extractPropertyIdentifiers(name) {
   const s = removeDiacritics(name.toLowerCase());
   const ids = {};
 
-  // Thửa đất số X / Thửa X
-  const plotMatch = s.match(/(?:thua\s*(?:dat)?\s*(?:so)?|thua)\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?)?)/i);
-  if (plotMatch) ids.plotNumber = plotMatch[1];
+  // 1. ĐẤT ĐAI: Thửa đất & Tờ bản đồ (Thêm các case viết tắt Thửa: X, Tờ: Y)
+  const plotMatch = s.match(/(?:\bthua\b|\bt\b)\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
+  if (plotMatch) ids.plotNumber = plotMatch[1].replace(/\s+/g, '');
 
-  // Tờ bản đồ số X / Bản đồ X
-  const mapMatch = s.match(/(?:to\s*)?ban\s*do\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?)?)/i);
-  if (mapMatch) ids.mapSheet = mapMatch[1];
+  const mapMatch = s.match(/(?:\bto\b|\btbd\b|\bban\s*do\b)\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
+  if (mapMatch) ids.mapSheet = mapMatch[1].replace(/\s+/g, '');
 
-  // Lô / Thửa / Ô / Khu (Tránh nhầm với "Lộ giới", "Ở")
-  const lotMatch = s.match(/(?:\blo\b|\bthua\b|\bo\b|\bkhu\b|\bblock\b)\s*[:\.]?\s*([a-z0-9\-]+)/i);
-  if (lotMatch) ids.lot = lotMatch[1];
+  // 2. CHUNG CƯ / DỰ ÁN: Lô, Ô, Khu, Căn hộ, Tòa (Phòng 1205, Căn 12.05, Mã căn...)
+  const aptMatch = s.match(/(?:can\s*ho|phong|ma\s*can|can|unit)\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);
+  if (aptMatch) ids.apartment = aptMatch[1].toUpperCase();
 
-  // Số nhà X / Nhà số X / Số X (ở đầu hoặc sau địa chỉ/tại)
-  const houseMatch = s.match(/(?:so\s*nha|nha\s*so|dia\s*chi|tai|[\s,])\s*(?:so\s+)?([0-9]+[a-z]?(?:[/-][0-9]+[a-z]?)?)\s+[a-z]/i);
-  if (houseMatch) ids.houseNumber = houseMatch[1];
-  else {
-    const houseMatchFallback = s.match(/^(?:so\s+)?([0-9]+[a-z]?(?:[/-][0-9]+[a-z]?)?)\s+[a-z]/i);
-    if (houseMatchFallback) ids.houseNumber = houseMatchFallback[1];
+  const blockMatch = s.match(/(?:toa\s*nha|toa|block|thap|tower|building)\s*[:\.]?\s*([a-z0-9]+)/i);
+  if (blockMatch && blockMatch[1] && !/^(phuong|xa|quan|huyen|tinh)$/i.test(blockMatch[1])) {
+    ids.block = blockMatch[1].toUpperCase();
   }
 
-  // Căn hộ số X
-  const aptMatch = s.match(/can\s*ho\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);
-  if (aptMatch) ids.apartment = aptMatch[1];
-
-  // Block / Tòa X
-  const blockMatch = s.match(/(?:block|toa\s*nha|toa)\s*[:\.]?\s*([a-z0-9]+(?![\w-]*\s*(?:phuong|quan|huyen|xa|tinh|thanh pho)))/i);
-  if (blockMatch && blockMatch[1]) ids.block = blockMatch[1].toUpperCase();
-
-  // Tầng (Floor)
-  const floorMatch = s.match(/\btang\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?)/i);
-  if (floorMatch) ids.floor = floorMatch[1];
-
-  // Biển kiểm soát / Biển số xe (VD: 30A-123.45 hoặc 29H1-1234)
-  // Cải tiến regex để bắt được nhiều định dạng biển số hơn
-  const bksMatch = s.match(/(?:bien\s*kiem\s*soat|bien\s*so|bks|bs\s*xe|bs|so\s*xe|xe\s*mang\s*bs)\s*[:\.]?\s*([0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{3}[\s.-]*[0-9]{2}|[0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{4,5})/i);
-  if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.-]/g, '').toUpperCase();
-
-  // Thêm nhận diện địa chỉ rút gọn (Số nhà + Tên đường)
-  // Cải tiến regex để bỏ qua các từ đệm như "thửa đất", "tại", "số"
-  const addressMatch = s.match(/(?:so|tai|dia\s*chi|dia\s*chi\s*thua\s*dat|dia\s*chi\s*tai)[:\s]*(?:so\s+)?(\d+[a-z]?(?:\/\d+[a-z]?)*)\s+([a-z\s]{2,30})(?:phuong|quan|huyen|xa|tp|thanh|hcm|$|,)/i);
-  if (addressMatch) {
-    ids.streetAddress = `${addressMatch[1]} ${addressMatch[2].trim()}`;
-  }
-
-  // Số khung (Chassis)
-  const chassisMatch = s.match(/so\s*khung\s*[:\.]?\s*([a-z0-9]{5,})/i);
-  if (chassisMatch) ids.chassisNumber = chassisMatch[1].toUpperCase();
-
-  // Số máy (Engine)
-  const engineMatch = s.match(/so\s*may\s*[:\.]?\s*([a-z0-9]{5,})/i);
-  if (engineMatch) ids.engineNumber = engineMatch[1].toUpperCase();
-
-  // Giấy chứng nhận (Sổ đỏ/hồng) - Số phát hành (VD: CS 12345, BA 678901)
-  const certMatch = s.match(/(?:giay\s*chung\s*nhan|gcn|gcnqsdd|so\s*do|so\s*hong|phat\s*hanh)[^\d]{1,50}\b([a-z]{1,2}\s*[0-9]{5,7})\b/i);
+  // 3. GIẤY TỜ PHÁP LÝ: GCN, Sổ đỏ, Sổ hồng, Số seri phát hành
+  const certMatch = s.match(/(?:gcn|qsdd|so\s*do|so\s*hong|giay\s*chung\s*nhan|phat\s*hanh|seri|số\s*hiệu)[^\d]{0,50}\b([a-z]{1,2}\s*[0-9]{4,9})\b/i);
   if (certMatch) ids.certificateNumber = certMatch[1].replace(/\s+/g, '').toUpperCase();
 
-  // Số vào sổ cấp GCN (VD: CH 01234)
-  const certEntryMatch = s.match(/(?:so\s*vao\s*so\s*cap\s*gcn|so\s*vao\s*so)[^\d]{1,30}\b([a-z]{1,2}\s*[0-9]{4,7})\b/i);
+  const certEntryMatch = s.match(/(?:vao\s*so\s*cap|so\s*vao\s*so|vào\s*sổ)[^\d]{0,30}\b([a-z]{1,2}\s*[0-9]{3,9})\b/i);
   if (certEntryMatch) ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '').toUpperCase();
 
-  // Mã số thuế (MST) - 10 hoặc 13 số
+  // 4. XE CỘ: Biển số, Số khung, Số máy (Bắt cả case viết tắt SK, SM)
+  const bksMatch = s.match(/(?:bien\s*so|bks|bs|bien\s*kiem\s*soat|so\s*xe)[:\s]*([0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{3,6})/i);
+  if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+
+  const skMatch = s.match(/(?:so\s*khung|sk)[:\s]*([a-z0-9]{6,25})/i);
+  if (skMatch) ids.chassisNumber = skMatch[1].toUpperCase();
+
+  const smMatch = s.match(/(?:so\s*may|sm)[:\s]*([a-z0-9]{6,25})/i);
+  if (smMatch) ids.engineNumber = smMatch[1].toUpperCase();
+
+  // 5. KHOẢN NỢ / DOANH NGHIỆP: Tên công ty nợ, MST, Số hợp đồng
+  const debtMatch = s.match(/(?:khoan\s*no\s*cua|no\s*cua|tai\s*san\s*cua)\s*(?:cty|cong\s*ty|doanh\s*nghiep)\s+([a-z0-9\s]{5,60})(?:-|\s+mst|,|$)/i);
+  if (debtMatch) ids.debtorName = debtMatch[1].trim().toUpperCase();
+
   const mstMatch = s.match(/(?:ma\s*so\s*thue|mst)[:\s]*(\d{10}(?:[-]\d{3})?)/i);
   if (mstMatch) ids.taxCode = mstMatch[1];
 
-  // Số hợp đồng tín dụng / Thế chấp
-  const contractMatch = s.match(/(?:hop\s*dong\s*tin\s*dung|hdtd|hop\s*dong\s*the\s*chap|hdtc|so\s*hd)[:\s]*([a-z0-9\/\-]{5,30})/i);
+  const contractMatch = s.match(/(?:hop\s*dong|hdtd|hdtc|so\s*hd)[:\s]*([a-z0-9\/\-]{5,30})/i);
   if (contractMatch) ids.contractNumber = contractMatch[1].replace(/[\s]/g, '').toUpperCase();
+
+  // 6. MÁY MÓC / ĐIỆN TỬ: Serial, Model, SKU
+  const serialMatch = s.match(/(?:serial|seri|s\/n|sku|model|so\s*hieu|so\s*may)[:\s]*([a-z0-9\-]{5,25})/i);
+  if (serialMatch) {
+    ids.serialNumber = serialMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+  } else {
+    // Alphanumeric codes (VD: PK123456, AB-1234) - fallback khi không có từ khoá
+    const codeMatch = s.match(/\b([a-z]{1,4}[\-][0-9]{3,10}|[a-z]{1,4}[0-9]{3,10})\b/i);
+    if (codeMatch) ids.serialNumber = codeMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+  }
 
   // Diện tích (m2) - Lấy số lẻ thập phân để tăng độ chính xác
   const areaMatch = s.match(/(\d+(?:[,\.]\d+)?)\s*(?:m2|met\s*vuong)/i);
@@ -234,14 +227,14 @@ function extractPropertyIdentifiers(name) {
   const stockMatch = s.match(/(\d+(?:[\.,]\d+)?)\s*(?:co\s*phan|co\s*phieu)/i);
   if (stockMatch) ids.stockAmount = stockMatch[1].replace(/[,\.]/g, '');
 
-  // Serial number / Model / SKU (Thường dùng cho máy móc)
-  const serialMatch = s.match(/(?:so\s*hieu|model|serial|sku|so\s*may)[:\s]*([a-z0-9\-]{5,20})/i);
-  if (serialMatch) ids.serialNumber = serialMatch[1].replace(/[\s.-]/g, '').toUpperCase();
-  else {
-    // Alphanumeric codes (VD: PK123456, AB-1234) - only if >= 6 chars and contains both letters and numbers
-    const codeMatch = s.match(/\b([a-z]{1,4}[\-][0-9]{3,10}|[a-z]{1,4}[0-9]{3,10})\b/i);
-    if (codeMatch) ids.serialNumber = codeMatch[1].replace(/[\s.-]/g, '').toUpperCase();
-  }
+
+  // Trích xuất Phường/Xã (Commune)
+  const communeMatch = s.match(/(?:phuong|xa|thi\s*tran)\s+([a-z0-9\s]{2,30})(?:,|$|[\s]+(?:quan|huyen|tp|thanh|hcm))/i);
+  if (communeMatch) ids.commune = communeMatch[1].trim();
+
+  // Trích xuất Quận/Huyện (District)
+  const districtMatch = s.match(/(?:quan|huyen|thi\s*xa|tp|thanh\s*pho)\s+([a-z0-9\s]{2,30})(?:,|$|[\s]+(?:tinh|tp|thanh|hcm))/i);
+  if (districtMatch) ids.district = districtMatch[1].trim();
 
   return ids;
 }
@@ -256,15 +249,20 @@ function hasConflictingIdentifiers(idsA, idsB) {
     'plotNumber', 'mapSheet', 'lot', 'houseNumber', 'apartment', 'block', 'floor',
     'licensePlate', 'chassisNumber', 'engineNumber', 
     'certificateNumber', 'certificateEntryNumber', 'kiosk', 'shipNumber', 'streetAddress',
-    'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber'
+    'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'
   ];
   for (const key of keys) {
     if (idsA[key] && idsB[key] && idsA[key] !== idsB[key]) {
-      // Ngoại trừ mapSheet
-      if (key === 'mapSheet') continue; 
+      // Ngoại trừ mapSheet (đôi khi bị viết lệch to1 vs to01) và houseNumber (có thể là một phần)
+      if (key === 'mapSheet' || key === 'houseNumber') continue; 
       return true;
     }
   }
+
+  // Conflict địa phương (Nếu cùng Tỉnh mà khác Huyện hoặc khác Xã thì là KHÁC tài sản)
+  // Chỉ so sánh nếu cả 2 cùng có trường đó
+  if (idsA.district && idsB.district && idsA.district !== idsB.district) return true;
+  if (idsA.commune && idsB.commune && idsA.commune !== idsB.commune) return true;
 
   // Conflict diện tích (độ lệch cho phép < 2m2)
   if (idsA.area && idsB.area) {
@@ -280,7 +278,7 @@ function hasMatchingStrongIdentifiers(idsA, idsB) {
   const strongKeys = [
     'licensePlate', 'chassisNumber', 'engineNumber', 
     'certificateNumber', 'certificateEntryNumber', 'shipNumber', 
-    'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber'
+    'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'
   ];
   for (const key of strongKeys) {
     if (idsA[key] && idsB[key] && idsA[key] === idsB[key]) {
