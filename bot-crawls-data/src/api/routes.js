@@ -975,6 +975,7 @@ router.post('/trigger-recrawl-related', async (req, res, next) => {
 // Mega crawl detail theo danh sách đã có: lấy 5000 item và cào detail như nút "Cào lại" ở trang detail
 router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
   try {
+    console.log(`[MEGA-DETAIL] 📥 Nhận yêu cầu trigger từ: ${req.ip} - User-Agent: ${req.headers['user-agent']}`);
     const {
       fetchAuctionItemDetail,
       fetchOrgItemDetail,
@@ -992,8 +993,9 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
     const rawLimit = Number(req.body?.limit);
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxMegaLimit) : 5000;
     const rawConcurrency = Number(req.body?.concurrency);
-    const requestedConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 10;
-    const concurrency = Math.max(1, Math.min(requestedConcurrency, 30)); // Giới hạn max 30 để tránh block browser
+    const requestedConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 5;
+    const concurrency = Math.max(1, Math.min(requestedConcurrency, 10)); // Giới hạn max 10 để tránh treo máy khi query fuzzy nặng
+
 
     const runningHeavyLog = await CrawlLog.findOne({
       status: 'running',

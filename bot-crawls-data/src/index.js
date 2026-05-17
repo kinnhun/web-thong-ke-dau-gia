@@ -85,8 +85,9 @@ async function main() {
   const { createServer } = require('./api/server');
   const server = createServer();
   const PORT = config.api.port || 4000;
-  server.listen(PORT, () => {
-    console.log(`\n🌐 API server: http://localhost:${PORT}`);
+  const serverInstance = server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🌐 API server: http://0.0.0.0:${PORT} (mapped to 127.0.0.1 for proxy)`);
+
     console.log(`   - GET /api/auctions           Danh sách đấu giá`);
     console.log(`   - GET /api/auctions/:id        Chi tiết`);
     console.log(`   - GET /api/org-selections      Lựa chọn tổ chức`);
@@ -94,6 +95,21 @@ async function main() {
     console.log(`   - GET /api/samples/:id          Chi tiết nhóm`);
     console.log(`   - GET /api/auctions/stats       Thống kê`);
     console.log(`   - GET /api/crawl-logs           Lịch sử crawl`);
+  });
+
+  // Tối ưu server timeouts để tránh ECONNRESET / socket hang up khi job nặng chạy
+  serverInstance.keepAliveTimeout = 65000;
+  serverInstance.headersTimeout = 66000;
+
+
+  serverInstance.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ LỖI: Cổng ${PORT} đã bị chiếm dụng!`);
+      console.error(`👉 Vui lòng chạy lệnh 'npm run clean' để dọn dẹp các tiến trình cũ trước khi chạy lại.`);
+      process.exit(1);
+    } else {
+      console.error(`\n❌ API Server Error:`, err.message);
+    }
   });
 
   // Dọn dẹp CrawlLog bị treo (running nhưng quá cũ)
