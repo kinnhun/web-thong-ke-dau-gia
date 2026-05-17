@@ -100,6 +100,7 @@ export interface DiscountedAuction {
     place?: string;
     startPrice?: number;
     deposit?: number;
+    depositPercent?: string;
     quality?: string;
   }>;
 }

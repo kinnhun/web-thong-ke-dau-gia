@@ -185,8 +185,13 @@ export async function triggerRecrawlRelated(sourceIds: number[], type = 'auction
   return data;
 }
 
-export async function triggerRecrawlMissingProperties(limit = 50, type = 'auction') {
-  const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { limit, type });
+export async function triggerRecrawlMissingProperties(limit = 50, type = 'auction', concurrency = 100) {
+  const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { limit, type, concurrency });
+  return data;
+}
+
+export async function triggerKillRecrawlMissingProperties() {
+  const { data } = await httpClient.post('/api/trigger-kill-recrawl-missing-properties');
   return data;
 }
 

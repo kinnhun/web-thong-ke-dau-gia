@@ -732,9 +732,7 @@ function normalizePropertyRows(allItems) {
     const startPrice = Number(p.propertyStartPrice) || 0;
     const rawDeposit = Number(p.deposit) || 0;
     const hasPercentDeposit = p.depositUnit === 1 && rawDeposit > 0 && rawDeposit <= 100;
-    const deposit = hasPercentDeposit
-      ? Math.round((startPrice * rawDeposit) / 100)
-      : rawDeposit;
+    const deposit = hasPercentDeposit ? 0 : rawDeposit;
     const depositPercent = hasPercentDeposit ? `${rawDeposit}%` : '';
 
     return {

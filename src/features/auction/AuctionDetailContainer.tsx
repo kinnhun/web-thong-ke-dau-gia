@@ -45,6 +45,21 @@ interface AuctionDetailContainerProps {
   id: string;
 }
 
+function formatDepositValue(deposit?: number | null, depositPercent?: string | null) {
+  const parts = [];
+  if (deposit && deposit > 0) parts.push(formatVND(deposit));
+  if (depositPercent) parts.push(depositPercent);
+  return parts.length > 0 ? parts.join(" + ") : "—";
+}
+
+function formatPropertyDepositRows(
+  rows: Array<{ deposit?: number | null; depositPercent?: string | null }>
+) {
+  const moneyTotal = rows.reduce((sum, row) => row.depositPercent ? sum : sum + (row.deposit || 0), 0);
+  const percentParts = rows.map((row) => row.depositPercent).filter(Boolean);
+  return formatDepositValue(moneyTotal, percentParts.join(" + "));
+}
+
 export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -363,9 +378,9 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
             label="Tiền đặt trước" 
             value={
               <span className="num">
-                {auction.depositPercent 
-                  ? auction.depositPercent
-                  : formatVND(auction.deposit || 0)}
+                {auction.properties?.length
+                  ? formatPropertyDepositRows(auction.properties)
+                  : formatDepositValue(auction.deposit, auction.depositPercent)}
               </span>
             } 
           />
@@ -413,7 +428,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                         <td className="px-3 py-2.5 text-center num border-r">{p.amount || "01"}</td>
                         <td className="px-3 py-2.5 text-muted-foreground text-xs border-r">{p.place || "—"}</td>
                         <td className="px-3 py-2.5 text-right num font-medium border-r">{p.startPrice ? formatVND(p.startPrice) : "—"}</td>
-                        <td className="px-3 py-2.5 text-right num">{p.depositPercent || (p.deposit ? formatVND(p.deposit) : "—")}</td>
+                        <td className="px-3 py-2.5 text-right num">{p.depositPercent || formatDepositValue(p.deposit, p.depositPercent)}</td>
                       </tr>
                     ))}
                     {rows.length > 1 && (
@@ -421,9 +436,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
                         <td colSpan={4} className="px-3 py-2.5 text-right text-xs">Tổng cộng</td>
                         <td className="px-3 py-2.5 text-right num border-r">{formatVND(rows.reduce((s, p) => s + (p.startPrice || 0), 0))}</td>
                         <td className="px-3 py-2.5 text-right num">
-                          {rows.every(p => p.depositPercent) 
-                            ? rows.map(p => p.depositPercent).join(' + ') 
-                            : formatVND(rows.reduce((s, p) => s + (p.deposit || 0), 0))}
+                          {formatPropertyDepositRows(rows)}
                         </td>
                       </tr>
                     )}

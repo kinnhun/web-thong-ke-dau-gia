@@ -12,7 +12,7 @@ let isReady = false;
 let requestChain = Promise.resolve();
 let contextLock = Promise.resolve();
 let requestCount = 0;
-const MAX_REQUESTS_BEFORE_RESTART = 200; // Restart browser after N requests to prevent memory leaks
+const MAX_REQUESTS_BEFORE_RESTART = 3000; // Restart browser after N requests to prevent memory leaks
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

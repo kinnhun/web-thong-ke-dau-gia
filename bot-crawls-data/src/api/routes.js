@@ -1209,17 +1209,24 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+let _recrawlMissingCancelRequested = false;
+
 // Batch re-crawl tất cả items thiếu properties (migration cho dữ liệu cũ)
 router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
   const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+  const { closeBrowser } = require('../browser');
   const rawLimit = Number(req.body?.limit);
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
+  const rawConcurrency = Number(req.body?.concurrency);
+  const maxConcurrency = Math.max(1, Math.min(Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 100, 100));
   const type = req.body?.type || 'auction';
-  const delay = ms => new Promise(r => setTimeout(r, ms));
   const staleThresholdMs = 30 * 60 * 1000;
+  const maxFailedItems = 50;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   const Model = type === 'org' ? OrgSelection : AuctionNotice;
   const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+  _recrawlMissingCancelRequested = false;
 
   const isMissingString = (field) => ([
     { [field]: { $exists: false } },
@@ -1233,24 +1240,56 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
     { [field]: 0 },
   ]);
 
+  const hasIncompletePropertyRow = {
+    properties: {
+      $elemMatch: {
+        $or: [
+          { place: { $exists: false } },
+          { place: null },
+          { place: '' },
+          { startPrice: { $exists: false } },
+          { startPrice: null },
+          { startPrice: 0 },
+          {
+            $and: [
+              {
+                $or: [
+                  { depositPercent: { $exists: false } },
+                  { depositPercent: null },
+                  { depositPercent: '' },
+                ],
+              },
+              {
+                $or: [
+                  { deposit: { $exists: false } },
+                  { deposit: null },
+                  { deposit: 0 },
+                ],
+              },
+            ],
+          },
+          {
+            $and: [
+              { depositPercent: { $exists: true, $nin: [null, ''] } },
+              { deposit: { $gt: 0 } },
+            ],
+          },
+        ],
+      },
+    },
+  };
+
   const missingDetailQuery = type === 'org'
     ? {
       $or: [
         { detailScraped: { $ne: true } },
         { properties: { $exists: false } },
         { properties: { $size: 0 } },
+        hasIncompletePropertyRow,
         ...isMissingString('name'),
-        ...isMissingString('shortDescription'),
-        ...isMissingString('owner'),
         ...isMissingString('address'),
         ...isMissingString('province'),
-        ...isMissingString('assetDescription'),
-        ...isMissingString('requirements'),
         ...isMissingNumber('startingPrice'),
-        { receiveTimeStart: { $exists: false } },
-        { receiveTimeStart: null },
-        { receiveTimeEnd: { $exists: false } },
-        { receiveTimeEnd: null },
       ],
     }
     : {
@@ -1258,26 +1297,12 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
         { detailScraped: { $ne: true } },
         { properties: { $exists: false } },
         { properties: { $size: 0 } },
+        hasIncompletePropertyRow,
         ...isMissingString('name'),
-        ...isMissingString('shortDescription'),
-        ...isMissingString('type'),
         ...isMissingString('province'),
         ...isMissingString('address'),
-        ...isMissingString('organizer'),
-        ...isMissingString('owner'),
-        ...isMissingString('quality'),
-        ...isMissingString('propertyTypeName'),
-        ...isMissingString('propertyAmount'),
         ...isMissingNumber('initialPrice'),
         ...isMissingNumber('currentPrice'),
-        ...isMissingNumber('deposit'),
-        ...isMissingNumber('applicationFee'),
-        { auctionDate: { $exists: false } },
-        { auctionDate: null },
-        { registrationStart: { $exists: false } },
-        { registrationStart: null },
-        { registrationEnd: { $exists: false } },
-        { registrationEnd: null },
       ],
     };
 
@@ -1336,6 +1361,7 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
         const query = Model.find(missingDetailQuery)
           .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
           .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 })
+          .batchSize(Math.max(maxConcurrency * 2, 100))
           .lean();
 
         if (limit > 0) {
@@ -1351,36 +1377,166 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
 
         console.log(`[RECRAWL-PROPS] Đã quét ${totalScanned} ${type}, tìm thấy ${effectiveMatchedCount} thiếu dữ liệu detail`);
 
-        for await (const item of cursor) {
-          try {
-            await delay(250);
-            const { updates, files } = await fetchFn(item.sourceId);
-            updates.detailScraped = true;
-            updates.lastCrawledAt = new Date();
-            if (files && files.length > 0) updates.files = files;
+        function getErrorMessage(error) {
+          return error?.message || String(error);
+        }
 
-            await Model.updateOne({ _id: item._id }, { $set: updates });
+        function isLikelyBlockedMessage(message) {
+          return /HTTP\s*(403|406|429)|ERR_BLOCKED|Too Many Requests|rate|captcha|FEC|Forbidden/i.test(message);
+        }
 
-            if (recentNotices.length < 5) {
-              recentNotices.push({
-                sourceId: item.sourceId,
-                name: updates.name || item.name,
-                province: updates.province || item.province,
-                publishedAt: updates.publishedAt || item.publishedAt,
-              });
+        function isTransientMessage(message) {
+          return /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket|Target closed|Session closed|Protocol error|Execution context/i.test(message);
+        }
+
+        function pushFailure(sourceId, message) {
+          failedItems.push({ sourceId, message });
+          if (failedItems.length > maxFailedItems) {
+            failedItems.splice(0, failedItems.length - maxFailedItems);
+          }
+        }
+
+        async function fetchItemDetailWithRetry(item) {
+          let lastError;
+          for (let attempt = 1; attempt <= 2; attempt += 1) {
+            try {
+              return await fetchFn(item.sourceId);
+            } catch (error) {
+              lastError = error;
+              const message = getErrorMessage(error);
+              if (isLikelyBlockedMessage(message) || !isTransientMessage(message) || attempt >= 2) {
+                throw error;
+              }
+              await sleep(1000 * attempt);
             }
+          }
+          throw lastError;
+        }
 
-            ok++;
-          } catch (err) {
-            fail++;
-            failedItems.push({
+        async function processItem(item) {
+          const { updates, files } = await fetchItemDetailWithRetry(item);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files && files.length > 0) updates.files = files;
+
+          return {
+            updateOne: {
+              filter: { _id: item._id },
+              update: { $set: updates },
+            },
+            notice: {
               sourceId: item.sourceId,
-              message: err.message,
-            });
-            console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, err.message);
+              name: updates.name || item.name,
+              province: updates.province || item.province,
+              publishedAt: updates.publishedAt || item.publishedAt,
+            },
+          };
+        }
+
+        async function processChunk(chunk) {
+          const results = await Promise.allSettled(chunk.map(processItem));
+          const operations = [];
+          const notices = [];
+          const errors = [];
+          let savedCount = 0;
+          let failedCount = 0;
+
+          for (let index = 0; index < results.length; index += 1) {
+            const result = results[index];
+            const item = chunk[index];
+
+            if (result.status === 'fulfilled') {
+              operations.push(result.value);
+              notices.push(result.value.notice);
+            } else {
+              fail++;
+              failedCount++;
+              const message = getErrorMessage(result.reason);
+              errors.push(message);
+              pushFailure(item.sourceId, message);
+              console.error(`[RECRAWL-PROPS] ❌ ${item.sourceId}:`, message);
+            }
           }
 
-          processed += 1;
+          if (operations.length === 0) {
+            return { ok: 0, fail: errors.length, blocked: isLikelyBlocked(errors) };
+          }
+
+          try {
+            await Model.bulkWrite(operations.map((operation) => operation.updateOne), { ordered: false });
+            ok += operations.length;
+            savedCount = operations.length;
+            for (const notice of notices) {
+              if (recentNotices.length < 5) {
+                recentNotices.push(notice);
+              }
+            }
+          } catch (err) {
+            fail += operations.length;
+            failedCount += operations.length;
+            const message = getErrorMessage(err);
+            for (const notice of notices.slice(-10)) {
+              pushFailure(notice.sourceId, `bulkWrite: ${message}`);
+            }
+            console.error(`[RECRAWL-PROPS] ❌ bulkWrite failed:`, message);
+            errors.push(message);
+          }
+
+          return { ok: savedCount, fail: failedCount, blocked: isLikelyBlocked(errors) };
+        }
+
+        function isLikelyBlocked(errors) {
+          return errors.some(isLikelyBlockedMessage);
+        }
+
+        let chunk = [];
+        let activeConcurrency = maxConcurrency;
+        let stableChunks = 0;
+
+        for await (const item of cursor) {
+          if (_recrawlMissingCancelRequested) {
+            log.status = 'early_stopped';
+            log.finishedAt = new Date();
+            log.errorMessages = [...failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-9), 'Đã dừng job sửa dữ liệu lỗi theo yêu cầu.'].slice(-10);
+            await log.save();
+            console.warn('[RECRAWL-PROPS] Job stopped by user request');
+            return;
+          }
+
+          chunk.push(item);
+
+          if (chunk.length < activeConcurrency) {
+            continue;
+          }
+
+          const chunkStats = await processChunk(chunk);
+          processed += chunk.length;
+          chunk = [];
+
+          const chunkFailRate = chunkStats.fail / Math.max(chunkStats.ok + chunkStats.fail, 1);
+          if (chunkStats.blocked || chunkFailRate >= 0.2) {
+            const previousConcurrency = activeConcurrency;
+            activeConcurrency = Math.max(10, Math.floor(activeConcurrency / 2));
+            stableChunks = 0;
+            const pauseMs = chunkStats.blocked ? 30000 : 10000;
+            const message = `Phát hiện lỗi cao${chunkStats.blocked ? '/nghi bị chặn' : ''}, giảm worker ${previousConcurrency} -> ${activeConcurrency}, nghỉ ${pauseMs / 1000}s`;
+            pushFailure(0, message);
+            log.errorMessages = [...failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-8), message].slice(-10);
+            await log.save();
+            console.warn(`[RECRAWL-PROPS] ${message}`);
+            if (chunkStats.blocked) {
+              await closeBrowser().catch((error) => console.warn(`[RECRAWL-PROPS] closeBrowser after block failed: ${getErrorMessage(error)}`));
+            }
+            await sleep(pauseMs);
+          } else {
+            stableChunks += 1;
+            if (stableChunks >= 5 && activeConcurrency < maxConcurrency) {
+              activeConcurrency = Math.min(maxConcurrency, activeConcurrency + 10);
+              stableChunks = 0;
+              console.log(`[RECRAWL-PROPS] Ổn định, tăng worker lên ${activeConcurrency}`);
+            }
+          }
+
           log.pagesProcessed = processed;
           log.itemsUpdated = ok;
           log.itemsSkipped = skippedCompleteCount;
@@ -1391,6 +1547,17 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
             await log.save();
             console.log(`[RECRAWL-PROPS] ${processed}/${effectiveMatchedCount}... recrawl OK: ${ok}, lỗi: ${fail}, bỏ qua đủ dữ liệu: ${skippedCompleteCount}`);
           }
+        }
+
+        if (chunk.length > 0) {
+          await processChunk(chunk);
+          processed += chunk.length;
+          log.pagesProcessed = processed;
+          log.itemsUpdated = ok;
+          log.itemsSkipped = skippedCompleteCount;
+          log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+          log.recentNotices = recentNotices;
+          await log.save();
         }
 
         log.status = 'completed';
@@ -1418,6 +1585,7 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
 
         console.error('[RECRAWL-PROPS] Background job failed:', err.message);
       } finally {
+        _recrawlMissingCancelRequested = false;
         if (cursor) {
           try {
             await cursor.close();
@@ -1430,11 +1598,43 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: `Đã bắt đầu cào lại ${effectiveMatchedCount} ${type} thiếu dữ liệu detail trong nền`,
+      message: `Đã bắt đầu cào lại ${effectiveMatchedCount} ${type} thiếu dữ liệu detail trong nền, chạy song song tối đa ${maxConcurrency} worker`,
       scannedCount: totalScanned,
       skippedCompleteCount,
       totalMatched: effectiveMatchedCount,
+      concurrency: maxConcurrency,
       logId: log._id,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/trigger-kill-recrawl-missing-properties', async (req, res, next) => {
+  try {
+    const runningLog = await CrawlLog.findOne({
+      type: 'recrawl_missing_properties',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (!runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hiện không có tiến trình sửa dữ liệu lỗi nào đang chạy.',
+      });
+    }
+
+    _recrawlMissingCancelRequested = true;
+    runningLog.errorMessages = [
+      ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+      'Đã nhận yêu cầu dừng job sửa dữ liệu lỗi từ admin.',
+    ].slice(-10);
+    await runningLog.save();
+
+    res.json({
+      success: true,
+      message: 'Đã gửi yêu cầu dừng job sửa dữ liệu lỗi. Job sẽ dừng sau khi batch hiện tại hoàn tất.',
+      logId: runningLog._id,
     });
   } catch (err) {
     next(err);

@@ -3,6 +3,8 @@ const config = require('./config');
 
 let isConnected = false;
 let reconnectTimer = null;
+const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL_SIZE || '30', 10);
+const minPoolSize = parseInt(process.env.MONGO_MIN_POOL_SIZE || '5', 10);
 
 /**
  * Kết nối MongoDB với cấu hình tối ưu cho production:
@@ -16,8 +18,8 @@ async function connectDB(attempt = 1) {
   try {
     await mongoose.connect(config.mongo.uri, {
       // Connection pool: giới hạn số connection song song
-      maxPoolSize: 10,         // Tối đa 10 connection (default 100 → quá nhiều cho VPS nhỏ)
-      minPoolSize: 2,          // Giữ ít nhất 2 connection sẵn sàng
+      maxPoolSize,
+      minPoolSize,
 
       // Timeout settings
       // 30s để tunnel kịp switch port (WARP block port 22 → tunnel thử port 443 mất ~15s)
@@ -39,7 +41,7 @@ async function connectDB(attempt = 1) {
     });
 
     isConnected = true;
-    console.log(`✅ MongoDB connected: ${config.mongo.uri} (pool: 2-10)`);
+    console.log(`✅ MongoDB connected: ${config.mongo.uri} (pool: ${minPoolSize}-${maxPoolSize})`);
   } catch (err) {
     console.error(`❌ MongoDB connection error (attempt ${attempt}): ${err.message}`);
     // Không exit ngay - tunnel SSH cần thời gian khởi động/switch port khi dùng WARP/1.1.1.1
@@ -85,8 +87,8 @@ function scheduleReconnect() {
     console.log('🔄 Đang thử kết nối lại MongoDB...');
     try {
       await mongoose.connect(config.mongo.uri, {
-        maxPoolSize: 10,
-        minPoolSize: 2,
+      maxPoolSize,
+      minPoolSize,
         serverSelectionTimeoutMS: 30000, // 30s để tunnel kịp switch port
         socketTimeoutMS: 300000,
         connectTimeoutMS: 15000,
