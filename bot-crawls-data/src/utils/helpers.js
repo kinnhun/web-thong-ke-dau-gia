@@ -148,10 +148,10 @@ function extractPropertyIdentifiers(name) {
   const ids = {};
 
   // 1. ĐẤT ĐAI: Thửa đất & Tờ bản đồ (Thêm các case viết tắt Thửa: X, Tờ: Y)
-  const plotMatch = s.match(/(?:\bthua\b|\bt\b)\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
+  const plotMatch = s.match(/(?:\bthua\b|\bt\b)\s*(?:dat\s*)?(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
   if (plotMatch) ids.plotNumber = plotMatch[1].replace(/\s+/g, '');
 
-  const mapMatch = s.match(/(?:\bto\b|\btbd\b|\bban\s*do\b)\s*(?:so)?\s*[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
+  const mapMatch = s.match(/(?:\bto\b|\btbd\b|\bban\s*do\b)\s*(?:ban\s*do\s*)?(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
   if (mapMatch) ids.mapSheet = mapMatch[1].replace(/\s+/g, '');
 
   // 2. CHUNG CƯ / DỰ ÁN: Lô, Ô, Khu, Căn hộ, Tòa (Phòng 1205, Căn 12.05, Mã căn...)

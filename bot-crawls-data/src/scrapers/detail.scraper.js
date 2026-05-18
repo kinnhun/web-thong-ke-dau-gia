@@ -1394,7 +1394,8 @@ async function getFuzzyNameGroups(Model, progressCallback) {
   for (const item of items) {
     const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
-    const cleanName = item.name.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
+    const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
     buckets[prov][cleanName].sourceIds.push(item.sourceId);
   }
@@ -1433,6 +1434,66 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       if (rootI !== rootJ) parent[rootI] = rootJ;
     };
 
+    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
+    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
+    const strongMap = new Map();
+    for (let i = 0; i < data.length; i++) {
+      const ids = data[i].identifiers;
+      for (const key of strongKeys) {
+        if (ids[key]) {
+          const hash = key + ':' + ids[key];
+          if (!strongMap.has(hash)) strongMap.set(hash, []);
+          strongMap.get(hash).push(i);
+        }
+      }
+      if (ids.plotNumber && ids.mapSheet) {
+        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
+        if (!strongMap.has(hash)) strongMap.set(hash, []);
+        strongMap.get(hash).push(i);
+      }
+    }
+    for (const indices of strongMap.values()) {
+      if (indices.length > 1) {
+        for (let k = 0; k < indices.length; k++) {
+          for (let m = k + 1; m < indices.length; m++) {
+            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
+              union(indices[k], indices[m]);
+            }
+          }
+        }
+      }
+    }
+
+    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
+    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
+    const strongMap = new Map();
+    for (let i = 0; i < data.length; i++) {
+      const ids = data[i].identifiers;
+      for (const key of strongKeys) {
+        if (ids[key]) {
+          const hash = key + ':' + ids[key];
+          if (!strongMap.has(hash)) strongMap.set(hash, []);
+          strongMap.get(hash).push(i);
+        }
+      }
+      if (ids.plotNumber && ids.mapSheet) {
+        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
+        if (!strongMap.has(hash)) strongMap.set(hash, []);
+        strongMap.get(hash).push(i);
+      }
+    }
+    for (const indices of strongMap.values()) {
+      if (indices.length > 1) {
+        for (let k = 0; k < indices.length; k++) {
+          for (let m = k + 1; m < indices.length; m++) {
+            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
+              union(indices[k], indices[m]);
+            }
+          }
+        }
+      }
+    }
+
     let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
       if (i % 200 === 0) {
@@ -1440,9 +1501,14 @@ async function getFuzzyNameGroups(Model, progressCallback) {
         console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%)`);
       }
 
+      if (Date.now() - lastYield > 20) {
+        await new Promise(r => setImmediate(r));
+        lastYield = Date.now();
+      }
+
       const sizeA = data[i].coreBigrams.size;
       if (sizeA === 0) continue;
-      const maxSizeB = sizeA / 0.60; // Ngưỡng thấp nhất là 60%
+      const maxSizeB = sizeA / 0.60;
 
       for (let j = i + 1; j < data.length; j++) {
         if (j % 500 === 0 && Date.now() - lastYield > 20) {
@@ -1452,28 +1518,20 @@ async function getFuzzyNameGroups(Model, progressCallback) {
 
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
+        
+        // BREAK EARLY! Since data is sorted by size, all remaining sizeB will be > maxSizeB
+        if (sizeB > maxSizeB) break;
 
-        // BƯỚC 0: Xung đột ĐỊNH DANH (VD: Thửa đất số 01 vs Thửa đất số 02) → REJECT NGAY
         if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
           continue;
         }
 
-        // BƯỚC 0.5: Trùng khớp định danh mạnh (Thửa + tờ bản đồ, biển số xe...) -> CHẤP NHẬN NGAY
-        if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
-          union(i, j);
-          continue;
-        }
-
-        if (sizeB > maxSizeB) continue;
-
-        // BƯỚC 1: Kiểm tra số
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
           const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length === 0) continue; // Khác số → REJECT
+          if (common.length === 0) continue; 
         }
 
-        // BƯỚC 2: So sánh core identity
         const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
 
         if (coreSim >= 0.80) {
@@ -1930,8 +1988,36 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
 
     if (progressCallback) await progressCallback(`Đang so sánh fuzzy tỉnh ${prov} (${pIdx + 1}/${provKeys.length}) với ${data.length} tên duy nhất...`);
 
-    const isLargeBucket = data.length > 2000;
-    
+    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
+    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
+    const strongMap = new Map();
+    for (let i = 0; i < data.length; i++) {
+      const ids = data[i].identifiers;
+      for (const key of strongKeys) {
+        if (ids[key]) {
+          const hash = key + ':' + ids[key];
+          if (!strongMap.has(hash)) strongMap.set(hash, []);
+          strongMap.get(hash).push(i);
+        }
+      }
+      if (ids.plotNumber && ids.mapSheet) {
+        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
+        if (!strongMap.has(hash)) strongMap.set(hash, []);
+        strongMap.get(hash).push(i);
+      }
+    }
+    for (const indices of strongMap.values()) {
+      if (indices.length > 1) {
+        for (let k = 0; k < indices.length; k++) {
+          for (let m = k + 1; m < indices.length; m++) {
+            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
+              union(indices[k], indices[m]);
+            }
+          }
+        }
+      }
+    }
+
     let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
       // Yield to event loop if outer loop takes too long
@@ -1944,47 +2030,30 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       if (sizeA === 0) continue;
       const maxSizeB = sizeA / 0.60;
 
-      // Optimasi cho bucket lớn (như 'unknown' tỉnh): chỉ so sánh nếu có chung số hoặc định danh mạnh
-      const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
-      const hasStrongA = strongKeys.some(key => data[i].identifiers[key]) || (data[i].identifiers.plotNumber && data[i].identifiers.mapSheet);
-      const hasNumbersA = data[i].numbers.length > 0;
-
       for (let j = i + 1; j < data.length; j++) {
         if (j % 500 === 0 && Date.now() - lastYield > 20) {
-          await new Promise(r => setImmediate(r));
+          await new Promise(resolve => setImmediate(resolve));
           lastYield = Date.now();
         }
+        
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
-        if (sizeB > maxSizeB) continue;
-
-        // BƯỚC 0: Nếu bucket quá lớn, buộc phải có điểm chung tối thiểu để so sánh tiếp
-        if (isLargeBucket) {
-          const hasMatchingStrong = hasStrongA && hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers);
-          
-          if (!hasMatchingStrong) {
-            const hasNumbersB = data[j].numbers.length > 0;
-            if (!hasNumbersA || !hasNumbersB) continue; // Bucket lớn mà không có số hoặc không trùng định danh -> skip
-            
-            const commonNums = data[i].numbers.filter(t => data[j].numbers.includes(t));
-            if (commonNums.length === 0) continue; // Không chung số -> skip
-          }
-        }
-
-        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) continue;
         
-        if (hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers)) {
-          union(i, j);
+        // BREAK EARLY! Since data is sorted by size, all remaining sizeB will be > maxSizeB
+        if (sizeB > maxSizeB) break;
+
+        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
           continue;
         }
-        
+
         const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
         if (bothHaveNumbers) {
           const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length === 0) continue;
+          if (common.length === 0) continue; 
         }
-        
+
         const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
+
         if (coreSim >= 0.80) {
           union(i, j);
         } else if (bothHaveNumbers && coreSim >= 0.60) {
