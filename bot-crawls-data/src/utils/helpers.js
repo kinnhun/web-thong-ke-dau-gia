@@ -171,7 +171,7 @@ function extractPropertyIdentifiers(name) {
   if (certEntryMatch) ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '').toUpperCase();
 
   // 4. XE CỘ: Biển số, Số khung, Số máy (Bắt cả case viết tắt SK, SM)
-  const bksMatch = s.match(/(?:bien\s*so|bks|bs|bien\s*kiem\s*soat|so\s*xe)[:\s]*([0-9]{2}[a-zđ][a-z0-9]?[\s.-]*[0-9]{3,6})/i);
+  const bksMatch = s.match(/(?:bien\s*so|bks|bs|bien\s*kiem\s*soat|so\s*xe)[:\s]*([0-9]{2}[a-zđ][a-z0-9]?(?:[\s.-]*[0-9]){4,6})/i);
   if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.-]/g, '').toUpperCase();
 
   const skMatch = s.match(/(?:so\s*khung|sk)[:\s]*([a-z0-9]{6,25})/i);
@@ -191,13 +191,19 @@ function extractPropertyIdentifiers(name) {
   if (contractMatch) ids.contractNumber = contractMatch[1].replace(/[\s]/g, '').toUpperCase();
 
   // 6. MÁY MÓC / ĐIỆN TỬ: Serial, Model, SKU
-  const serialMatch = s.match(/(?:serial|seri|s\/n|sku|model|so\s*hieu|so\s*may)[:\s]*([a-z0-9\-]{5,25})/i);
+  const serialMatch = s.match(/(?:serial|seri|s\/n|sku|model|so\s*hieu)[:\s]*([a-z0-9\-]{5,25})/i);
   if (serialMatch) {
     ids.serialNumber = serialMatch[1].replace(/[\s.-]/g, '').toUpperCase();
   } else {
     // Alphanumeric codes (VD: PK123456, AB-1234) - fallback khi không có từ khoá
     const codeMatch = s.match(/\b([a-z]{1,4}[\-][0-9]{3,10}|[a-z]{1,4}[0-9]{3,10})\b/i);
-    if (codeMatch) ids.serialNumber = codeMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    if (codeMatch) {
+      const code = codeMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+      // Không lấy làm serial nếu nó trùng với biển số, số khung, số máy đã lấy
+      if (code !== ids.licensePlate && code !== ids.chassisNumber && code !== ids.engineNumber) {
+        ids.serialNumber = code;
+      }
+    }
   }
 
   // Diện tích (m2) - Lấy số lẻ thập phân để tăng độ chính xác
@@ -235,6 +241,12 @@ function extractPropertyIdentifiers(name) {
   // Trích xuất Quận/Huyện (District)
   const districtMatch = s.match(/(?:quan|huyen|thi\s*xa|tp|thanh\s*pho)\s+([a-z0-9\s]{2,30})(?:,|$|[\s]+(?:tinh|tp|thanh|hcm))/i);
   if (districtMatch) ids.district = districtMatch[1].trim();
+
+  // Trích xuất Số nhà (House number)
+  const houseMatch = s.match(/(?:so\s*nha|dia\s*chi|tai\s*so)\s*[:\.]?\s*([0-9]+[a-z]?[\/-]?[0-9]*[a-z]?)\b/i);
+  if (houseMatch && !/^(19|20)\d{2}$/.test(houseMatch[1])) {
+    ids.houseNumber = houseMatch[1].replace(/\s+/g, '').toUpperCase();
+  }
 
   return ids;
 }

@@ -580,7 +580,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     if (searchNumbers.length > 0) {
       const regexQueries = searchNumbers.map(num => ({ name: { $regex: "(^|\\s)" + escapeRegex(num) + "(\\s|$|\\.|,|\\)|/)", $options: 'i' } }));
       regexDbQuery = { 
-        $text: { $search: searchNumbers.map(n => `"${n}"`).join(' ') }, // ★ ÉP dùng Text Index, triệt tiêu hoàn toàn COLLSCAN
+        $text: { $search: searchNumbers.join(' ') }, // Dùng OR search thay vì AND (quotes) để không bắt buộc phải có tất cả các số
         $or: regexQueries 
       };
       if (provMatch) regexDbQuery.province = { $in: provMatch };
@@ -626,7 +626,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
         if (strongQueries.length > 0) {
             strongDbQuery = { 
-                $text: { $search: strongTokens.map(t => `"${t}"`).join(' ') }, // ★ ÉP dùng Text Index
+                $text: { $search: strongTokens.join(' ') },
                 $or: strongQueries 
             };
             if (provMatch) strongDbQuery.province = { $in: provMatch };
@@ -637,8 +637,8 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     const [apiRes, dbCandidates, dbCandidatesRegex, dbCandidatesStrong] = await Promise.all([
       fetchAPI(endpoint, payload).catch(err => { console.error(`[API Search] Lỗi ${sourceId}:`, err.message); return null; }),
       Model.find(dbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(300).select('sourceId name').lean(),
-      regexDbQuery ? Model.find(regexDbQuery).limit(100).select('sourceId name').lean() : Promise.resolve([]),
-      strongDbQuery ? Model.find(strongDbQuery).limit(100).select('sourceId name').lean() : Promise.resolve([])
+      regexDbQuery ? Model.find(regexDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(100).select('sourceId name').lean() : Promise.resolve([]),
+      strongDbQuery ? Model.find(strongDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(100).select('sourceId name').lean() : Promise.resolve([])
     ]);
 
     let apiCandidates = [];
