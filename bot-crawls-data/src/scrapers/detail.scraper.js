@@ -1943,7 +1943,8 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       const maxSizeB = sizeA / 0.60;
 
       // Optimasi cho bucket lớn (như 'unknown' tỉnh): chỉ so sánh nếu có chung số hoặc định danh mạnh
-      const hasStrongA = data[i].identifiers.strong.size > 0;
+      const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
+      const hasStrongA = strongKeys.some(key => data[i].identifiers[key]) || (data[i].identifiers.plotNumber && data[i].identifiers.mapSheet);
       const hasNumbersA = data[i].numbers.length > 0;
 
       for (let j = i + 1; j < data.length; j++) {
@@ -1953,8 +1954,7 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
 
         // BƯỚC 0: Nếu bucket quá lớn, buộc phải có điểm chung tối thiểu để so sánh tiếp
         if (isLargeBucket) {
-          const hasMatchingStrong = hasStrongA && data[j].identifiers.strong.size > 0 && 
-                                   [...data[i].identifiers.strong].some(id => data[j].identifiers.strong.has(id));
+          const hasMatchingStrong = hasStrongA && hasMatchingStrongIdentifiers(data[i].identifiers, data[j].identifiers);
           
           if (!hasMatchingStrong) {
             const hasNumbersB = data[j].numbers.length > 0;
