@@ -532,7 +532,7 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
 /**
  * Tìm các ID trùng lặp bằng cách kết hợp API search và Fuzzy Match local (>= 70% similarity)
  */
-async function searchDuplicatesByFuzzyName(sourceId, name, type) {
+async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch = false) {
   let relatedIds = [];
   try {
     if (!name || name.trim().length === 0) return [];
@@ -591,8 +591,11 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
     const strongKeys = [
       'licensePlate', 'chassisNumber', 'engineNumber', 
       'certificateNumber', 'certificateEntryNumber', 'shipNumber', 
-      'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'
+      'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName', 'apartment'
     ];
+    if (targetIdentifiers.houseNumber && (targetIdentifiers.houseNumber.includes('/') || targetIdentifiers.houseNumber.includes('-') || targetIdentifiers.houseNumber.length >= 3)) {
+        strongKeys.push('houseNumber');
+    }
     
     const hasAnyStrongKey = strongKeys.some(k => targetIdentifiers[k]) || (targetIdentifiers.plotNumber && targetIdentifiers.mapSheet);
 
@@ -635,10 +638,10 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type) {
 
     // ★ THỰC THI TẤT CẢ QUERIES (API + 3 DB QUERIES) SONG SONG
     const [apiRes, dbCandidates, dbCandidatesRegex, dbCandidatesStrong] = await Promise.all([
-      fetchAPI(endpoint, payload).catch(err => { console.error(`[API Search] Lỗi ${sourceId}:`, err.message); return null; }),
+      skipApiSearch ? Promise.resolve(null) : fetchAPI(endpoint, payload).catch(err => { console.error(`[API Search] Lỗi ${sourceId}:`, err.message); return null; }),
       Model.find(dbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(300).select('sourceId name').lean(),
-      regexDbQuery ? Model.find(regexDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(100).select('sourceId name').lean() : Promise.resolve([]),
-      strongDbQuery ? Model.find(strongDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(100).select('sourceId name').lean() : Promise.resolve([])
+      regexDbQuery ? Model.find(regexDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(200).select('sourceId name').lean() : Promise.resolve([]),
+      strongDbQuery ? Model.find(strongDbQuery, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).limit(200).select('sourceId name').lean() : Promise.resolve([])
     ]);
 
     let apiCandidates = [];

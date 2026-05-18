@@ -32,9 +32,9 @@ const tests = [
     t2: "Nhà ở và quyền sử dụng đất ở tại thửa đất số 22, tờ bản đồ số 17; địa chỉ thửa đất: 12-20 Lê Văn Hưu, phường Bến Nghé, Quận 1 (nay là phường Sài Gòn), Thành phố Hồ Chí Minh."
   },
   {
-    name: "Group 2: Giống hệt nhau",
+    name: "Group 2: 307429 vs 570882",
     t1: "Quyền sử dụng đất có diện tích 114,5m2 và nhà ở có diện tích xây dựng 72,2m2 thuộc thửa đất số 615 tờ bản đồ số 35 tọa lạc tại địa chỉ 55/5F ấp Trung Lân, xã Bà Điểm, huyện Hóc Môn, thành phố Hồ Chí Minh.",
-    t2: "Quyền sử dụng đất có diện tích 114,5m2 và nhà ở có diện tích xây dựng 72,2m2 thuộc thửa đất số 615 tờ bản đồ số 35 tọa lạc tại địa chỉ 55/5F ấp Trung Lân, xã Bà Điểm, huyện Hóc Môn, thành phố Hồ Chí Minh."
+    t2: "Quyền sử dụng đất, quyền sở hữu nhà ở và tài sản khác gắn liền với đất tại số 55/5F ấp Trung Lân, xã Bà Điểm, huyện Hóc Môn (nay là xã Bà Điểm), Thành phố Hồ Chí Minh."
   }
 ];
 
