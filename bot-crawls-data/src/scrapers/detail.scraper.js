@@ -131,6 +131,7 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
     type,
   });
 
+  let dup;
   if (existingDups.length > 0) {
     // Thu thập tất cả các ID từ các duplicate tìm được
     const existingIds = existingDups.reduce((acc, d) => acc.concat(d.sourceIds), []);

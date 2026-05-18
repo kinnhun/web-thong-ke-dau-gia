@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/auction/StatusBadge";
 import { useAuctions, useFilterOptions } from "@/domains/auction";
-import { formatDate, formatVND } from "@/lib/format";
+import { formatDate, formatVND, getFixedSourceUrl } from "@/lib/format";
 
 type SortKey = "newest" | "oldest" | "price_desc" | "price_asc";
 
@@ -314,7 +314,7 @@ export function ListingContainer({
                         <Link href={`/auction/${item.sourceId}`} className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
                           <FileText className="h-3.5 w-3.5" />
                         </Link>
-                        <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
+                        <a href={getFixedSourceUrl(item.sourceUrl, item.name, item.type, item.sourceId)} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                       </div>
@@ -383,7 +383,7 @@ export function ListingContainer({
                     </div>
                     {sourceUrl && (
                       <a
-                        href={sourceUrl}
+                        href={getFixedSourceUrl(sourceUrl, name, item.type, sourceId)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="shrink-0 p-1.5 rounded-lg hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-colors"

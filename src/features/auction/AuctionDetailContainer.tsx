@@ -28,7 +28,7 @@ import { DiscountBadge } from "@/components/auction/DiscountBadge";
 import { StatusBadge } from "@/components/auction/StatusBadge";
 import { AssetTypeIcon } from "@/components/auction/AssetTypeIcon";
 import { useAuctionDetail, assetTypeLabel } from "@/domains/auction";
-import { formatDate, formatVND } from "@/lib/format";
+import { formatDate, formatVND, getFixedSourceUrl } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useWatchlist } from "@/domains/watchlist/watchlist.hooks";
@@ -322,7 +322,7 @@ export function AuctionDetailContainer({ id }: AuctionDetailContainerProps) {
           </Button>
           {auction.sourceUrl && (
             <Button size="sm" asChild>
-              <a href={auction.sourceUrl} target="_blank" rel="noopener noreferrer">
+              <a href={getFixedSourceUrl(auction.sourceUrl, auction.name, auction.type, auction.sourceId)} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4" />Mở tin gốc
               </a>
             </Button>
