@@ -1932,10 +1932,12 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
 
     const isLargeBucket = data.length > 2000;
     
+    let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
-      // Yield to event loop every 100 outer iterations to prevent proxy socket hang up
-      if (i > 0 && i % 100 === 0) {
+      // Yield to event loop if outer loop takes too long
+      if (Date.now() - lastYield > 20) {
         await new Promise(r => setImmediate(r));
+        lastYield = Date.now();
       }
 
       const sizeA = data[i].coreBigrams.size;
@@ -1948,6 +1950,10 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       const hasNumbersA = data[i].numbers.length > 0;
 
       for (let j = i + 1; j < data.length; j++) {
+        if (j % 500 === 0 && Date.now() - lastYield > 20) {
+          await new Promise(r => setImmediate(r));
+          lastYield = Date.now();
+        }
         const sizeB = data[j].coreBigrams.size;
         if (sizeB === 0) continue;
         if (sizeB > maxSizeB) continue;
