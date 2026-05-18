@@ -1434,35 +1434,6 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       if (rootI !== rootJ) parent[rootI] = rootJ;
     };
 
-    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
-    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
-    const strongMap = new Map();
-    for (let i = 0; i < data.length; i++) {
-      const ids = data[i].identifiers;
-      for (const key of strongKeys) {
-        if (ids[key]) {
-          const hash = key + ':' + ids[key];
-          if (!strongMap.has(hash)) strongMap.set(hash, []);
-          strongMap.get(hash).push(i);
-        }
-      }
-      if (ids.plotNumber && ids.mapSheet) {
-        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
-        if (!strongMap.has(hash)) strongMap.set(hash, []);
-        strongMap.get(hash).push(i);
-      }
-    }
-    for (const indices of strongMap.values()) {
-      if (indices.length > 1) {
-        for (let k = 0; k < indices.length; k++) {
-          for (let m = k + 1; m < indices.length; m++) {
-            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
-              union(indices[k], indices[m]);
-            }
-          }
-        }
-      }
-    }
 
     // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
     const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
