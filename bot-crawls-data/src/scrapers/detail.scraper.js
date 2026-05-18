@@ -751,8 +751,7 @@ async function fetchAuctionItemDetail(sourceId) {
   const updates = {};
   let files = [];
   
-  // Tự động tạo URL gốc để vá lỗi thiếu URL
-  updates.sourceUrl = `https://dgts.moj.gov.vn/thong-bao-cong-khai/${sourceId}.html`;
+  // Bỏ tự động tạo URL gốc để tránh ghi đè làm mất slug của URL đã lưu
 
   // ⚡ Gọi 3 API song song thay vì tuần tự
   const [propResult, viewResult, pubResult] = await Promise.allSettled([
@@ -842,8 +841,7 @@ async function fetchOrgItemDetail(sourceId) {
   const updates = {};
   let files = [];
 
-  // Tự động tạo URL gốc
-  updates.sourceUrl = `https://dgts.moj.gov.vn/lua-chon-to-chuc/${sourceId}.html`;
+  // Bỏ tự động tạo URL gốc để tránh ghi đè làm mất slug của URL đã lưu
 
   // ⚡ Gọi 2 API song song
   const [propResult, editResult] = await Promise.allSettled([
