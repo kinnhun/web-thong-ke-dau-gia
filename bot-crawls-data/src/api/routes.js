@@ -792,7 +792,7 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
 
         if (type === 'auction') {
           const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
-          const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
+          const Duplicate = require('../models/Duplicate'); const existingDup = await Duplicate.findOne({ sourceIds: sourceId, type: 'auction' }); const duplicateIds = existingDup ? existingDup.sourceIds : []; const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...(item.relatedIds || []), ...duplicateIds, ...exactNameRelatedIds])];
           if (allRelatedIds.length > 0) {
             console.log(`[RECRAWL BG] Bắt đầu quét duplicate cho ${allRelatedIds.length} items...`);
             const relatedDetailStats = await recrawlMissingAuctionDetails([sourceId, ...allRelatedIds], { concurrency: 3 });
@@ -921,8 +921,13 @@ async function processRecrawlQueue() {
         if (files && files.length > 0) updates.files = files;
         await Model.updateOne({ _id: item._id }, { $set: updates });
 
-        if (type === 'auction' && updates.relatedIds && updates.relatedIds.length > 0) {
-          await handleDuplicate(sourceId, updates.name || item.name, updates.relatedIds, 'auction');
+        if (type === 'auction') {
+          const Duplicate = require('../models/Duplicate');
+          const existingDup = await Duplicate.findOne({ sourceIds: sourceId, type: 'auction' });
+          const idsToHandle = existingDup ? existingDup.sourceIds : (updates.relatedIds || item.relatedIds || []);
+          if (idsToHandle && idsToHandle.length > 0) {
+          await handleDuplicate(sourceId, updates.name || item.name, idsToHandle, 'auction');
+        }
         }
         console.log(`[QUEUE] ✅ #${sourceId} hoàn thành. Còn lại: ${_recrawlIdQueue.length}`);
       } catch (err) {
