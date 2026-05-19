@@ -235,15 +235,15 @@ function extractPropertyIdentifiers(name) {
 
 
   // Loại bỏ các cụm đổi tên hành chính (vd: "nay là...") để không làm đứt đoạn parse phường/quận
-  let sForAdmin = s.replace(/\s*\(\s*(?:nay|truoc|day|doi\s+ten)\s+(?:la|thanh)[^\)]+\)/gi, ' ');
-  sForAdmin = sForAdmin.replace(/\b(nay|truoc|day|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh|\s+phuong)/gi, ' ');
+  let sForAdmin = s.replace(/\s*\(\s*(?:nay|truoc\s+day|truoc|doi\s+ten)\s+(?:la|thanh)[^\)]+\)/gi, ' ');
+  sForAdmin = sForAdmin.replace(/\b(nay|truoc\s+day|truoc|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh|\s+phuong)/gi, ' ');
 
   // Trích xuất Phường/Xã (Commune)
-  const communeMatch = sForAdmin.match(/(?:phuong|xa|thi\s*tran)\s+([a-z0-9\s]{2,30})(?:,|$|[\s]+(?:quan|huyen|tp|thanh|hcm))/i);
+  const communeMatch = sForAdmin.match(/(?:phuong|xa|thi\s*tran)\s+([a-z0-9\s]{1,30})(?:,|$|[\s]+(?:quan|huyen|tp|thanh|hcm))/i);
   if (communeMatch) ids.commune = communeMatch[1].trim();
 
   // Trích xuất Quận/Huyện (District)
-  const districtMatch = sForAdmin.match(/(?:quan|huyen|thi\s*xa|tp|thanh\s*pho)\s+([a-z0-9\s]{2,30})(?:,|$|[\s]+(?:tinh|tp|thanh|hcm))/i);
+  const districtMatch = sForAdmin.match(/(?:quan|huyen|thi\s*xa|tp|thanh\s*pho)\s+([a-z0-9\s]{1,30})(?:,|$|[\s]+(?:tinh|tp|thanh|hcm))/i);
   if (districtMatch) ids.district = districtMatch[1].trim();
 
   // Trích xuất Số nhà (House number)
