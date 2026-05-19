@@ -190,6 +190,11 @@ export async function triggerRecrawlMissingProperties(limit = 50, type = 'auctio
   return data;
 }
 
+export async function triggerOrganizerMissingDetailCrawl(organizer: string) {
+  const { data } = await httpClient.post('/api/trigger-recrawl-missing-properties', { organizer, limit: 0, type: 'auction', concurrency: 100 });
+  return data;
+}
+
 export async function triggerKillRecrawlMissingProperties() {
   const { data } = await httpClient.post('/api/trigger-kill-recrawl-missing-properties');
   return data;

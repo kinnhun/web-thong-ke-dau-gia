@@ -1225,6 +1225,7 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
   const rawConcurrency = Number(req.body?.concurrency);
   const maxConcurrency = Math.max(1, Math.min(Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 100, 100));
   const type = req.body?.type || 'auction';
+  const organizer = req.body?.organizer;
   const staleThresholdMs = 30 * 60 * 1000;
   const maxFailedItems = 50;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1310,6 +1311,10 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
         ...isMissingNumber('currentPrice'),
       ],
     };
+
+  if (organizer) {
+    missingDetailQuery.organizer = { $regex: escapeRegex(organizer), $options: 'i' };
+  }
 
   try {
     const runningLog = await CrawlLog.findOne({

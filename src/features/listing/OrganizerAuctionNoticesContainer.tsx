@@ -52,7 +52,10 @@ import {
   statusLabel,
   type AssetType 
 } from "@/domains/auction";
-import { triggerOrganizerDuplicateScan } from "@/services/auction.service";
+import { 
+  triggerOrganizerDuplicateScan,
+  triggerOrganizerMissingDetailCrawl 
+} from "@/services/auction.service";
 import { formatDate, formatVND } from "@/lib/format";
 
 type SortKey = "newest" | "oldest" | "price_desc" | "price_asc";
@@ -194,6 +197,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   const totalPages = data?.pagination?.totalPages || 1;
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isCrawlingDetail, setIsCrawlingDetail] = useState(false);
 
   const handleSearch = () => {
     const newFilters = {
@@ -225,6 +229,26 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
       alert("Lỗi khi quét trùng lặp: " + (err.response?.data?.message || err.message));
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleCrawlMissingDetail = async () => {
+    if (!window.confirm(`Bạn có chắc chắn muốn cào lại chi tiết các tài sản bị thiếu cho đơn vị "${fixedOrganizer}"?`)) {
+      return;
+    }
+    
+    setIsCrawlingDetail(true);
+    try {
+      const res = await triggerOrganizerMissingDetailCrawl(fixedOrganizer);
+      if (res.success) {
+        alert(res.message + " Tiến trình đang chạy ngầm, vui lòng tải lại trang sau vài phút để xem kết quả.");
+      } else {
+        alert("Lỗi: " + res.message);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi cào chi tiết: " + (err.response?.data?.message || err.message));
+    } finally {
+      setIsCrawlingDetail(false);
     }
   };
 
@@ -379,6 +403,16 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
           <div className="flex gap-2 w-full sm:w-auto">
             <Button variant="ghost" size="sm" onClick={reset} className="flex-1 sm:flex-none">
               <RotateCcw className="h-3.5 w-3.5 mr-1" /> Đặt lại
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleCrawlMissingDetail} 
+              disabled={isCrawlingDetail}
+              className="flex-1 sm:flex-none text-blue-600 border-blue-200 hover:bg-blue-50"
+            >
+              {isCrawlingDetail ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Split className="h-3.5 w-3.5 mr-1" />}
+              Crawl chi tiết (Missing)
             </Button>
             <Button 
               variant="outline" 
