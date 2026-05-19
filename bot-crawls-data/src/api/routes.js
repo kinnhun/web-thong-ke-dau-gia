@@ -166,7 +166,8 @@ router.get('/auctions', async (req, res, next) => {
           currentPrice: dup.latestPrice || transformed.currentPrice,
           publishRound: dup.relistCount || transformed.publishRound,
           isAggregated: true,
-          duplicateId: dup._id.toString()
+          duplicateId: dup._id.toString(),
+          duplicateSourceIds: dup.sourceIds
         };
       }
       return transformed;

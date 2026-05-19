@@ -199,6 +199,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
 
   const [isScanning, setIsScanning] = useState(false);
   const [isCrawlingDetail, setIsCrawlingDetail] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState<{current: number, total: number, name: string} | null>(null);
 
   const handleSearch = () => {
     const newFilters = {
@@ -234,22 +235,73 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   };
 
   const handleCrawlMissingDetail = async () => {
-    if (!window.confirm(`Bạn có chắc chắn muốn cào lại chi tiết các tài sản bị thiếu cho đơn vị "${fixedOrganizer}"?`)) {
+    // 1. Lọc ra các bài viết thực sự thiếu dữ liệu trên trang hiện tại
+    const missingItems = items.filter((item: any) => {
+      if (!item.properties || item.properties.length === 0) return true;
+      return item.properties.some((p: any) => !p.place || !p.startPrice);
+    });
+
+    if (missingItems.length === 0) {
+      alert("Tất cả các tài sản trên trang này đều đã có đầy đủ chi tiết.");
+      return;
+    }
+
+    if (!window.confirm(`Phát hiện ${missingItems.length} bài viết thiếu chi tiết (Nơi có tài sản, giá...). Hệ thống sẽ quét và cào lại TỪNG BÀI MỘT để đảm bảo không bị sót. Quá trình này sẽ mất một khoảng thời gian, bạn có muốn tiếp tục?`)) {
       return;
     }
     
     setIsCrawlingDetail(true);
     try {
-      const res = await triggerOrganizerMissingDetailCrawl(fixedOrganizer);
-      if (res.success) {
-        alert(res.message + " Tiến trình đang chạy ngầm, vui lòng tải lại trang sau vài phút để xem kết quả.");
-      } else {
-        alert("Lỗi: " + res.message);
+      const { triggerRecrawlRelated, fetchAuctionDetail } = await import("@/services/auction.service");
+      
+      let count = 1;
+      for (const item of missingItems) {
+        setCrawlProgress({ current: count, total: missingItems.length, name: item.name || '' });
+        
+        // Lấy tất cả ID liên quan của bài viết này
+        const sourceIdsToCrawl = new Set<number>();
+        if (item.duplicateSourceIds && item.duplicateSourceIds.length > 0) {
+          item.duplicateSourceIds.forEach((id: number) => sourceIdsToCrawl.add(id));
+        } else {
+          sourceIdsToCrawl.add(item.sourceId);
+        }
+        
+        const idsArray = Array.from(sourceIdsToCrawl);
+        
+        // Gọi trigger cào cho nhóm này
+        await triggerRecrawlRelated(idsArray, 'auction');
+        
+        // Polling để kiểm tra xem đã cào xong chưa
+        let isFixed = false;
+        let attempts = 0;
+        const maxAttempts = 10; // Đợi tối đa 50 giây (10 * 5s) cho mỗi item
+        
+        while (!isFixed && attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 5000));
+          try {
+            const freshData = await fetchAuctionDetail(item.sourceId.toString());
+            const hasProperties = freshData.properties && freshData.properties.length > 0;
+            const isMissingFields = hasProperties && freshData.properties.some((p: any) => !p.place || !p.startPrice);
+            
+            if (hasProperties && !isMissingFields) {
+              isFixed = true; // Đã lấy được dữ liệu chi tiết
+            }
+          } catch (e) {
+            // Bỏ qua lỗi mạng
+          }
+          attempts++;
+        }
+        
+        count++;
       }
+
+      setCrawlProgress(null);
+      alert(`Đã hoàn tất kiểm tra và cào chi tiết cho ${missingItems.length} bài viết! Vui lòng tải lại trang (F5) để xem kết quả cập nhật.`);
     } catch (err: any) {
       alert("Lỗi khi cào chi tiết: " + (err.response?.data?.message || err.message));
     } finally {
       setIsCrawlingDetail(false);
+      setCrawlProgress(null);
     }
   };
 
@@ -413,7 +465,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
               className="flex-1 sm:flex-none text-blue-600 border-blue-200 hover:bg-blue-50"
             >
               {isCrawlingDetail ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Split className="h-3.5 w-3.5 mr-1" />}
-              Crawl chi tiết (Missing)
+              {crawlProgress ? `Đang xử lý ${crawlProgress.current}/${crawlProgress.total}` : "Crawl chi tiết (Missing)"}
             </Button>
             <Button 
               variant="outline" 
@@ -430,6 +482,11 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
             </Button>
           </div>
         </div>
+        {crawlProgress && (
+          <div className="text-xs text-blue-600 mt-2 p-2 bg-blue-50 border border-blue-100 rounded-md animate-pulse">
+            <span className="font-semibold">Đang cào dữ liệu cho tài sản:</span> {crawlProgress.name}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between">
