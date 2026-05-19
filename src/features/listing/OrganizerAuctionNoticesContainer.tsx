@@ -239,7 +239,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     const missingItems = items.filter((item: any) => {
       if (!item.properties || item.properties.length === 0) return true;
       return item.properties.some((p: any) => !p.place || !p.startPrice);
-    });
+    }) as any[];
 
     if (missingItems.length === 0) {
       alert("Tất cả các tài sản trên trang này đều đã có đầy đủ chi tiết.");
