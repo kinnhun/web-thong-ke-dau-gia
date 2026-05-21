@@ -23,6 +23,43 @@ async function refreshStats() {
 
   try {
     const nowDate = new Date();
+
+    // Automatically sync/update statuses based on current time
+    const completedRes = await AuctionNotice.updateMany(
+      {
+        auctionDate: { $lt: nowDate },
+        status: { $ne: 'completed' }
+      },
+      {
+        $set: { status: 'completed' }
+      }
+    );
+    const receivingRes = await AuctionNotice.updateMany(
+      {
+        registrationEnd: { $gt: nowDate },
+        status: { $ne: 'receiving_docs' }
+      },
+      {
+        $set: { status: 'receiving_docs' }
+      }
+    );
+    const upcomingRes = await AuctionNotice.updateMany(
+      {
+        auctionDate: { $gt: nowDate },
+        $or: [
+          { registrationEnd: { $lte: nowDate } },
+          { registrationEnd: null }
+        ],
+        status: { $ne: 'upcoming' }
+      },
+      {
+        $set: { status: 'upcoming' }
+      }
+    );
+    if (completedRes.modifiedCount > 0 || receivingRes.modifiedCount > 0 || upcomingRes.modifiedCount > 0) {
+      console.log(`[STATUS-SYNC] Updated statuses: completed (+${completedRes.modifiedCount}), receiving_docs (+${receivingRes.modifiedCount}), upcoming (+${upcomingRes.modifiedCount})`);
+    }
+
     const threeDaysAgo = new Date(nowDate - 3 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(nowDate - 7 * 24 * 60 * 60 * 1000);
 
