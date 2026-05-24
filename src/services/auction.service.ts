@@ -200,6 +200,16 @@ export async function triggerKillRecrawlMissingProperties() {
   return data;
 }
 
+export async function triggerRecrawlMissingPrice(limit = 0, type = 'auction', concurrency = 100) {
+  const { data } = await httpClient.post('/api/trigger-recrawl-missing-price', { limit, type, concurrency });
+  return data;
+}
+
+export async function triggerKillRecrawlMissingPrice() {
+  const { data } = await httpClient.post('/api/trigger-kill-recrawl-missing-price');
+  return data;
+}
+
 export async function triggerMegaDetailCrawl(limit = 0, type = 'auction', concurrency = 10000) {
   const { data } = await httpClient.post('/api/trigger-mega-detail-crawl', { limit, type, concurrency });
   return data;

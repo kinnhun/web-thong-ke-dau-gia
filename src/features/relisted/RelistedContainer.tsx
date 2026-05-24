@@ -547,15 +547,10 @@ export function RelistedContainer() {
                         <AssetTypeIcon type={a.type} className="mt-0.5 shrink-0 text-muted-foreground" />
                         <div className="min-w-0 space-y-2">
                           <Link href={`/auction/${a.sourceId}`} className="group block">
-                            <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">
+                            {/* <div className="font-medium leading-6 whitespace-normal break-words group-hover:text-primary line-clamp-3">
                               {displayTitle}
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
-                            </div>
-                          </Link>
-                          
-                          <div className="text-xs text-muted-foreground space-y-1.5 pt-2 border-t border-border/40">
+                            </div> */}
+                              <div className="text-xs text-muted-foreground space-y-1.5 pt-2 border-t border-border/40">
                             <div className="space-y-1 whitespace-normal break-words">
                               {propertyLines.map((line, index) => (
                                 <div key={`${a._id}-property-${index}`} className="font-medium text-foreground whitespace-normal break-words">
@@ -572,6 +567,12 @@ export function RelistedContainer() {
                               Tình trạng: <span className="text-foreground/80">{a.status}</span>
                             </div>
                           </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Mã tin: <span className="font-medium text-foreground/80">{a.sourceId}</span>
+                            </div>
+                          </Link>
+                          
+                        
                         </div>
                       </div>
                     </td>

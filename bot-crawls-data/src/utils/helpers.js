@@ -12,11 +12,6 @@ function removeDiacritics(str) {
  * phường/quận, ngày tháng, ngoặc đơn. Chỉ giữ lại phần phân biệt: số nhà + tên đường,
  * thửa đất, biển số xe, v.v.
  */
-/**
- * Trích xuất "lõi danh tính" tài sản — loại bỏ toàn bộ văn bản pháp lý, tỉnh/thành,
- * phường/quận, ngày tháng, ngoặc đơn. Chỉ giữ lại phần phân biệt: số nhà + tên đường,
- * thửa đất, biển số xe, v.v.
- */
 function extractCoreIdentity(name) {
   if (!name) return '';
   let s = removeDiacritics(name.normalize('NFC').toLowerCase());
@@ -47,6 +42,9 @@ function extractCoreIdentity(name) {
   s = s.replace(/tai dia chi\s*(so)?:?/g, ' ');
   s = s.replace(/nha dat\s*(so)?/g, ' ');
   s = s.replace(/can ho\s*(so)?/g, ' ');
+  s = s.replace(/can nha\s*(so)?/g, ' ');
+  s = s.replace(/\bcan\b/g, ' ');
+  s = s.replace(/\bnha\b/g, ' ');
   s = s.replace(/thua dat\s*(so)?/g, ' ');
   s = s.replace(/to ban do\s*(so)?/g, ' ');
 
@@ -80,11 +78,15 @@ function extractCoreIdentity(name) {
   s = s.replace(/theo quy dinh cua phap luat/g, ' ');
   s = s.replace(/tu nguyen thao do de tra lai hien trang/g, ' ');
   s = s.replace(/thong tin tai san theo/g, ' ');
+  s = s.replace(/toa lac tai/g, ' ');
+  s = s.replace(/toa lac/g, ' ');
 
   // 3. Xoá tên tỉnh/thành phố
   s = s.replace(/thanh pho ho chi minh/g, ' ');
   s = s.replace(/tp\.?\s*ho chi minh/g, ' ');
   s = s.replace(/tp\.?\s*hcm/g, ' ');
+  s = s.replace(/\btphcm\b/g, ' ');
+  s = s.replace(/\bhcm\b/g, ' ');
   const provNamesNoDiac = [
     'an giang','ba ria vung tau','bac giang','bac kan','bac lieu','bac ninh','ben tre',
     'binh dinh','binh duong','binh phuoc','binh thuan','ca mau','cao bang','dak lak',
@@ -100,23 +102,23 @@ function extractCoreIdentity(name) {
     s = s.replace(new RegExp('\\b' + p.replace(/ /g, '\\s+') + '\\b', 'g'), ' ');
   }
 
+  // 7. Xoá các cụm thay đổi tên hành chính (nay là, trước đây là...)
+  s = s.replace(/\b(nay|truoc|day|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+(quan|q|huyen|tinh|phuong|p)\b)/g, ' ');
+
+  // 8. Xoá đơn vị hành chính kèm TÊN (ví dụ: phường Võ Thị Sáu, quận Bình Thạnh)
+  s = s.replace(/\b(phuong|p)\b\.?\s*[a-z0-9\s]{1,30}(?=,|$|\s+(quan|q|huyen|xa|tp|thanh pho|phuong|p)\b)/g, ' ');
+  s = s.replace(/\b(quan|q)\b\.?\s*[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|tp|thanh pho|quan|q|huyen)\b)/g, ' ');
+  s = s.replace(/\b(xa|huyen|thi\s*xa|thi\s*tran)\b\.?\s*[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|thanh pho|quan|q|huyen|xa)\b)/g, ' ');
+
   // 4. Xoá đơn vị hành chính kèm số (VD: phường 12, quận 1, p1, q1)
   s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, ' ');
 
   // 5. Xoá nhãn đơn vị hành chính
-  s = s.replace(/\b(phuong|quan|huyen|thi xa|thi tran|xa|tinh|thanh pho|khu pho|to dan pho)\b/g, ' ');
+  s = s.replace(/\b(phuong|quan|huyen|thi xa|thi tran|xa|tinh|thanh pho|khu pho|to dan pho|p|q)\b/g, ' ');
 
   // 6. Xoá ngày tháng năm
   s = s.replace(/\b(ngay|thang|nam)\s*\d+([\/\-]\d+)*\b/g, ' ');
   s = s.replace(/\b(19\d{2}|20\d{2})\b/g, ' ');
-
-  // 7. Xoá các cụm thay đổi tên hành chính (nay là, trước đây là...)
-  s = s.replace(/\b(nay|truoc|day|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh|\s+phuong)/g, ' ');
-
-  // 8. Xoá đơn vị hành chính kèm TÊN (ví dụ: phường Võ Thị Sáu, quận Bình Thạnh)
-  s = s.replace(/\b(phuong|p)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(quan|q\.?|huyen|xa|tp|thanh pho))/g, ' ');
-  s = s.replace(/\b(quan|q)\.?\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|tp|thanh pho))/g, ' ');
-  s = s.replace(/\b(xa|huyen|thi xa|thi tran)\s+[a-z0-9\s]{1,30}(?=,|$|\s+(tinh|thanh pho))/g, ' ');
 
   // 9. Xoá các đặc điểm kỹ thuật rác (diện tích xây dựng, sàn, kết cấu...)
   s = s.replace(/dien tich (xay dung|su dung|san|rieng|chung)[\s\d,\.m2]{1,30}/g, ' ');
@@ -129,7 +131,7 @@ function extractCoreIdentity(name) {
   s = s.replace(/nguon goc su dung dat:?\s*[a-z0-9\s,]{1,100}/g, ' ');
 
   // 10. Xoá stop words (thêm các từ thừa thãi trong đấu giá)
-  s = s.replace(/\b(so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia|thua|to|ban|do|giay|chung|nhan|qsdd|tai|san|gan|lien|dat|gom|gom|bao|thanh|hinh|thuc|muc|dich|thoi|han|nguon|goc|nhu|theo|chi|phi|chiu|thong|tin|bien|ban|ke|bien|xu|ly|luc|gio|phut|chi|cuc|thi|hanh|an|dan|su|lo|gioi|nguoi|chuc|dau|gia|ubnd|thoi|diem|duoc|xay|dung|chu|nguyen|thao|gia|khoi|diem|buoc|tien|dat|truoc|ho|so)\b/g, ' ');
+  s = s.replace(/\b(can|nha|so|tai|va|cua|o|voi|cac|mot|la|cho|den|tren|duoi|trong|ngoai|nay|truoc|day|sau|lien|ke|dia chi|dia|thua|to|ban|do|giay|chung|nhan|qsdd|tai|san|gan|lien|dat|gom|gom|bao|thanh|hinh|thuc|muc|dich|thoi|han|nguon|goc|nhu|theo|chi|phi|chiu|thong|tin|bien|ban|ke|bien|xu|ly|luc|gio|phut|chi|cuc|thi|hanh|an|dan|su|lo|gioi|nguoi|chuc|dau|gia|ubnd|thoi|diem|duoc|xay|dung|chu|nguyen|thao|gia|khoi|diem|buoc|tien|dat|truoc|ho|so)\b/g, ' ');
 
   // 11. Dọn dẹp
   s = s.replace(/[,\.\(\):\-;"']/g, ' ').replace(/\s+/g, ' ').trim();
@@ -144,7 +146,11 @@ function extractCoreIdentity(name) {
  */
 function extractPropertyIdentifiers(name) {
   if (!name) return {};
-  const s = removeDiacritics(name.toLowerCase());
+  let s = removeDiacritics(name.toLowerCase());
+  // Xoá toạ lạc trước khi phân tích
+  s = s.replace(/toa lac tai/g, ' ');
+  s = s.replace(/toa lac/g, ' ');
+  
   const ids = {};
 
   // 1. ĐẤT ĐAI: Thửa đất & Tờ bản đồ (Thêm các case viết tắt Thửa: X, Tờ: Y)
@@ -159,15 +165,15 @@ function extractPropertyIdentifiers(name) {
   if (aptMatch) ids.apartment = aptMatch[1].toUpperCase();
 
   const blockMatch = s.match(/(?:toa\s*nha|toa|block|thap|tower|building)\s*[:\.]?\s*([a-z0-9]+)/i);
-  if (blockMatch && blockMatch[1] && !/^(phuong|xa|quan|huyen|tinh)$/i.test(blockMatch[1])) {
+  if (blockMatch && blockMatch[1] && !/^(phuong|xa|quan|huyen|tinh|lac|do)$/i.test(blockMatch[1])) {
     ids.block = blockMatch[1].toUpperCase();
   }
 
   // 3. GIẤY TỜ PHÁP LÝ: GCN, Sổ đỏ, Sổ hồng, Số seri phát hành
-  const certMatch = s.match(/(?:gcn|qsdd|so\s*do|so\s*hong|giay\s*chung\s*nhan|phat\s*hanh|seri|số\s*hiệu)[^\d]{0,50}\b([a-z]{1,2}\s*[0-9]{4,9})\b/i);
+  const certMatch = s.match(/(?:gcn|qsdd|so\s*do|so\s*hong|giay\s*chung\s*nhan|phat\s*hanh|seri|so\s*hieu)[^\d]{0,50}\b([a-z]{1,2}\s*[0-9]{4,9})\b/i);
   if (certMatch) ids.certificateNumber = certMatch[1].replace(/\s+/g, '').toUpperCase();
 
-  const certEntryMatch = s.match(/(?:vao\s*so\s*cap|so\s*vao\s*so|vào\s*sổ)[^\d]{0,30}\b([a-z]{1,2}\s*[0-9]{3,9})\b/i);
+  const certEntryMatch = s.match(/(?:vao\s*so\s*cap|so\s*vao\s*so|vao\s*so)[^\d]{0,30}\b([a-z]{1,2}\s*[0-9]{3,9})\b/i);
   if (certEntryMatch) ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '').toUpperCase();
 
   // 4. XE CỘ: Biển số, Số khung, Số máy (Bắt cả case viết tắt SK, SM)
@@ -233,21 +239,42 @@ function extractPropertyIdentifiers(name) {
   const stockMatch = s.match(/(\d+(?:[\.,]\d+)?)\s*(?:co\s*phan|co\s*phieu)/i);
   if (stockMatch) ids.stockAmount = stockMatch[1].replace(/[,\.]/g, '');
 
+  // Trích xuất Phường/Xã và Quận/Huyện dưới dạng danh sách (để hỗ trợ đổi tên hành chính)
+  // Xoá boilerplate đổi tên nhưng GIỮ LẠI các tên địa danh để trích xuất
+  let sCleanParen = s.replace(/\(\s*(?:nay|truoc\s+day|truoc|doi\s+ten)\s+(?:la|thanh)\s*/gi, ' ');
+  sCleanParen = sCleanParen.replace(/[\(\)]/g, ' ');
 
-  // Loại bỏ các cụm đổi tên hành chính (vd: "nay là...") để không làm đứt đoạn parse phường/quận
-  let sForAdmin = s.replace(/\s*\(\s*(?:nay|truoc\s+day|truoc|doi\s+ten)\s+(?:la|thanh)[^\)]+\)/gi, ' ');
-  sForAdmin = sForAdmin.replace(/\b(nay|truoc\s+day|truoc|doi ten)\s+(la|thanh|la\s+phuong|la\s+quan)\s+[a-z0-9\s]{1,30}(?=,|$|\s+quan|\s+huyen|\s+tinh|\s+phuong)/gi, ' ');
+  const communes = [];
+  const communeRegex = /\b(?:phuong\b|xa\b|thi\s*tran\b|p(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:quan\b|huyen\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
+  let comMatch;
+  while ((comMatch = communeRegex.exec(sCleanParen)) !== null) {
+    const com = comMatch[1].trim();
+    if (!communes.includes(com)) communes.push(com);
+  }
+  if (communes.length > 0) {
+    ids.communes = communes;
+    ids.commune = communes[0];
+  }
 
-  // Trích xuất Phường/Xã (Commune)
-  const communeMatch = sForAdmin.match(/(?:phuong|xa|thi\s*tran)\s+([a-z0-9\s]{1,30})(?:,|$|[\s]+(?:quan|huyen|tp|thanh|hcm))/i);
-  if (communeMatch) ids.commune = communeMatch[1].trim();
-
-  // Trích xuất Quận/Huyện (District)
-  const districtMatch = sForAdmin.match(/(?:quan|huyen|thi\s*xa|tp|thanh\s*pho)\s+([a-z0-9\s]{1,30})(?:,|$|[\s]+(?:tinh|tp|thanh|hcm))/i);
-  if (districtMatch) ids.district = districtMatch[1].trim();
+  const districts = [];
+  const districtRegex = /\b(?:quan\b|huyen\b|thi\s*xa\b|tp\b|thanh\s*pho\b|q(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:tinh\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
+  let distMatch;
+  while ((distMatch = districtRegex.exec(sCleanParen)) !== null) {
+    const dist = distMatch[1].trim();
+    if (!/^(ho chi minh|hcm|tphcm)$/i.test(dist)) {
+      if (!districts.includes(dist)) districts.push(dist);
+    }
+  }
+  if (districts.length > 0) {
+    ids.districts = districts;
+    ids.district = districts[0];
+  }
 
   // Trích xuất Số nhà (House number)
-  const houseMatch = s.match(/(?:so\s*nha|dia\s*chi|tai\s*so)\s*[:\.]?\s*([0-9]+[a-z]?[\/-]?[0-9]*[a-z]?)\b/i);
+  let houseMatch = s.match(/(?:so\s*nha|dia\s*chi|tai\s*so|nha\s*o\s*so|nha\s*dat\s*so|nha\s*so|toa\s*lac\s*tai|toa\s*lac)\s*[:\.]?\s*([0-9]+[a-z]?[\/-]?[0-9]*[a-z]?)\b/i);
+  if (!houseMatch) {
+    houseMatch = s.match(/\bso\s*[:\.]?\s*([0-9]+[a-z]?[\/-]+[0-9]*[a-z]?)\b/i);
+  }
   if (houseMatch && !/^(19|20)\d{2}$/.test(houseMatch[1])) {
     ids.houseNumber = houseMatch[1].replace(/\s+/g, '').toUpperCase();
   }
@@ -275,10 +302,24 @@ function hasConflictingIdentifiers(idsA, idsB) {
     }
   }
 
-  // Conflict địa phương (Nếu cùng Tỉnh mà khác Huyện hoặc khác Xã thì là KHÁC tài sản)
-  // Chỉ so sánh nếu cả 2 cùng có trường đó
-  if (idsA.district && idsB.district && idsA.district !== idsB.district) return true;
-  if (idsA.commune && idsB.commune && idsA.commune !== idsB.commune) return true;
+  // So sánh arrays communes và districts (nếu có) để tránh conflict khi đổi tên hành chính
+  if (idsA.districts && idsB.districts) {
+    const commonDist = idsA.districts.filter(d => idsB.districts.includes(d));
+    if (idsA.districts.length > 0 && idsB.districts.length > 0 && commonDist.length === 0) {
+      return true;
+    }
+  } else if (idsA.district && idsB.district && idsA.district !== idsB.district) {
+    return true;
+  }
+
+  if (idsA.communes && idsB.communes) {
+    const commonCom = idsA.communes.filter(c => idsB.communes.includes(c));
+    if (idsA.communes.length > 0 && idsB.communes.length > 0 && commonCom.length === 0) {
+      return true;
+    }
+  } else if (idsA.commune && idsB.commune && idsA.commune !== idsB.commune) {
+    return true;
+  }
 
   // Conflict diện tích (độ lệch cho phép < 2m2)
   if (idsA.area && idsB.area) {

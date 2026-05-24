@@ -127,6 +127,9 @@ router.get('/auctions', async (req, res, next) => {
       }
       if (Object.keys(filter.publishedAt).length === 0) delete filter.publishedAt;
     }
+    if (req.query.missingPrice === 'true') {
+      filter.initialPrice = { $in: [null, 0] };
+    }
     let sortField = req.query.sort || 'publishedAt';
     let sortOrder = req.query.order === 'asc' ? 1 : -1;
 
@@ -788,7 +791,17 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
         updates.lastCrawledAt = new Date();
         if (files && files.length > 0) updates.files = files;
 
-        await Model.updateOne({ _id: item._id }, { $set: updates });
+        const priceField = type === 'org' ? 'startingPrice' : 'initialPrice';
+        const isStillMissingPrice = !updates.properties || updates.properties.length === 0 || !updates[priceField];
+
+        const update = { $set: updates };
+        if (isStillMissingPrice) {
+          update.$inc = { zeroPriceRetryCount: 1 };
+        } else {
+          updates.zeroPriceRetryCount = 0;
+        }
+
+        await Model.updateOne({ _id: item._id }, update);
         console.log(`[RECRAWL BG] Đã cập nhật DB thành công cho #${sourceId}.`);
 
         if (type === 'auction') {
@@ -1645,6 +1658,410 @@ router.post('/trigger-kill-recrawl-missing-properties', async (req, res, next) =
     res.json({
       success: true,
       message: 'Đã gửi yêu cầu dừng job sửa dữ liệu lỗi. Job sẽ dừng sau khi batch hiện tại hoàn tất.',
+      logId: runningLog._id,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+let _recrawlMissingPriceCancelRequested = false;
+
+router.post('/trigger-recrawl-missing-price', async (req, res, next) => {
+  const { fetchAuctionItemDetail, fetchOrgItemDetail } = require('../scrapers/detail.scraper');
+  const { closeBrowser } = require('../browser');
+  const rawLimit = Number(req.body?.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
+  const rawConcurrency = Number(req.body?.concurrency);
+  const maxConcurrency = Math.max(1, Math.min(Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 100, 100));
+  const type = req.body?.type || 'auction';
+  const organizer = req.body?.organizer;
+  const staleThresholdMs = 30 * 60 * 1000;
+  const maxFailedItems = 50;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  const Model = type === 'org' ? OrgSelection : AuctionNotice;
+  const fetchFn = type === 'org' ? fetchOrgItemDetail : fetchAuctionItemDetail;
+  _recrawlMissingPriceCancelRequested = false;
+
+  const missingPriceQuery = type === 'org'
+    ? {
+        $and: [
+          {
+            $or: [
+              { startingPrice: { $exists: false } },
+              { startingPrice: null },
+              { startingPrice: 0 }
+            ]
+          },
+          {
+            $or: [
+              { zeroPriceRetryCount: { $exists: false } },
+              { zeroPriceRetryCount: { $lt: 2 } }
+            ]
+          }
+        ]
+      }
+    : {
+        $and: [
+          {
+            $or: [
+              { initialPrice: { $exists: false } },
+              { initialPrice: null },
+              { initialPrice: 0 }
+            ]
+          },
+          {
+            $or: [
+              { zeroPriceRetryCount: { $exists: false } },
+              { zeroPriceRetryCount: { $lt: 2 } }
+            ]
+          }
+        ]
+      };
+
+  if (organizer) {
+    missingPriceQuery.organizer = { $regex: escapeRegex(organizer), $options: 'i' };
+  }
+
+  try {
+    const runningLog = await CrawlLog.findOne({
+      type: 'recrawl_missing_price',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Tiến trình cào lại tài sản thiếu giá cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép chạy lại.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: 'Đang có tiến trình cào lại tài sản thiếu giá chạy nền. Vui lòng theo dõi trong Nhật ký crawl.',
+          logId: runningLog._id,
+          startedAt: runningLog.startedAt || runningLog.createdAt,
+          updatedAt: runningLog.updatedAt,
+        });
+      }
+    }
+
+    const totalScanned = await Model.countDocuments();
+    const matchedCount = await Model.countDocuments(missingPriceQuery);
+    const effectiveMatchedCount = limit > 0 ? Math.min(matchedCount, limit) : matchedCount;
+    const skippedCompleteCount = Math.max(totalScanned - effectiveMatchedCount, 0);
+
+    const log = await CrawlLog.create({
+      type: 'recrawl_missing_price',
+      startedAt: new Date(),
+      status: 'running',
+      totalPages: effectiveMatchedCount,
+      pagesProcessed: 0,
+      itemsInserted: totalScanned,
+      itemsUpdated: 0,
+      itemsSkipped: skippedCompleteCount,
+      errorMessages: [],
+      recentNotices: [],
+    });
+
+    (async () => {
+      let cursor = null;
+
+      try {
+        const query = Model.find(missingPriceQuery)
+          .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
+          .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 })
+          .batchSize(Math.max(maxConcurrency * 2, 100))
+          .lean();
+
+        if (limit > 0) {
+          query.limit(limit);
+        }
+
+        cursor = query.cursor();
+        const failedItems = [];
+        const recentNotices = [];
+        let ok = 0;
+        let fail = 0;
+        let processed = 0;
+
+        console.log(`[RECRAWL-PRICE] Đã quét ${totalScanned} ${type}, tìm thấy ${effectiveMatchedCount} thiếu giá`);
+
+        function getErrorMessage(error) {
+          return error?.message || String(error);
+        }
+
+        function isLikelyBlockedMessage(message) {
+          return /HTTP\s*(403|406|429)|ERR_BLOCKED|Too Many Requests|rate|captcha|FEC|Forbidden/i.test(message);
+        }
+
+        function isTransientMessage(message) {
+          return /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket|Target closed|Session closed|Protocol error|Execution context/i.test(message);
+        }
+
+        function pushFailure(sourceId, message) {
+          failedItems.push({ sourceId, message });
+          if (failedItems.length > maxFailedItems) {
+            failedItems.splice(0, failedItems.length - maxFailedItems);
+          }
+        }
+
+        async function fetchItemDetailWithRetry(item) {
+          let lastError;
+          for (let attempt = 1; attempt <= 2; attempt += 1) {
+            try {
+              return await fetchFn(item.sourceId);
+            } catch (error) {
+              lastError = error;
+              const message = getErrorMessage(error);
+              if (isLikelyBlockedMessage(message) || !isTransientMessage(message) || attempt >= 2) {
+                throw error;
+              }
+              await sleep(1000 * attempt);
+            }
+          }
+          throw lastError;
+        }
+
+        async function processItem(item) {
+          const { updates, files } = await fetchItemDetailWithRetry(item);
+          updates.detailScraped = true;
+          updates.lastCrawledAt = new Date();
+          if (files && files.length > 0) updates.files = files;
+
+          const priceField = type === 'org' ? 'startingPrice' : 'initialPrice';
+          const isStillMissingPrice = !updates.properties || updates.properties.length === 0 || !updates[priceField];
+
+          const update = { $set: updates };
+          if (isStillMissingPrice) {
+            update.$inc = { zeroPriceRetryCount: 1 };
+          } else {
+            updates.zeroPriceRetryCount = 0;
+          }
+
+          return {
+            updateOne: {
+              filter: { _id: item._id },
+              update,
+            },
+            notice: {
+              sourceId: item.sourceId,
+              name: updates.name || item.name,
+              province: updates.province || item.province,
+              publishedAt: updates.publishedAt || item.publishedAt,
+            },
+          };
+        }
+
+        async function processChunk(chunk) {
+          const results = await Promise.allSettled(chunk.map(processItem));
+          const operations = [];
+          const notices = [];
+          const errors = [];
+          let savedCount = 0;
+          let failedCount = 0;
+
+          for (let index = 0; index < results.length; index += 1) {
+            const result = results[index];
+            const item = chunk[index];
+
+            if (result.status === 'fulfilled') {
+              operations.push(result.value);
+              notices.push(result.value.notice);
+            } else {
+              fail++;
+              failedCount++;
+              const message = getErrorMessage(result.reason);
+              errors.push(message);
+              pushFailure(item.sourceId, message);
+              console.error(`[RECRAWL-PRICE] ❌ ${item.sourceId}:`, message);
+            }
+          }
+
+          if (operations.length === 0) {
+            return { ok: 0, fail: errors.length, blocked: isLikelyBlocked(errors) };
+          }
+
+          try {
+            await Model.bulkWrite(operations.map((operation) => operation.updateOne), { ordered: false });
+            ok += operations.length;
+            savedCount = operations.length;
+            for (const notice of notices) {
+              if (recentNotices.length < 5) {
+                recentNotices.push(notice);
+              }
+            }
+          } catch (err) {
+            fail += operations.length;
+            failedCount += operations.length;
+            const message = getErrorMessage(err);
+            for (const notice of notices.slice(-10)) {
+              pushFailure(notice.sourceId, `bulkWrite: ${message}`);
+            }
+            console.error(`[RECRAWL-PRICE] ❌ bulkWrite failed:`, message);
+            errors.push(message);
+          }
+
+          return { ok: savedCount, fail: failedCount, blocked: isLikelyBlocked(errors) };
+        }
+
+        function isLikelyBlocked(errors) {
+          return errors.some(isLikelyBlockedMessage);
+        }
+
+        let chunk = [];
+        let activeConcurrency = maxConcurrency;
+        let stableChunks = 0;
+
+        for await (const item of cursor) {
+          if (_recrawlMissingPriceCancelRequested) {
+            log.status = 'early_stopped';
+            log.finishedAt = new Date();
+            log.errorMessages = [...failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-9), 'Đã dừng job cào lại tài sản thiếu giá theo yêu cầu.'].slice(-10);
+            await log.save();
+            console.warn('[RECRAWL-PRICE] Job stopped by user request');
+            return;
+          }
+
+          chunk.push(item);
+
+          if (chunk.length < activeConcurrency) {
+            continue;
+          }
+
+          const chunkStats = await processChunk(chunk);
+          processed += chunk.length;
+          chunk = [];
+
+          const chunkFailRate = chunkStats.fail / Math.max(chunkStats.ok + chunkStats.fail, 1);
+          if (chunkStats.blocked || chunkFailRate >= 0.2) {
+            const previousConcurrency = activeConcurrency;
+            activeConcurrency = Math.max(10, Math.floor(activeConcurrency / 2));
+            stableChunks = 0;
+            const pauseMs = chunkStats.blocked ? 30000 : 10000;
+            const message = `Phát hiện lỗi cao${chunkStats.blocked ? '/nghi bị chặn' : ''}, giảm worker ${previousConcurrency} -> ${activeConcurrency}, nghỉ ${pauseMs / 1000}s`;
+            pushFailure(0, message);
+            log.errorMessages = [...failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-8), message].slice(-10);
+            await log.save();
+            console.warn(`[RECRAWL-PRICE] ${message}`);
+            if (chunkStats.blocked) {
+              await closeBrowser().catch((error) => console.warn(`[RECRAWL-PRICE] closeBrowser after block failed: ${getErrorMessage(error)}`));
+            }
+            await sleep(pauseMs);
+          } else {
+            stableChunks += 1;
+            if (stableChunks >= 5 && activeConcurrency < maxConcurrency) {
+              activeConcurrency = Math.min(maxConcurrency, activeConcurrency + 10);
+              stableChunks = 0;
+              console.log(`[RECRAWL-PRICE] Ổn định, tăng worker lên ${activeConcurrency}`);
+            }
+          }
+
+          log.pagesProcessed = processed;
+          log.itemsUpdated = ok;
+          log.itemsSkipped = skippedCompleteCount;
+          log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+          log.recentNotices = recentNotices;
+
+          if (processed % 10 === 0 || processed === effectiveMatchedCount) {
+            await log.save();
+            console.log(`[RECRAWL-PRICE] ${processed}/${effectiveMatchedCount}... recrawl OK: ${ok}, lỗi: ${fail}, bỏ qua đủ dữ liệu: ${skippedCompleteCount}`);
+          }
+        }
+
+        if (chunk.length > 0) {
+          await processChunk(chunk);
+          processed += chunk.length;
+          log.pagesProcessed = processed;
+          log.itemsUpdated = ok;
+          log.itemsSkipped = skippedCompleteCount;
+          log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+          log.recentNotices = recentNotices;
+          await log.save();
+        }
+
+        log.status = 'completed';
+        log.finishedAt = new Date();
+        log.itemsInserted = totalScanned;
+        log.itemsUpdated = ok;
+        log.itemsSkipped = skippedCompleteCount;
+        log.errorMessages = failedItems.map((entry) => `#${entry.sourceId}: ${entry.message}`).slice(-10);
+        log.recentNotices = recentNotices;
+        await log.save();
+
+        console.log(`[RECRAWL-PRICE] ✅ Hoàn thành: quét ${totalScanned}, recrawl ${ok}, lỗi ${fail}, bỏ qua ${skippedCompleteCount}`);
+      } catch (err) {
+        try {
+          log.status = 'failed';
+          log.finishedAt = new Date();
+          log.errorMessages = [
+            ...(Array.isArray(log.errorMessages) ? log.errorMessages : []),
+            err.message,
+          ].slice(-10);
+          await log.save();
+        } catch (saveErr) {
+          console.error('[RECRAWL-PRICE] Failed to persist crawl log error:', saveErr.message);
+        }
+
+        console.error('[RECRAWL-PRICE] Background job failed:', err.message);
+      } finally {
+        _recrawlMissingPriceCancelRequested = false;
+        if (cursor) {
+          try {
+            await cursor.close();
+          } catch (closeErr) {
+            console.error('[RECRAWL-PRICE] Cursor close failed:', closeErr.message);
+          }
+        }
+      }
+    })();
+
+    return res.json({
+      success: true,
+      message: `Đã bắt đầu cào lại ${effectiveMatchedCount} ${type} thiếu giá trong nền, chạy song song tối đa ${maxConcurrency} worker`,
+      scannedCount: totalScanned,
+      skippedCompleteCount,
+      totalMatched: effectiveMatchedCount,
+      concurrency: maxConcurrency,
+      logId: log._id,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/trigger-kill-recrawl-missing-price', async (req, res, next) => {
+  try {
+    const runningLog = await CrawlLog.findOne({
+      type: 'recrawl_missing_price',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (!runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hiện không có tiến trình cào lại tài sản thiếu giá nào đang chạy.',
+      });
+    }
+
+    _recrawlMissingPriceCancelRequested = true;
+    runningLog.errorMessages = [
+      ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+      'Đã nhận yêu cầu dừng job cào lại tài sản thiếu giá từ admin.',
+    ].slice(-10);
+    await runningLog.save();
+
+    res.json({
+      success: true,
+      message: 'Đã gửi yêu cầu dừng job cào lại tài sản thiếu giá. Job sẽ dừng sau khi batch hiện tại hoàn tất.',
       logId: runningLog._id,
     });
   } catch (err) {

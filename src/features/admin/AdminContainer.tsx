@@ -3,6 +3,7 @@ import {
   AlertCircle, CheckCircle2, Database, Eye, GitMerge,
   Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
   TrendingDown, Layers, FileBarChart, Download, Copy, ExternalLink, Globe,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,6 +20,9 @@ import {
   triggerKillDuplicateScan,
   triggerCrawlDuplicateDetails,
   setSkipDetailCrawlSetting,
+  triggerRecrawlMissingPrice,
+  triggerKillRecrawlMissingPrice,
+  triggerRecrawlItem,
 } from "@/services/auction.service";
 import { continueTmpFullCrawl } from "@/services/tmp-full-crawl.service";
 
@@ -53,13 +57,40 @@ export function AdminContainer() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [skipDetail, setSkipDetail] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"raw" | "logs">("raw");
+  const [activeTab, setActiveTab] = useState<"raw" | "logs" | "missingPrice">("raw");
   const { data: crawlLogs, isLoading: logsLoading, refetch: refetchLogs } = useCrawlLogs();
   const { data: rawAuctions, isLoading: rawLoading } = useAuctions({ page: 1, limit: 200, sort: "publishedAt", order: "desc" });
   const { data: stats } = useDashboardStats();
   const { data: collectionsData, isLoading: collectionsLoading } = useCollections();
   const { data: tunnelData } = useTunnelUrl();
   const [copied, setCopied] = useState(false);
+
+  // States & query for missing price items
+  const [missingPricePage, setMissingPricePage] = useState(1);
+  const [singleRecrawling, setSingleRecrawling] = useState<Record<number, boolean>>({});
+  const { data: missingAuctions, isLoading: missingLoading, refetch: refetchMissing } = useAuctions({
+    page: missingPricePage,
+    limit: 50,
+    missingPrice: "true",
+    sort: "publishedAt",
+    order: "desc"
+  });
+  const missingRecords = missingAuctions?.items || [];
+
+  const handleSingleRecrawl = async (sourceId: number) => {
+    setSingleRecrawling(prev => ({ ...prev, [sourceId]: true }));
+    try {
+      await triggerRecrawlItem(sourceId, "auction");
+      setActionResult(`✅ Đã gửi yêu cầu cào lại tài sản #${sourceId}. Dữ liệu sẽ tự động cập nhật sau vài giây.`);
+      setTimeout(() => {
+        refetchMissing();
+      }, 3000);
+    } catch (err) {
+      setActionResult(`❌ Lỗi khi cào lại tài sản #${sourceId}: ${err instanceof Error ? err.message : "Unknown"}`);
+    } finally {
+      setSingleRecrawling(prev => ({ ...prev, [sourceId]: false }));
+    }
+  };
 
   const copyTunnelUrl = () => {
     if (tunnelData?.url) {
@@ -129,6 +160,8 @@ export function AdminContainer() {
     { icon: XCircle, title: "Dừng quét trùng", desc: "Hủy quét trùng đang chạy", fn: () => triggerKillDuplicateScan() },
     { icon: Split, title: "Sửa dữ liệu lỗi", desc: "Cào lại item thiếu chi tiết", fn: () => triggerRecrawlMissingProperties(0, "auction", 100) },
     { icon: XCircle, title: "Dừng sửa lỗi", desc: "Hủy job sửa dữ liệu đang chạy", fn: () => triggerKillRecrawlMissingProperties() },
+    { icon: TrendingDown, title: "Crawl thiếu giá", desc: "Cào lại tin thiếu giá", fn: () => triggerRecrawlMissingPrice(0, "auction", 100) },
+    { icon: XCircle, title: "Dừng cào thiếu giá", desc: "Dừng job cào tin thiếu giá", fn: () => triggerKillRecrawlMissingPrice() },
     { icon: Activity, title: "Mega Crawl", desc: "Quét chi tiết toàn bộ DB", fn: () => triggerMegaDetailCrawl(0, "auction", 10) },
     { icon: RefreshCw, title: "Tiếp tục Mega Crawl", desc: "Chạy tiếp tiến trình dở dang", fn: () => continueTmpFullCrawl() },
     { icon: GitMerge, title: "Cào detail trùng lặp", desc: "Cào detail cho bài trong nhóm trùng", fn: () => triggerCrawlDuplicateDetails() },
@@ -332,9 +365,10 @@ export function AdminContainer() {
         </section>
       )}
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "raw" | "logs")} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "raw" | "logs" | "missingPrice")} className="space-y-4">
         <TabsList>
           <TabsTrigger value="raw">Dữ liệu gần đây</TabsTrigger>
+          <TabsTrigger value="missingPrice">Tin thiếu giá</TabsTrigger>
           <TabsTrigger value="logs">Nhật ký crawl</TabsTrigger>
         </TabsList>
 
@@ -405,6 +439,162 @@ export function AdminContainer() {
                 )}
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="missingPrice">
+          <div className="space-y-4">
+            {/* Batch crawl banner */}
+            <div className="bg-card border rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-sm">Cào lại hàng loạt tài sản thiếu giá</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Hệ thống hiện có <strong className="num text-discount-deep text-sm">{missingAuctions?.pagination?.total?.toLocaleString("vi-VN") || 0}</strong> tài sản bị thiếu giá khởi điểm.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  onClick={() => handleAction("Crawl thiếu giá", () => triggerRecrawlMissingPrice(0, "auction", 100))}
+                  disabled={!!actionLoading}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Cào hàng loạt
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-discount-deep border-discount-deep/20 hover:bg-discount-deep-soft"
+                  onClick={() => handleAction("Dừng cào thiếu giá", () => triggerKillRecrawlMissingPrice())}
+                  disabled={!!actionLoading}
+                >
+                  <XCircle className="h-4 w-4" />
+                  Dừng cào
+                </Button>
+              </div>
+            </div>
+
+            {/* List and Table */}
+            <div className="rounded-xl border bg-card overflow-x-auto">
+              <div className="w-full min-w-[1200px] text-sm">
+                <div className="hidden lg:flex items-center border-b bg-secondary/30 text-xs font-medium text-muted-foreground">
+                  <div className="px-4 py-2.5 w-24">Mã</div>
+                  <div className="px-4 py-2.5 flex-1 min-w-[360px]">Tài sản</div>
+                  <div className="px-4 py-2.5 w-[260px]">Thông tin tài sản</div>
+                  <div className="px-4 py-2.5 w-32">Tỉnh</div>
+                  <div className="px-4 py-2.5 w-32">Ngày đăng</div>
+                  <div className="px-4 py-2.5 w-32">Số lần thử</div>
+                  <div className="px-4 py-2.5 w-32 text-right">Thao tác</div>
+                </div>
+
+                <div className="max-h-[500px] overflow-auto">
+                  {missingLoading ? (
+                    <div className="px-4 py-8 text-center text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin inline" />
+                    </div>
+                  ) : missingRecords.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-muted-foreground">Không có tin nào thiếu giá</div>
+                  ) : (
+                    missingRecords.map((record) => {
+                      const r = record as {
+                        _id?: string | number;
+                        sourceId: number;
+                        name?: string;
+                        type?: string | null;
+                        organizer?: string | null;
+                        province?: string | null;
+                        publishedAt?: string | Date | null;
+                        zeroPriceRetryCount?: number;
+                      };
+
+                      const isRecrawling = singleRecrawling[r.sourceId];
+
+                      return (
+                        <div key={String(r._id ?? r.sourceId)} className="flex items-start border-b last:border-0 hover:bg-secondary/40">
+                          <div className="px-4 py-3 w-24 font-mono text-xs">
+                            <a href={`/auction/${r.sourceId}`} target="_blank" rel="noopener noreferrer" className="hover:underline text-primary font-medium">
+                              {r.sourceId}
+                            </a>
+                          </div>
+                          <div className="px-4 py-3 flex-1 min-w-[360px]">
+                            <div className="font-medium leading-6 whitespace-normal break-words" title={r.name}>{r.name}</div>
+                          </div>
+                          <div className="px-4 py-3 w-[260px] text-xs text-muted-foreground">
+                            <div className="space-y-1.5">
+                              <div className="whitespace-normal break-words">
+                                Phân loại: <span className="text-foreground/80">{r.type || "—"}</span>
+                              </div>
+                              <div className="whitespace-normal break-words">
+                                Đơn vị: <span className="text-foreground/80">{r.organizer || "—"}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="px-4 py-3 w-32 text-muted-foreground">{r.province || "—"}</div>
+                          <div className="px-4 py-3 w-32 text-muted-foreground text-xs">{r.publishedAt ? formatDate(String(r.publishedAt)) : "—"}</div>
+                          <div className="px-4 py-3 w-32 text-muted-foreground num font-medium">
+                            {r.zeroPriceRetryCount || 0} / 2
+                          </div>
+                          <div className="px-4 py-3 w-32 text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1 text-xs"
+                              onClick={() => handleSingleRecrawl(r.sourceId)}
+                              disabled={isRecrawling}
+                            >
+                              {isRecrawling ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3.5 w-3.5" />
+                              )}
+                              <span>Cào lại</span>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Pagination Controls */}
+            {missingAuctions?.pagination && missingAuctions.pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between border rounded-xl px-4 py-3 bg-card text-sm">
+                <div className="text-muted-foreground text-xs sm:text-sm">
+                  Hiển thị bản ghi <strong className="num text-foreground">{((missingPricePage - 1) * 50 + 1).toLocaleString("vi-VN")}</strong> -{" "}
+                  <strong className="num text-foreground">{Math.min(missingPricePage * 50, missingAuctions.pagination.total).toLocaleString("vi-VN")}</strong> của{" "}
+                  <strong className="num text-foreground">{missingAuctions.pagination.total.toLocaleString("vi-VN")}</strong> bản ghi
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={missingPricePage === 1}
+                    onClick={() => setMissingPricePage(prev => Math.max(1, prev - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  <span className="text-xs font-medium px-2 py-1 bg-secondary rounded num">
+                    Trang {missingPricePage} / {missingAuctions.pagination.totalPages}
+                  </span>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={missingPricePage === missingAuctions.pagination.totalPages}
+                    onClick={() => setMissingPricePage(prev => Math.min(missingAuctions.pagination.totalPages, prev + 1))}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </TabsContent>
 
