@@ -285,7 +285,7 @@ async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
     .lean();
   const itemBySourceId = new Map(items.map((item) => [item.sourceId, item]));
   const force = options.force === true;
-  const concurrency = Math.max(1, Math.min(Number(options.concurrency) || config.crawl.concurrency || 30, 100));
+  const concurrency = 1; // Luôn cào từng bài một để tránh anti-bot
   const targets = ids
     .map((id) => itemBySourceId.get(id))
     .filter(Boolean)
@@ -303,6 +303,7 @@ async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
         updates.lastCrawledAt = new Date();
         if (files && files.length > 0) updates.files = files;
         await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+        await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         return true;
       } catch (err) {
         console.error(`[Detail Related] ❌ ${item.sourceId}:`, err.message);
@@ -1204,9 +1205,9 @@ async function recoverMissingDuplicates(onProgress, shouldStop) {
  *   - Vừa upgrade schema Duplicate (thêm entries, firstPrice, latestPrice...)
  *   - Muốn cập nhật lại giá cho tất cả nhóm
  */
-async function rebuildAllDuplicateEntries(shouldStop, onProgress) {
-  console.log(`\n🔄 [Duplicate] Rebuild entries cho tất cả nhóm (Tối ưu hóa)...`);
-  const duplicates = await Duplicate.find({});
+async function rebuildAllDuplicateEntries(shouldStop, onProgress, filter = {}) {
+  console.log(`\n🔄 [Duplicate] Rebuild entries cho các nhóm (Tối ưu hóa)...`);
+  const duplicates = await Duplicate.find(filter);
   let updatedCount = 0;
 
   const reportProgress = async (message) => {
@@ -1404,7 +1405,7 @@ async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
   let crawled = 0;
   let skipped = 0;
   let errors = 0;
-  const concurrency = config.crawl.concurrency || 30;
+  const concurrency = 1; // Luôn cào từng bài một để tránh anti-bot
 
   const reportProgress = async (message) => {
     if (typeof onProgress === 'function') await onProgress(message);
@@ -1414,13 +1415,14 @@ async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
   if (auctionIds.size > 0) {
     await reportProgress(`Đang cào detail cho ${auctionIds.size} bài auction trong nhóm duplicate...`);
 
-    const items = await AuctionNotice.find({
+    const allItems = await AuctionNotice.find({
       sourceId: { $in: [...auctionIds] },
-      detailScraped: { $ne: true },
-    }).select('_id sourceId').lean();
+    }).select('_id sourceId detailScraped properties initialPrice address name province sourceUrl').lean();
+
+    const items = allItems.filter(isAuctionDetailIncomplete);
 
     skipped += auctionIds.size - items.length;
-    console.log(`[Dup Detail Auction] ${auctionIds.size} tổng → ${items.length} chưa cào, ${auctionIds.size - items.length} đã bỏ qua`);
+    console.log(`[Dup Detail Auction] ${auctionIds.size} tổng → ${items.length} chưa cào hoặc thiếu dữ liệu, ${auctionIds.size - items.length} đã bỏ qua`);
 
     for (let i = 0; i < items.length; i += concurrency) {
       if (typeof shouldStop === 'function' && shouldStop()) {
@@ -1436,6 +1438,7 @@ async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
           updates.lastCrawledAt = new Date();
           if (files && files.length > 0) updates.files = files;
           await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+          await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
           return true;
         } catch (err) {
           console.error(`[Dup Detail Auction] ❌ ${item.sourceId}:`, err.message);
@@ -1456,13 +1459,14 @@ async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
   if (orgIds.size > 0) {
     await reportProgress(`Đang cào detail cho ${orgIds.size} bài org trong nhóm duplicate...`);
 
-    const items = await OrgSelection.find({
+    const allItems = await OrgSelection.find({
       sourceId: { $in: [...orgIds] },
-      detailScraped: { $ne: true },
-    }).select('_id sourceId').lean();
+    }).select('_id sourceId detailScraped startingPrice province name sourceUrl').lean();
+
+    const items = allItems.filter(isOrgDetailIncomplete);
 
     skipped += orgIds.size - items.length;
-    console.log(`[Dup Detail Org] ${orgIds.size} tổng → ${items.length} chưa cào, ${orgIds.size - items.length} đã bỏ qua`);
+    console.log(`[Dup Detail Org] ${orgIds.size} tổng → ${items.length} chưa cào hoặc thiếu dữ liệu, ${orgIds.size - items.length} đã bỏ qua`);
 
     for (let i = 0; i < items.length; i += concurrency) {
       if (typeof shouldStop === 'function' && shouldStop()) {
@@ -1478,6 +1482,7 @@ async function crawlDuplicateGroupsDetail(onProgress, shouldStop) {
           updates.lastCrawledAt = new Date();
           if (files && files.length > 0) updates.files = files;
           await OrgSelection.updateOne({ _id: item._id }, { $set: updates });
+          await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
           return true;
         } catch (err) {
           console.error(`[Dup Detail Org] ❌ ${item.sourceId}:`, err.message);
@@ -1522,7 +1527,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     .maxTimeMS(0)
     .lean();
 
-  if (progressCallback) await progressCallback(`Đã tải ${items.length} bản ghi để gom nhóm tương đồng 70%...`);
+  if (progressCallback) await progressCallback(`Đã tải ${items.length} bản ghi để gom nhóm tương đồng...`);
 
   const buckets = {};
   for (const item of items) {
@@ -1554,7 +1559,7 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       };
     });
 
-    // Sắp xếp theo kích thước core bigrams để tối ưu hoá break sớm
+    // Sắp xếp theo kích thước core bigrams để tối ưu hoá break sớm cho Rule 3
     data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
 
     const parent = Array.from({ length: data.length }, (_, i) => i);
@@ -1567,7 +1572,6 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       const rootJ = find(j);
       if (rootI !== rootJ) parent[rootI] = rootJ;
     };
-
 
     // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
     const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
@@ -1599,51 +1603,157 @@ async function getFuzzyNameGroups(Model, progressCallback) {
       }
     }
 
+    // Xây dựng inverted indexes cho các trường định danh để tối ưu hoá tìm kiếm ứng viên
+    const numberMap = new Map();
+    const apartmentMap = new Map();
+    const houseNumberMap = new Map();
+    const bigramMap = new Map();
+
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      if (item.numbers) {
+        for (const num of item.numbers) {
+          if (!numberMap.has(num)) numberMap.set(num, []);
+          numberMap.get(num).push(i);
+        }
+      }
+      if (item.identifiers && item.identifiers.apartment) {
+        const apt = item.identifiers.apartment;
+        if (!apartmentMap.has(apt)) apartmentMap.set(apt, []);
+        apartmentMap.get(apt).push(i);
+      }
+      if (item.identifiers && item.identifiers.houseNumber) {
+        const hn = item.identifiers.houseNumber;
+        if (!houseNumberMap.has(hn)) houseNumberMap.set(hn, []);
+        houseNumberMap.get(hn).push(i);
+      }
+      if (item.coreBigrams) {
+        for (const bg of item.coreBigrams) {
+          if (!bigramMap.has(bg)) bigramMap.set(bg, []);
+          bigramMap.get(bg).push(i);
+        }
+      }
+    }
+
     let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
-      if (i % 200 === 0) {
-        const pct = ((i / data.length) * 100).toFixed(1);
-        console.log(`[DUPLICATE SCAN] Tỉnh [${prov}] - Phân tích: ${i}/${data.length} (${pct}%)`);
-      }
-
-      if (Date.now() - lastYield > 20) {
+      if (i % 200 === 0 && Date.now() - lastYield > 20) {
         await new Promise(r => setImmediate(r));
         lastYield = Date.now();
       }
 
-      const sizeA = data[i].coreBigrams.size;
+      const itemA = data[i];
+      const sizeA = itemA.coreBigrams.size;
       if (sizeA === 0) continue;
-      const maxSizeB = sizeA / 0.60;
 
-      for (let j = i + 1; j < data.length; j++) {
-        if (j % 500 === 0 && Date.now() - lastYield > 20) {
-          await new Promise(resolve => setImmediate(resolve));
-          lastYield = Date.now();
+      // 1. So sánh Jaccard (Rule 3: coreSim >= 0.80) - Tra cứu qua bigramMap cực nhanh
+      const jaccardCandidates = new Set();
+      for (const bg of itemA.coreBigrams) {
+        const list = bigramMap.get(bg);
+        if (list && list.length <= 200) { // Pruning các bigram quá phổ biến
+          for (const j of list) {
+            if (j > i) jaccardCandidates.add(j);
+          }
         }
+      }
 
-        const sizeB = data[j].coreBigrams.size;
-        if (sizeB === 0) continue;
-        
-        // BREAK EARLY! Since data is sorted by size, all remaining sizeB will be > maxSizeB
-        if (sizeB > maxSizeB) break;
+      const maxSizeB = sizeA / 0.80;
+      const minSizeB = sizeA * 0.80;
 
-        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
+      for (const j of jaccardCandidates) {
+        const itemB = data[j];
+        const sizeB = itemB.coreBigrams.size;
+        if (sizeB < minSizeB || sizeB > maxSizeB) continue;
+
+        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
           continue;
         }
 
-        const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
-        if (bothHaveNumbers) {
-          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length === 0) continue; 
-        }
-
-        const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
-
+        const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
         if (coreSim >= 0.80) {
           union(i, j);
-        } else if (bothHaveNumbers && coreSim >= 0.60) {
-          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length > 0) union(i, j);
+        }
+      }
+
+      // 2. So sánh nâng cao bằng cách tra cứu qua inverted indexes (giảm O(N^2) xuống O(1) ứng viên)
+      const candidates = new Set();
+
+      if (itemA.numbers) {
+        for (const num of itemA.numbers) {
+          const list = numberMap.get(num);
+          if (list && list.length <= 100) { // Pruning các số quá phổ biến/rác
+            for (const j of list) {
+              if (j > i) candidates.add(j);
+            }
+          }
+        }
+      }
+
+      if (itemA.identifiers && itemA.identifiers.apartment) {
+        const apt = itemA.identifiers.apartment;
+        const list = apartmentMap.get(apt);
+        if (list) {
+          for (const j of list) {
+            if (j > i) candidates.add(j);
+          }
+        }
+      }
+
+      if (itemA.identifiers && itemA.identifiers.houseNumber) {
+        const hn = itemA.identifiers.houseNumber;
+        const list = houseNumberMap.get(hn);
+        if (list) {
+          for (const j of list) {
+            if (j > i) candidates.add(j);
+          }
+        }
+      }
+
+      for (const j of candidates) {
+        const itemB = data[j];
+        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
+          continue;
+        }
+        if (find(i) === find(j)) continue;
+
+        const bothHaveNumbers = itemA.numbers.length > 0 && itemB.numbers.length > 0;
+        const commonNumbers = bothHaveNumbers ? itemA.numbers.filter(t => itemB.numbers.includes(t)) : [];
+
+        // Rule 4 & 5
+        if (commonNumbers.length > 0) {
+          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (coreSim >= 0.55) {
+            union(i, j);
+            continue;
+          }
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.85) {
+            union(i, j);
+            continue;
+          }
+        }
+
+        // Rule 6: apartment match
+        if (itemA.identifiers.apartment && itemA.identifiers.apartment === itemB.identifiers.apartment) {
+          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (coreSim >= 0.20) {
+            union(i, j);
+            continue;
+          }
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.33) {
+            union(i, j);
+            continue;
+          }
+        }
+
+        // Rule 7: houseNumber match
+        if (itemA.identifiers.houseNumber && itemA.identifiers.houseNumber === itemB.identifiers.houseNumber) {
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.60) {
+            union(i, j);
+            continue;
+          }
         }
       }
     }
@@ -1663,11 +1773,11 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     }
 
     processedProv++;
-    const msg = `Gom nhóm tương đồng 70%: đang xử lý [${prov}] (${data.length} mục) - Tiến độ: ${processedProv}/${provKeys.length} tỉnh/thành`;
-    console.log(`[DUPLICATE SCAN] ${msg}`); // Báo cáo trực tiếp ra màn hình Terminal ngay lập tức cho từng tỉnh!
+    const msg = `Gom nhóm tương đồng: đang xử lý [${prov}] (${data.length} mục) - Tiến độ: ${processedProv}/${provKeys.length} tỉnh/thành`;
+    console.log(`[DUPLICATE SCAN] ${msg}`);
 
     if (progressCallback && (processedProv % 2 === 0 || processedProv === provKeys.length)) {
-      await progressCallback(msg); // Lưu vào DB (và hiện lên web) mỗi 2 tỉnh để web không bị đơ
+      await progressCallback(msg);
     }
   }
 
@@ -1688,7 +1798,7 @@ async function runFullDuplicateScan() {
     errorMessages: ['Bắt đầu quét duplicate toàn bộ dữ liệu.'],
   });
 
-  const progressEvery = 25;
+  const progressEvery = 1000;
 
   const saveProgress = async (message) => {
     if (message) {
@@ -1866,7 +1976,7 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     errorMessages: [`Bắt đầu quét duplicate cho đơn vị: ${organizerName}`],
   });
 
-  const progressEvery = 10;
+  const progressEvery = 1000;
 
   const saveProgress = async (message) => {
     if (message) {
@@ -1939,7 +2049,7 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
 
     // 4. Gom nhóm theo tên (fuzzy) (Toàn hệ thống)
     await saveProgress('Gom nhóm theo tên tương đồng...');
-    const allNameGroups = await getFuzzyNameGroupsFiltered(allAuctions, saveProgress);
+    const allNameGroups = await getFuzzyNameGroupsFiltered(allAuctions, saveProgress, orgAuctionIds);
     // Chỉ giữ lại các nhóm có liên quan đến đơn vị này
     const nameGroups = allNameGroups.filter(g => g.ids.some(id => orgAuctionIds.has(id)));
     console.log(`[ORG DUPLICATE SCAN] 🏷️ Tìm thấy ${nameGroups.length} nhóm theo tên tương đồng có chứa tài sản của đơn vị.`);
@@ -1967,6 +2077,20 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
       }
     });
 
+    // 5. Xoá tất cả các nhóm trùng lặp cũ có chứa bất kỳ ID nào trong nhóm mới
+    // để tránh tình trạng ID bị trùng lặp ở nhiều nhóm khác nhau (Overlapping groups)
+    const allSourceIds = [...new Set(mergedGroups.flat())];
+    await saveProgress('Đang dọn dẹp các nhóm trùng lặp cũ để tránh chồng lấn...');
+    const existingOverlaps = await Duplicate.find({
+      type: 'auction',
+      sourceIds: { $in: allSourceIds }
+    }).select('_id').lean();
+    if (existingOverlaps.length > 0) {
+      const idsToDelete = existingOverlaps.map(d => d._id);
+      await Duplicate.deleteMany({ _id: { $in: idsToDelete } });
+      console.log(`[ORG DUPLICATE SCAN] 🗑️ Đã xoá thêm ${idsToDelete.length} nhóm chồng lấn từ đơn vị khác hoặc null.`);
+    }
+
     for (let index = 0; index < operations.length; index += progressEvery) {
       await ensureNotCancelled();
       const batch = operations.slice(index, index + progressEvery);
@@ -1975,49 +2099,15 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
       await saveProgress(`Đã cập nhật ${Math.min(index + batch.length, operations.length)}/${operations.length} nhóm`);
     }
 
-    // 6. Rebuild entries (giá, ngày...) cho các nhóm vừa tạo
+    // 6. Rebuild entries (giá, ngày...) cho các nhóm vừa tạo bằng Bulk Operation cực nhanh
     await saveProgress('Đang cập nhật thông tin chi tiết (giá, ngày...) cho các nhóm...');
     console.log(`[ORG DUPLICATE SCAN] 🛠️ Đang cập nhật chi tiết cho ${mergedGroups.length} nhóm...`);
-    let processedEntries = 0;
-    for (const group of mergedGroups) {
-      const allIds = [...new Set(group)].sort((a, b) => a - b);
-      const entries = await buildDuplicateEntries(allIds, 'auction');
-      const summary = summarizeDuplicateEntries(entries, 'auction');
-      
-      // Nếu không có rootId từ history API, dùng ID nhỏ nhất làm gốc
-      const finalRootId = summary.rootId || allIds[0];
-
-      // Cập nhật nhóm Duplicate
-      await Duplicate.updateOne(
-        { type: 'auction', sourceIds: { $in: allIds } },
-        { 
-          $set: { 
-            ...summary, 
-            rootId: finalRootId,
-            organizer: organizerName 
-          } 
-        }
-      );
-
-      // Cập nhật ngược lại từng AuctionNotice
-      for (const entry of entries) {
-        await AuctionNotice.updateOne(
-          { sourceId: entry.sourceId },
-          { 
-            $set: { 
-              publishRound: entry.publishRound,
-              publishRoundLabel: entry.publishRoundLabel || `Thông báo công khai lần ${entry.publishRound}`,
-              rootId: finalRootId
-            }
-          }
-        );
-      }
-
-      processedEntries++;
-      if (processedEntries % 5 === 0) {
-        console.log(`[ORG DUPLICATE SCAN]   - Tiến độ rebuild: ${processedEntries}/${mergedGroups.length}`);
-      }
-    }
+    
+    await rebuildAllDuplicateEntries(
+      () => duplicateScanState.cancelRequested,
+      saveProgress,
+      { type: 'auction', organizer: orgRegex }
+    );
 
     log.status = 'completed';
     log.finishedAt = new Date();
@@ -2038,8 +2128,10 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
 /**
  * Version của getFuzzyNameGroups nhưng chạy trên dữ liệu đã được nạp sẵn thay vì query DB lại
  */
-async function getFuzzyNameGroupsFiltered(items, progressCallback) {
-  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity, normalizeProvince } = require('../utils/helpers');
+async function getFuzzyNameGroupsFiltered(items, progressCallback, targetSourceIds = null) {
+  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity, overlapSimilarity, normalizeProvince } = require('../utils/helpers');
+
+  const targetSet = targetSourceIds ? new Set(targetSourceIds) : null;
 
   const buckets = {};
   for (let idx = 0; idx < items.length; idx++) {
@@ -2047,14 +2139,12 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
     const prov = normalizeProvince(item.province) || 'unknown';
     if (!buckets[prov]) buckets[prov] = {};
     
-    // Áp dụng chuẩn hóa NFC cho tên để tránh lỗi sai khác do bộ gõ tiếng Việt
     const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
     const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
     
     if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
     buckets[prov][cleanName].sourceIds.push(item.sourceId);
 
-    // Yield to event loop every 10,000 items to prevent socket hang up
     if (idx % 10000 === 0) {
       await new Promise(r => setImmediate(r));
     }
@@ -2065,17 +2155,37 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
   
   for (let pIdx = 0; pIdx < provKeys.length; pIdx++) {
     const prov = provKeys[pIdx];
-    const cleanNames = Object.keys(buckets[prov]);
+    const bucket = buckets[prov];
+    delete buckets[prov]; // Clear reference to help GC free memory early
+    const cleanNames = Object.keys(bucket);
     if (cleanNames.length === 0) continue;
 
+    // TỐI ƯU: Nếu quét theo đơn vị, bỏ qua tỉnh nếu tỉnh đó không chứa tài sản nào của đơn vị này
+    let hasAnyTarget = false;
+    if (targetSet) {
+      for (const name of cleanNames) {
+        const sIds = bucket[name].sourceIds;
+        if (sIds.some(id => targetSet.has(id))) {
+          hasAnyTarget = true;
+          break;
+        }
+      }
+    } else {
+      hasAnyTarget = true;
+    }
+    if (!hasAnyTarget) continue;
+
     const data = cleanNames.map((cleanName, i) => {
-      const originalName = buckets[prov][cleanName].name;
+      const originalName = bucket[cleanName].name;
+      const sourceIds = bucket[cleanName].sourceIds;
+      const hasTarget = targetSet ? sourceIds.some(id => targetSet.has(id)) : true;
       return {
         index: i,
         coreBigrams: getBigrams(extractCoreIdentity(originalName)),
         numbers: getNumberTokens(originalName),
         identifiers: extractPropertyIdentifiers(originalName),
-        sourceIds: buckets[prov][cleanName].sourceIds
+        sourceIds,
+        hasTarget
       };
     });
 
@@ -2115,6 +2225,10 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       if (indices.length > 1) {
         for (let k = 0; k < indices.length; k++) {
           for (let m = k + 1; m < indices.length; m++) {
+            // TỐI ƯU: Chỉ so sánh nếu ít nhất 1 trong 2 chứa ID mục tiêu
+            if (targetSet && !data[indices[k]].hasTarget && !data[indices[m]].hasTarget) {
+              continue;
+            }
             if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
               union(indices[k], indices[m]);
             }
@@ -2123,47 +2237,162 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback) {
       }
     }
 
+    // Xây dựng inverted indexes cho các trường định danh để tối ưu hoá tìm kiếm ứng viên
+    const numberMap = new Map();
+    const apartmentMap = new Map();
+    const houseNumberMap = new Map();
+    const bigramMap = new Map();
+
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      if (item.numbers) {
+        for (const num of item.numbers) {
+          if (!numberMap.has(num)) numberMap.set(num, []);
+          numberMap.get(num).push(i);
+        }
+      }
+      if (item.identifiers && item.identifiers.apartment) {
+        const apt = item.identifiers.apartment;
+        if (!apartmentMap.has(apt)) apartmentMap.set(apt, []);
+        apartmentMap.get(apt).push(i);
+      }
+      if (item.identifiers && item.identifiers.houseNumber) {
+        const hn = item.identifiers.houseNumber;
+        if (!houseNumberMap.has(hn)) houseNumberMap.set(hn, []);
+        houseNumberMap.get(hn).push(i);
+      }
+      if (item.coreBigrams) {
+        for (const bg of item.coreBigrams) {
+          if (!bigramMap.has(bg)) bigramMap.set(bg, []);
+          bigramMap.get(bg).push(i);
+        }
+      }
+    }
+
     let lastYield = Date.now();
     for (let i = 0; i < data.length; i++) {
-      // Yield to event loop if outer loop takes too long
       if (Date.now() - lastYield > 20) {
         await new Promise(r => setImmediate(r));
         lastYield = Date.now();
       }
 
-      const sizeA = data[i].coreBigrams.size;
+      const itemA = data[i];
+      // TỐI ƯU: Nếu quét theo đơn vị, chỉ đối chiếu các mục thuộc đơn vị mục tiêu (các mục khác sẽ được đối chiếu khi vòng lặp duyệt qua chúng)
+      if (targetSet && !itemA.hasTarget) continue;
+
+      const sizeA = itemA.coreBigrams.size;
       if (sizeA === 0) continue;
-      const maxSizeB = sizeA / 0.60;
 
-      for (let j = i + 1; j < data.length; j++) {
-        if (j % 500 === 0 && Date.now() - lastYield > 20) {
-          await new Promise(resolve => setImmediate(resolve));
-          lastYield = Date.now();
+      // 1. So sánh Jaccard (Rule 3: coreSim >= 0.80) - Tra cứu qua bigramMap cực nhanh
+      const jaccardCandidates = new Set();
+      for (const bg of itemA.coreBigrams) {
+        const list = bigramMap.get(bg);
+        if (list && list.length <= 200) { // Pruning các bigram quá phổ biến
+          for (const j of list) {
+            if (targetSet ? (j !== i) : (j > i)) jaccardCandidates.add(j);
+          }
         }
-        
-        const sizeB = data[j].coreBigrams.size;
-        if (sizeB === 0) continue;
-        
-        // BREAK EARLY! Since data is sorted by size, all remaining sizeB will be > maxSizeB
-        if (sizeB > maxSizeB) break;
+      }
 
-        if (hasConflictingIdentifiers(data[i].identifiers, data[j].identifiers)) {
+      const maxSizeB = sizeA / 0.80;
+      const minSizeB = sizeA * 0.80;
+
+      for (const j of jaccardCandidates) {
+        const itemB = data[j];
+        if (targetSet && !itemA.hasTarget && !itemB.hasTarget) continue;
+        const sizeB = itemB.coreBigrams.size;
+        if (sizeB < minSizeB || sizeB > maxSizeB) continue;
+
+        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
           continue;
         }
 
-        const bothHaveNumbers = data[i].numbers.length > 0 && data[j].numbers.length > 0;
-        if (bothHaveNumbers) {
-          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length === 0) continue; 
-        }
-
-        const coreSim = jaccardSimilarity(data[i].coreBigrams, data[j].coreBigrams);
-
+        const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
         if (coreSim >= 0.80) {
           union(i, j);
-        } else if (bothHaveNumbers && coreSim >= 0.60) {
-          const common = data[i].numbers.filter(t => data[j].numbers.includes(t));
-          if (common.length > 0) union(i, j);
+        }
+      }
+
+      // 2. So sánh nâng cao bằng cách tra cứu qua inverted indexes (giảm O(N^2) xuống O(1) ứng viên)
+      const candidates = new Set();
+
+      if (itemA.numbers) {
+        for (const num of itemA.numbers) {
+          const list = numberMap.get(num);
+          if (list && list.length <= 100) { // Pruning các số quá phổ biến/rác
+            for (const j of list) {
+              if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
+            }
+          }
+        }
+      }
+
+      if (itemA.identifiers && itemA.identifiers.apartment) {
+        const apt = itemA.identifiers.apartment;
+        const list = apartmentMap.get(apt);
+        if (list) {
+          for (const j of list) {
+            if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
+          }
+        }
+      }
+
+      if (itemA.identifiers && itemA.identifiers.houseNumber) {
+        const hn = itemA.identifiers.houseNumber;
+        const list = houseNumberMap.get(hn);
+        if (list) {
+          for (const j of list) {
+            if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
+          }
+        }
+      }
+
+      for (const j of candidates) {
+        const itemB = data[j];
+        if (targetSet && !itemA.hasTarget && !itemB.hasTarget) continue;
+        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
+          continue;
+        }
+        if (find(i) === find(j)) continue;
+
+        const bothHaveNumbers = itemA.numbers.length > 0 && itemB.numbers.length > 0;
+        const commonNumbers = bothHaveNumbers ? itemA.numbers.filter(t => itemB.numbers.includes(t)) : [];
+
+        // Rule 4 & 5
+        if (commonNumbers.length > 0) {
+          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (coreSim >= 0.55) {
+            union(i, j);
+            continue;
+          }
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.85) {
+            union(i, j);
+            continue;
+          }
+        }
+
+        // Rule 6: apartment match
+        if (itemA.identifiers.apartment && itemA.identifiers.apartment === itemB.identifiers.apartment) {
+          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (coreSim >= 0.20) {
+            union(i, j);
+            continue;
+          }
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.33) {
+            union(i, j);
+            continue;
+          }
+        }
+
+        // Rule 7: houseNumber match
+        if (itemA.identifiers.houseNumber && itemA.identifiers.houseNumber === itemB.identifiers.houseNumber) {
+          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
+          if (overlapSim >= 0.60) {
+            union(i, j);
+            continue;
+          }
         }
       }
     }
@@ -2229,6 +2458,7 @@ async function runFixMissingData() {
           log.errorMessages.push(`[Auction #${doc.sourceId}] ${err.message}`);
         }
         
+        await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         auctionCount++;
         if (auctionCount % 10 === 0) {
           await CrawlLog.updateOne({ _id: log._id }, { $set: { itemsUpdated: log.itemsUpdated, itemsSkipped: log.itemsSkipped, errorMessages: log.errorMessages } });
@@ -2264,6 +2494,7 @@ async function runFixMissingData() {
           log.errorMessages.push(`[Org #${doc.sourceId}] ${err.message}`);
         }
         
+        await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         orgCount++;
         if (orgCount % 10 === 0) {
           await CrawlLog.updateOne({ _id: log._id }, { $set: { itemsUpdated: log.itemsUpdated, itemsSkipped: log.itemsSkipped, errorMessages: log.errorMessages } });

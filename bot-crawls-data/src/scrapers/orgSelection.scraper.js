@@ -109,8 +109,8 @@ async function processItems(items, stats, options = {}) {
     }
   }
 
-  // ⚡ Xử lý items mới theo chunk song song
-  const concurrency = config.crawl.concurrency || 5;
+  // ⚡ Xử lý items mới tuần tự từng bài một để tránh anti-bot
+  const concurrency = 1;
   for (let i = 0; i < newItems.length; i += concurrency) {
     const chunk = newItems.slice(i, i + concurrency);
     const results = await Promise.allSettled(chunk.map(async (item) => {
@@ -124,6 +124,8 @@ async function processItems(items, stats, options = {}) {
         Object.assign(data, updates);
         if (files.length > 0) data.files = files;
         data.detailScraped = true;
+        
+        await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         return { data, hasDetail: true };
       } catch (e) {
         data.detailScraped = false;

@@ -2284,16 +2284,31 @@ router.post('/trigger-organizer-duplicate-scan', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Thiếu tên đơn vị tổ chức.' });
     }
 
+    const staleThresholdMs = 10 * 60 * 1000; // 10 phút
     const runningLog = await CrawlLog.findOne({
       status: 'running',
       type: { $in: ['duplicate_scan', 'organizer_duplicate_scan', 'mega_detail_crawl'] },
     }).sort({ createdAt: -1 });
 
     if (runningLog) {
-      return res.status(409).json({
-        success: false,
-        message: `Đang có tiến trình ${runningLog.type} chạy nền. Vui lòng chờ hoàn tất.`,
-      });
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Tiến trình quét cũ không còn cập nhật trạng thái và đã được đóng tự động để cho phép chạy lại.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: `Đang có tiến trình ${runningLog.type} chạy nền. Vui lòng chờ hoàn tất.`,
+        });
+      }
     }
 
     // Khởi tạo log trước để có ID trả về ngay cho Client
@@ -2343,7 +2358,7 @@ router.post('/trigger-duplicate-scan', async (req, res, next) => {
     }
 
     const runningLog = await CrawlLog.findOne({
-      type: 'duplicate_scan',
+      type: { $in: ['duplicate_scan', 'organizer_duplicate_scan'] },
       status: 'running',
     }).sort({ createdAt: -1 });
 

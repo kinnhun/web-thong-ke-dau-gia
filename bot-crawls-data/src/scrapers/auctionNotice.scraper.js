@@ -182,8 +182,8 @@ async function processItems(items, stats, options = {}) {
     return { consecutiveOld };
   }
 
-  // ⚡ Xử lý items mới theo chunk song song
-  const concurrency = config.crawl.concurrency || 5;
+  // ⚡ Xử lý items mới tuần tự từng bài một để tránh anti-bot
+  const concurrency = 1;
   for (let i = 0; i < newItems.length; i += concurrency) {
     const chunk = newItems.slice(i, i + concurrency);
     const results = await Promise.allSettled(chunk.map(async (item) => {
@@ -202,6 +202,7 @@ async function processItems(items, stats, options = {}) {
         // Fuzzy search sẽ chạy riêng trong duplicate_scan job
         const relatedIds = data.relatedIds || [];
         
+        await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         return { data, hasDetail: true, relatedIds, sourceId, name: data.name };
       } catch (e) {
         data.detailScraped = false;
