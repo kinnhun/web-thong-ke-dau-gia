@@ -19,7 +19,7 @@ const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardS
 const duplicateScanState = {
   isRunning: false,
   cancelRequested: false,
-  skipDetailCrawl: false, // Thêm cờ để bỏ qua cào dữ liệu khi bị block
+  skipDetailCrawl: true, // Thêm cờ để bỏ qua cào dữ liệu khi bị block
 };
 
 function requestDuplicateScanCancel() {
@@ -343,6 +343,14 @@ function summarizeDuplicateEntries(entries, type) {
     }
   }
 
+  const publishedTimes = entries
+    .map((entry) => entry.publishedAt)
+    .filter(Boolean)
+    .map((date) => new Date(date).getTime());
+  const lastPublishedAt = publishedTimes.length > 0
+    ? new Date(Math.max(...publishedTimes))
+    : null;
+
   const entryWithRoot = entries.find((entry) => entry.rootId);
 
   return {
@@ -352,6 +360,7 @@ function summarizeDuplicateEntries(entries, type) {
     latestPrice,
     isPriceDrop,
     priceDropPercent,
+    lastPublishedAt,
     rootId: entryWithRoot ? entryWithRoot.rootId : null,
   };
 }
@@ -515,6 +524,7 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
             latestPrice: summary.latestPrice,
             isPriceDrop: summary.isPriceDrop,
             priceDropPercent: summary.priceDropPercent,
+            lastPublishedAt: summary.lastPublishedAt,
             rootId: summary.rootId,
             province: items.find((item) => item.province)?.province || null,
             district: (() => { const ids = extractPropertyIdentifiers(items[0]?.name); return ids.district || null; })(),
@@ -533,7 +543,7 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
 /**
  * Tìm các ID trùng lặp bằng cách kết hợp API search và Fuzzy Match local (>= 70% similarity)
  */
-async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch = false) {
+async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch = false, fallbackProvince = null) {
   let relatedIds = [];
   try {
     if (!name || name.trim().length === 0) return [];
@@ -553,7 +563,7 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch =
     const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const Model = type === 'auction' ? AuctionNotice : OrgSelection;
-    const targetProvince = extractProvince(name);
+    const targetProvince = extractProvince(name) || (fallbackProvince ? normalizeProvince(fallbackProvince) : '');
     const provMatch = targetProvince === 'TP. Hồ Chí Minh' 
         ? ['TP. Hồ Chí Minh', 'Thành phố Hồ Chí Minh', 'TP Hồ Chí Minh', 'Hồ Chí Minh', null, ''] 
         : targetProvince ? [targetProvince, null, ''] : null;
@@ -952,7 +962,7 @@ async function crawlDetails(options = {}) {
       try {
         await delay(Math.random() * 500); // Thêm xíu delay random để tránh spam quá nhanh
         const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
-        const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, item.name, 'auction');
+        const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, item.name, 'auction', false, updates.province || item.province);
         return { item, updates, files, exactNameRelatedIds, success: true };
       } catch (err) {
         return { item, success: false, err };
@@ -1768,6 +1778,10 @@ async function getFuzzyNameGroups(Model, progressCallback) {
     for (const root in provGroups) {
       const ids = [...new Set(provGroups[root])];
       if (ids.length >= 2) {
+        if (ids.length > 200) {
+          console.warn(`[DUPLICATE SCAN] Warning: Discarding fuzzy group at root ${root} with size ${ids.length} to prevent generic title clustering (sample ID: ${ids[0]}).`);
+          continue;
+        }
         allFuzzyGroups.push({ ids: ids });
       }
     }
@@ -1858,7 +1872,14 @@ async function runFullDuplicateScan() {
       .map((group) => Array.isArray(group.ids) ? [...new Set(group.ids)].sort((a, b) => a - b) : [])
       .filter((group) => group.length >= 2);
 
-    const mergedGroups = mergeDuplicateGroups(relatedGroups, normalizedNameGroups);
+    const mergedGroups = mergeDuplicateGroups(relatedGroups, normalizedNameGroups)
+      .filter((group) => {
+        if (group.length > 200) {
+          console.warn(`[DUPLICATE SCAN] Warning: Discarding merged group with size ${group.length} to prevent generic title clustering.`);
+          return false;
+        }
+        return true;
+      });
     const allSourceIds = [...new Set(mergedGroups.flat())];
 
     log.pagesProcessed += relatedGroups.length + normalizedNameGroups.length;
@@ -2405,7 +2426,13 @@ async function getFuzzyNameGroupsFiltered(items, progressCallback, targetSourceI
     }
     for (const root in provGroups) {
       const ids = [...new Set(provGroups[root])];
-      if (ids.length >= 2) allFuzzyGroups.push({ ids: ids });
+      if (ids.length >= 2) {
+        if (ids.length > 200) {
+          console.warn(`[DUPLICATE SCAN] Warning: Discarding fuzzy group (filtered) at root ${root} with size ${ids.length} to prevent generic title clustering.`);
+          continue;
+        }
+        allFuzzyGroups.push({ ids: ids });
+      }
     }
   }
   return allFuzzyGroups;
@@ -2444,7 +2471,7 @@ async function runFixMissingData() {
             
             const currentName = updates.name || doc.name;
             if (currentName) {
-               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'auction');
+               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'auction', false, updates.province || doc.province);
                const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
                if (allRelatedIds.length > 0) {
                  await handleDuplicate(doc.sourceId, currentName, allRelatedIds, 'auction');
@@ -2480,7 +2507,7 @@ async function runFixMissingData() {
             
             const currentName = updates.name || doc.name;
             if (currentName) {
-               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'org');
+               const exactNameRelatedIds = await searchDuplicatesByFuzzyName(doc.sourceId, currentName, 'org', false, updates.province || doc.province);
                const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
                if (allRelatedIds.length > 0) {
                  await handleDuplicate(doc.sourceId, currentName, allRelatedIds, 'org');

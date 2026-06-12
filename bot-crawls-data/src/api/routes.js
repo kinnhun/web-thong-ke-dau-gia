@@ -805,7 +805,7 @@ router.post('/trigger-recrawl-item', async (req, res, next) => {
         console.log(`[RECRAWL BG] Đã cập nhật DB thành công cho #${sourceId}.`);
 
         if (type === 'auction') {
-          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction');
+          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, updates.name || item.name, 'auction', false, updates.province || item.province);
           const Duplicate = require('../models/Duplicate'); const existingDup = await Duplicate.findOne({ sourceIds: sourceId, type: 'auction' }); const duplicateIds = existingDup ? existingDup.sourceIds : []; const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...(item.relatedIds || []), ...duplicateIds, ...exactNameRelatedIds])];
           if (allRelatedIds.length > 0) {
             console.log(`[RECRAWL BG] Bắt đầu quét duplicate cho ${allRelatedIds.length} items...`);
@@ -857,7 +857,7 @@ router.post('/trigger-scan-duplicate-item', async (req, res, next) => {
     Promise.resolve().then(async () => {
       try {
         if (type !== 'org') {
-          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, item.name, 'auction');
+          const exactNameRelatedIds = await searchDuplicatesByFuzzyName(sourceId, item.name, 'auction', false, item.province);
           const allRelatedIds = [...new Set([...(item.relatedIds || []), ...exactNameRelatedIds])];
           
           if (allRelatedIds.length > 0) {
@@ -1161,7 +1161,7 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
           await Model.updateOne({ _id: item._id }, updateCommand);
 
           if (type === 'auction') {
-            const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, updates.name || item.name, 'auction');
+             const exactNameRelatedIds = await searchDuplicatesByFuzzyName(item.sourceId, updates.name || item.name, 'auction', false, updates.province || item.province);
             const allRelatedIds = [...new Set([...(updates.relatedIds || []), ...exactNameRelatedIds])];
             if (allRelatedIds.length > 0) {
               await handleDuplicate(item.sourceId, updates.name || item.name, allRelatedIds, 'auction');
@@ -1658,6 +1658,293 @@ router.post('/trigger-kill-recrawl-missing-properties', async (req, res, next) =
     res.json({
       success: true,
       message: 'Đã gửi yêu cầu dừng job sửa dữ liệu lỗi. Job sẽ dừng sau khi batch hiện tại hoàn tất.',
+      logId: runningLog._id,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// Cào lại tài sản thiếu "Nơi có tài sản" (place)
+// ═══════════════════════════════════════════════════════
+
+let _crawlMissingPlacesCancelRequested = false;
+
+router.post('/trigger-crawl-missing-places', async (req, res, next) => {
+  const { fetchAuctionItemDetail } = require('../scrapers/detail.scraper');
+  const { extractProvince } = require('../utils/helpers');
+  const rawLimit = Number(req.body?.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
+  const rawConcurrency = Number(req.body?.concurrency);
+  const maxConcurrency = Math.max(1, Math.min(Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? Math.floor(rawConcurrency) : 2, 10));
+  const staleThresholdMs = 30 * 60 * 1000;
+  const maxFailedItems = 50;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  _crawlMissingPlacesCancelRequested = false;
+
+  const missingPlaceQuery = {
+    $or: [
+      // Case 1: properties rỗng hoặc không tồn tại → cần cào lại hoàn toàn
+      { properties: { $exists: false } },
+      { properties: { $size: 0 } },
+      // Case 2: properties tồn tại nhưng place bị trống/gạch ngang
+      {
+        properties: { $exists: true, $not: { $size: 0 } },
+        $or: [
+          { 'properties.place': { $exists: false } },
+          { 'properties.place': null },
+          { 'properties.place': '' },
+          { 'properties.place': '-' },
+          { 'properties.place': '—' },
+        ]
+      },
+    ]
+  };
+
+  try {
+    const runningLog = await CrawlLog.findOne({
+      type: 'crawl_missing_places',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (runningLog) {
+      const lastActiveAt = runningLog.updatedAt || runningLog.startedAt || runningLog.createdAt;
+      const lastActiveMs = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+      const isStale = lastActiveMs <= 0 || (Date.now() - lastActiveMs) > staleThresholdMs;
+
+      if (isStale) {
+        runningLog.status = 'failed';
+        runningLog.finishedAt = new Date();
+        runningLog.errorMessages = [
+          ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+          'Tiến trình cào lại nơi có tài sản cũ không còn cập nhật và đã được đóng tự động.',
+        ].slice(-10);
+        await runningLog.save();
+      } else {
+        return res.status(409).json({
+          success: false,
+          message: 'Đang có tiến trình cào nơi có tài sản chạy nền. Theo dõi trong Nhật ký crawl.',
+          logId: runningLog._id,
+        });
+      }
+    }
+
+    const totalScanned = await AuctionNotice.countDocuments({});
+    const matchedCount = await AuctionNotice.countDocuments(missingPlaceQuery);
+    const effectiveMatchedCount = limit > 0 ? Math.min(matchedCount, limit) : matchedCount;
+
+    if (matchedCount === 0) {
+      return res.json({
+        success: true,
+        message: 'Tất cả tài sản đã có đầy đủ thông tin nơi có tài sản.',
+        totalMatched: 0,
+      });
+    }
+
+    const log = await CrawlLog.create({
+      type: 'crawl_missing_places',
+      startedAt: new Date(),
+      status: 'running',
+      totalPages: effectiveMatchedCount,
+      pagesProcessed: 0,
+      itemsInserted: totalScanned,
+      itemsUpdated: 0,
+      itemsSkipped: 0,
+      errorMessages: [],
+      recentNotices: [],
+    });
+
+    // Background job
+    (async () => {
+      let cursor = null;
+
+      try {
+        const query = AuctionNotice.find(missingPlaceQuery)
+          .select({ _id: 1, sourceId: 1, name: 1, province: 1, address: 1, initialPrice: 1, deposit: 1, depositPercent: 1, propertyAmount: 1, quality: 1, publishedAt: 1 })
+          .sort({ publishedAt: -1 })
+          .batchSize(Math.max(maxConcurrency * 2, 50))
+          .lean();
+
+        if (limit > 0) query.limit(limit);
+
+        cursor = query.cursor();
+        const failedItems = [];
+        const recentNotices = [];
+        let ok = 0;
+        let fail = 0;
+        let processed = 0;
+
+        console.log(`[CRAWL-PLACES] Đã quét ${totalScanned} items, tìm thấy ${effectiveMatchedCount} thiếu nơi có tài sản`);
+
+        function getErrorMessage(error) {
+          return error?.message || String(error);
+        }
+
+        async function processItem(item) {
+          try {
+            const { updates, files } = await fetchAuctionItemDetail(item.sourceId);
+
+            const parentAddress = updates.address || item.address || '';
+            const parentProvince = updates.province || item.province || '';
+            const parentName = updates.name || item.name || '';
+
+            // Fallback cho place
+            if (updates.properties && updates.properties.length > 0) {
+              updates.properties = updates.properties.map(p => {
+                let place = p.place ? p.place.trim() : '';
+                if (!place || /^[\s\-\—]*$/.test(place)) {
+                  place = parentAddress || parentProvince || 'Chưa cập nhật địa điểm';
+                }
+                let startPrice = p.startPrice || 0;
+                if (!startPrice && (updates.initialPrice || item.initialPrice)) {
+                  startPrice = updates.initialPrice || item.initialPrice || 0;
+                }
+                return { ...p, place, startPrice };
+              });
+            } else {
+              updates.properties = [{
+                name: parentName,
+                amount: item.propertyAmount || '01',
+                startPrice: updates.initialPrice || item.initialPrice || 0,
+                deposit: updates.deposit || item.deposit || 0,
+                depositPercent: updates.depositPercent || item.depositPercent || '',
+                place: parentAddress || parentProvince || 'Chưa cập nhật địa điểm',
+                quality: updates.quality || item.quality || '',
+              }];
+            }
+
+            // Cập nhật province nếu trống
+            if (!item.province && parentAddress) {
+              const prov = extractProvince(parentAddress);
+              if (prov) updates.province = prov;
+            }
+
+            updates.detailScraped = true;
+            updates.lastCrawledAt = new Date();
+            if (files && files.length > 0) updates.files = files;
+
+            await AuctionNotice.updateOne({ _id: item._id }, { $set: updates });
+            ok++;
+
+            recentNotices.unshift({
+              sourceId: item.sourceId,
+              name: updates.name || item.name,
+              province: updates.province || item.province,
+              publishedAt: updates.publishedAt || item.publishedAt,
+            });
+            if (recentNotices.length > 10) recentNotices.pop();
+          } catch (err) {
+            fail++;
+            const message = getErrorMessage(err);
+            failedItems.push({ sourceId: item.sourceId, message });
+            if (failedItems.length > maxFailedItems) failedItems.splice(0, failedItems.length - maxFailedItems);
+            console.error(`[CRAWL-PLACES] ❌ #${item.sourceId}: ${message}`);
+          } finally {
+            processed++;
+          }
+        }
+
+        let batch = [];
+        for (let item = await cursor.next(); item != null; item = await cursor.next()) {
+          if (_crawlMissingPlacesCancelRequested) {
+            log.status = 'early_stopped';
+            log.errorMessages = [...(log.errorMessages || []), 'Đã dừng theo yêu cầu admin.'].slice(-10);
+            break;
+          }
+
+          batch.push(processItem(item));
+
+          if (batch.length >= maxConcurrency) {
+            await Promise.all(batch);
+            batch = [];
+
+            log.pagesProcessed = processed;
+            log.itemsUpdated = ok;
+            log.itemsSkipped = fail;
+            log.recentNotices = recentNotices.slice(0, 5);
+            await CrawlLog.updateOne({ _id: log._id }, {
+              $set: {
+                pagesProcessed: log.pagesProcessed,
+                itemsUpdated: log.itemsUpdated,
+                itemsSkipped: log.itemsSkipped,
+                recentNotices: log.recentNotices,
+              }
+            });
+
+            await sleep(2000);
+          }
+        }
+
+        if (batch.length > 0) {
+          await Promise.all(batch);
+        }
+
+        if (log.status !== 'early_stopped') {
+          log.status = 'completed';
+        }
+        log.finishedAt = new Date();
+        log.pagesProcessed = processed;
+        log.itemsUpdated = ok;
+        log.itemsSkipped = fail;
+        log.recentNotices = recentNotices.slice(0, 5);
+        if (failedItems.length > 0) {
+          log.errorMessages = [...(log.errorMessages || []), ...failedItems.slice(-5).map(f => `#${f.sourceId}: ${f.message}`)].slice(-10);
+        }
+        await log.save();
+
+        console.log(`[CRAWL-PLACES] ✅ Hoàn thành: ${ok} OK, ${fail} lỗi`);
+      } catch (err) {
+        log.status = 'failed';
+        log.finishedAt = new Date();
+        log.errorMessages = [...(Array.isArray(log.errorMessages) ? log.errorMessages : []), err.message].slice(-10);
+        await log.save();
+        console.error('[CRAWL-PLACES] Background job failed:', err.message);
+      } finally {
+        _crawlMissingPlacesCancelRequested = false;
+        if (cursor) {
+          try { await cursor.close(); } catch (e) {}
+        }
+      }
+    })();
+
+    return res.json({
+      success: true,
+      message: `Đã bắt đầu cào lại ${effectiveMatchedCount} tài sản thiếu nơi có tài sản trong nền`,
+      scannedCount: totalScanned,
+      totalMatched: effectiveMatchedCount,
+      concurrency: maxConcurrency,
+      logId: log._id,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/trigger-kill-crawl-missing-places', async (req, res, next) => {
+  try {
+    const runningLog = await CrawlLog.findOne({
+      type: 'crawl_missing_places',
+      status: 'running',
+    }).sort({ createdAt: -1 });
+
+    if (!runningLog) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hiện không có tiến trình cào nơi có tài sản nào đang chạy.',
+      });
+    }
+
+    _crawlMissingPlacesCancelRequested = true;
+    runningLog.errorMessages = [
+      ...(Array.isArray(runningLog.errorMessages) ? runningLog.errorMessages : []),
+      'Đã nhận yêu cầu dừng job cào nơi có tài sản từ admin.',
+    ].slice(-10);
+    await runningLog.save();
+
+    res.json({
+      success: true,
+      message: 'Đã gửi yêu cầu dừng job cào nơi có tài sản.',
       logId: runningLog._id,
     });
   } catch (err) {

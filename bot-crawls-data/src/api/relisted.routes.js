@@ -62,8 +62,8 @@ router.get('/', async (req, res, next) => {
     }
 
     const sortMap = {
-      rounds_desc: { relistCount: -1, _latestPublishedAt: -1 },
-      newest: { _latestPublishedAt: -1 },
+      rounds_desc: { relistCount: -1, lastPublishedAt: -1 },
+      newest: { lastPublishedAt: -1 },
       price_asc: { latestPrice: 1 },
       discount_pct: { priceDropPercent: -1 },
     };
@@ -111,13 +111,6 @@ router.get('/', async (req, res, next) => {
         Duplicate.countDocuments(dupFilter),
         Duplicate.aggregate([
           { $match: dupFilter },
-          {
-            $addFields: {
-              _latestPublishedAt: {
-                $arrayElemAt: [{ $slice: [{ $ifNull: ['$entries.publishedAt', []] }, -1] }, 0],
-              },
-            },
-          },
           sortStage,
           { $skip: skip },
           { $limit: limit },

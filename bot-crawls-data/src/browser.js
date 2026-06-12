@@ -137,6 +137,7 @@ async function ensureBrowserContext(forceReset = false) {
     if (!browser) {
       console.log('🌐 Đang khởi tạo browser (headless mode)...');
       browser = await puppeteer.launch({
+        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         headless: 'new',
         args: [
           '--no-sandbox',

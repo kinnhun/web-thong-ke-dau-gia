@@ -234,3 +234,13 @@ export async function fetchTunnelUrl(): Promise<{ url: string | null; active: bo
   const { data } = await httpClient.get('/api/system/tunnel-url');
   return data;
 }
+
+export async function triggerCrawlMissingPlaces(limit = 0, concurrency = 2) {
+  const { data } = await httpClient.post('/api/trigger-crawl-missing-places', { limit, concurrency });
+  return data;
+}
+
+export async function triggerKillCrawlMissingPlaces() {
+  const { data } = await httpClient.post('/api/trigger-kill-crawl-missing-places');
+  return data;
+}

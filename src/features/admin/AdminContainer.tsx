@@ -3,7 +3,7 @@ import {
   AlertCircle, CheckCircle2, Database, Eye, GitMerge,
   Loader2, Pencil, RefreshCw, Split, Wand2, XCircle, Activity,
   TrendingDown, Layers, FileBarChart, Download, Copy, ExternalLink, Globe,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,6 +23,8 @@ import {
   triggerRecrawlMissingPrice,
   triggerKillRecrawlMissingPrice,
   triggerRecrawlItem,
+  triggerCrawlMissingPlaces,
+  triggerKillCrawlMissingPlaces,
 } from "@/services/auction.service";
 import { continueTmpFullCrawl } from "@/services/tmp-full-crawl.service";
 
@@ -50,6 +52,8 @@ const crawlTypeLabel: Record<string, string> = {
   recrawl_missing_properties: "Cào lại tài sản lỗi",
   mega_detail_crawl: "Mega crawl chi tiết",
   crawl_duplicate_details: "Cào detail nhóm trùng lặp",
+  crawl_missing_places: "Cào nơi có tài sản",
+  recrawl_missing_price: "Cào lại tin thiếu giá",
 };
 
 export function AdminContainer() {
@@ -124,7 +128,7 @@ export function AdminContainer() {
         skippedCompleteCount?: number;
       };
 
-      if (name === "Cào lại tài sản" || name === "Mega crawl chi tiết" || name === "Tiếp tục mega crawl" || name === "Cào detail trùng lặp") {
+      if (name === "Cào lại tài sản" || name === "Mega crawl chi tiết" || name === "Tiếp tục mega crawl" || name === "Cào detail trùng lặp" || name === "Cào nơi có tài sản") {
         const scannedLabel = payload.scannedCount !== undefined ? `Đã quét ${payload.scannedCount} item` : null;
         const matchedLabel = payload.totalMatched !== undefined ? `cần recrawl ${payload.totalMatched} item` : null;
         const skippedLabel = payload.skippedCompleteCount !== undefined ? `bỏ qua ${payload.skippedCompleteCount} item đủ dữ liệu` : null;
@@ -142,6 +146,9 @@ export function AdminContainer() {
         refetchLogs();
       } else if (name === "Cào lại tài sản" && message.includes("Đang có tiến trình cào lại tài sản chạy nền")) {
         setActionResult("ℹ️ Cào lại tài sản đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
+        refetchLogs();
+      } else if (name === "Cào nơi có tài sản" && message.includes("Đang có tiến trình cào nơi có tài sản")) {
+        setActionResult("ℹ️ Cào nơi có tài sản đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
         refetchLogs();
       } else if ((name === "Mega crawl chi tiết" || name === "Tiếp tục mega crawl") && message.includes("Đang có tiến trình mega crawl detail chạy nền")) {
         setActionResult("ℹ️ Mega crawl chi tiết đang chạy nền. Bạn có thể theo dõi tiến trình ngay trong Nhật ký crawl.");
@@ -162,6 +169,8 @@ export function AdminContainer() {
     { icon: XCircle, title: "Dừng sửa lỗi", desc: "Hủy job sửa dữ liệu đang chạy", fn: () => triggerKillRecrawlMissingProperties() },
     { icon: TrendingDown, title: "Crawl thiếu giá", desc: "Cào lại tin thiếu giá", fn: () => triggerRecrawlMissingPrice(0, "auction", 100) },
     { icon: XCircle, title: "Dừng cào thiếu giá", desc: "Dừng job cào tin thiếu giá", fn: () => triggerKillRecrawlMissingPrice() },
+    { icon: MapPin, title: "Cào nơi có tài sản", desc: "Bổ sung địa điểm bị thiếu", fn: () => triggerCrawlMissingPlaces(0, 2) },
+    { icon: XCircle, title: "Dừng cào địa điểm", desc: "Dừng job cào nơi có tài sản", fn: () => triggerKillCrawlMissingPlaces() },
     { icon: Activity, title: "Mega Crawl", desc: "Quét chi tiết toàn bộ DB", fn: () => triggerMegaDetailCrawl(0, "auction", 10) },
     { icon: RefreshCw, title: "Tiếp tục Mega Crawl", desc: "Chạy tiếp tiến trình dở dang", fn: () => continueTmpFullCrawl() },
     { icon: GitMerge, title: "Cào detail trùng lặp", desc: "Cào detail cho bài trong nhóm trùng", fn: () => triggerCrawlDuplicateDetails() },
@@ -634,7 +643,7 @@ export function AdminContainer() {
                           {duration !== null && <span>{duration}s</span>}
                         </div>
                         <div className="text-xs sm:text-sm mt-0.5 leading-relaxed">
-                          {type === "recrawl_missing_properties" || type === "mega_detail_crawl" ? (
+                          {type === "recrawl_missing_properties" || type === "mega_detail_crawl" || type === "crawl_missing_places" ? (
                             <>
                               {l.itemsInserted !== undefined && <span>Đã quét: <strong className="num">{String(l.itemsInserted)}</strong></span>}
                               {l.itemsSkipped !== undefined && <span> · Đủ dữ liệu bỏ qua: <strong className="num">{String(l.itemsSkipped)}</strong></span>}

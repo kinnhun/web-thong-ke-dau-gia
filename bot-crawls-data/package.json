@@ -4,13 +4,14 @@
   "description": "Bot cào dữ liệu đấu giá từ dgts.moj.gov.vn và lưu vào MongoDB",
   "main": "src/index.js",
   "scripts": {
-    "dev": "node --max-old-space-size=2048 src/index.js",
-    "start": "node --max-old-space-size=2048 src/index.js",
-    "crawl": "node --max-old-space-size=2048 src/crawler.js",
-    "api": "node --max-old-space-size=2048 src/api/server.js",
-    "crawl:auction": "node --max-old-space-size=2048 src/crawler.js --type=auction",
-    "crawl:org": "node --max-old-space-size=2048 src/crawler.js --type=org",
-    "crawl:detail": "node --max-old-space-size=2048 src/crawler.js --type=detail"
+    "dev": "node --max-old-space-size=8192 src/index.js",
+    "start": "node --max-old-space-size=8192 src/index.js",
+    "crawl": "node --max-old-space-size=8192 src/crawler.js",
+    "api": "node --max-old-space-size=8192 src/api/server.js",
+    "crawl:auction": "node --max-old-space-size=8192 src/crawler.js --type=auction",
+    "crawl:org": "node --max-old-space-size=8192 src/crawler.js --type=org",
+    "crawl:detail": "node --max-old-space-size=8192 src/crawler.js --type=detail",
+    "crawl:missing_places": "node --max-old-space-size=8192 crawl_missing_places.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

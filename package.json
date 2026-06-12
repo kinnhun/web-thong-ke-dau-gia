@@ -10,6 +10,7 @@
     "dev:backend": "cd bot-crawls-data && npm start",
     "dev:tunnel": "npx -y cloudflared tunnel --protocol http2 --url http://localhost:1234",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:tunnel\"",
+    "crawl:missing_places": "cd bot-crawls-data && npm run crawl:missing_places",
     "build": "next build",
     "start:frontend": "next start -p 1234",
     "start:backend": "cd bot-crawls-data && npm start",
