@@ -1,0 +1,95 @@
+=== IDENTIFIERS FOR EACH NOTICE ===
+
+ID: 531198
+Name: "Tài sản là quyền sử dụng đất theo quy định của pháp luật về đất đai -11 lô Phong Phú"
+Extracted Identifiers: {}
+Core Identity: "11 phong phu"
+Number Tokens: ["-11"]
+
+ID: 568616
+Name: "Khu 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha; Khu sạt lở 9 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu-Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân; Khe Luông Sâu Cửa tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông sâu Cửa Đại-Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha; Khu vực Chòi khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+Extracted Identifiers: {}
+Core Identity: "khu 82 ha khu doi bac dien tich 61 ha khu 22 co sat da het hop dong dien tich 105 ha khu sat 9 co sat dien tich 27 ha khu doi het hop dong dien tich 6 ha khu doi dien tich 23 ha khu doi bac dien tich 29 ha khu vuc chot phong phu tan dien tich 87 ha tu vanh chot phong con ngang ranh hop tac thuy phu tan khe luong tieu dien tich 10 ha khe luong tram kiem soat phong dien tich 36 ha khu vuc dien tich 120 ha khu vuc choi khi con lai dien tich 20 ha khu doi dien con ngang dien tich 350 ha khu doi nam giap htx dien tich 64 ha"
+Number Tokens: ["82","61","22","105","9","27","6","23","29","87","10","36","120","20","350","64"]
+
+ID: 462040
+Name: "Khu nhóm ông 9 Hùng đã hết hạn hợp đồng. Diện tích: 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha. ; Khu sạt lở 9 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 27 ha. ; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân. Diện tích: 6 ha; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha. ; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX. Diện tích: 64 ha"
+Extracted Identifiers: {}
+Core Identity: "khu nhom ong 9 hung da het hop dong dien tich 82 ha khu doi bac dien tich 61 ha khu 22 co sat da het hop dong dien tich 105 ha khu sat 9 co sat da het hop dong dien tich 27 ha khu doi het hop dong dien tich 6 ha khu doi dien tich 23 ha khu doi bac dien tich 29 ha khu vuc chot phong phu tan dien tich 87 ha tu vanh chot phong con ngang ranh hop tac thuy phu tan dien tich 6 ha khe luong tieu dien tich 10 ha khe luong – tram kiem soat phong dien tich 36 ha khu vuc dien tich 120 ha khu vuc choi khi con lai dien tich 20 ha khu doi dien con ngang dien tich 350 ha khu doi nam giap htx dien tich 64 ha"
+Number Tokens: ["9","82","61","22","105","27","6","23","29","87","10","36","120","20","350","64"]
+
+ID: 336284
+Name: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha.; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha.; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha. "
+Extracted Identifiers: {}
+Core Identity: "khu 22 co sat da het hop dong dien tich 105 ha khu sat 09 co sat dien tich 27 ha khu doi dien tich 23 ha khu doi bac dien tich 29 ha khu vuc chot phong phu tan dien tich 87 ha khe luong – tram kiem soat phong dien tich 36 ha khu vuc dien tich 120 ha nhom quoc tra lai nhom 2 thuong tra lai nhom muoi tra lai khu doi nam giap htx dien tich 64 ha"
+Number Tokens: ["22","105","09","27","23","29","87","36","120","2","64"]
+
+ID: 327027
+Name: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha.; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy. Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha.; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại (sau khi cho thuê 11 cá nhân). Diện tích: 20 ha. ; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại. ; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+Extracted Identifiers: {}
+Core Identity: "khu 22 co sat da het hop dong dien tich 105 ha khu sat 09 co sat dien tich 27 ha khu doi het hop dong dien tich 23 ha khu doi bac dien tich 29 ha khu vuc chot phong phu tan dien tich 87 ha khe luong tieu dien tich 10 ha khe luong – tram kiem soat phong dien tich 36 ha khu vuc dien tich 120 ha khu vuc choi khi con lai dien tich 20 ha nhom quoc tra lai nhom 2 thuong tra lai nhom muoi tra lai khu doi nam giap htx dien tich 64 ha"
+Number Tokens: ["22","105","09","27","23","29","87","10","36","120","20","2","64"]
+
+ID: 325855
+Name: "Cây cao su thanh lý trên diện tích 16,37 ha, bao gồm các lô 13, lô 18 và lô 19 thuộc Đội Cao su Phong Phú (lô 1); Cây cao su thanh lý trên diện tích 70,44 ha, bao gồm các lô 17, lô 18 và lô 21 thuộc Nông trường Cao su Hoà Bình 2 (lô 2); Cây cao su thanh lý trên diện tích 39,94 ha, bao gồm các lô 41B, lô 3B, lô 110 và lô 20 thuộc Nông trường Cao su Hoà Bình 2."
+Extracted Identifiers: {}
+Core Identity: "cay cao dien tich 16 37 ha 13 18 19 thuoc doi cao phong phu cay cao dien tich 70 44 ha 17 18 21 thuoc truong cao 2 cay cao dien tich 39 94 ha 41b 3b 110 20 thuoc truong cao 2"
+Number Tokens: ["16","37","13","18","19","70","44","17","21","2","39","94","41b","3b","110","20"]
+
+ID: 163076
+Name: "Toàn bộ 18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú."
+Extracted Identifiers: {}
+Core Identity: "toan bo 18 khoan no bang quyen du kcn phong phu"
+Number Tokens: ["18"]
+
+ID: 148592
+Name: "Bán đấu giá không tách rời toàn bộ 18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú (tọa lạc tại xã Phong Phú, huyện Bình Chánh, Tp. HCM) theo nguyên trạng khoản nợ."
+Extracted Identifiers: {
+  "communes": [
+    "phong phu"
+  ],
+  "commune": "phong phu",
+  "districts": [
+    "binh chanh"
+  ],
+  "district": "binh chanh"
+}
+Core Identity: "khong tach roi toan bo 18 khoan no bang quyen du kcn phong phu trang khoan no"
+Number Tokens: ["18"]
+
+ID: 143346
+Name: "18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú (tọa lạc tại xã Phong Phú, Bình Chánh, Tp. HCM) theo nguyên trạng khoản nợ, bao gồm: chuyển giao toàn bộ quyền, nghĩa vụ của chủ nợ và bên nhận bảo đảm đối với tài sản bảo đảm của các khoản nợ này."
+Extracted Identifiers: {
+  "communes": [
+    "phong phu"
+  ],
+  "commune": "phong phu"
+}
+Core Identity: "18 khoan no bang quyen du kcn phong phu trang khoan no chuyen toan bo quyen nghia vu no ben doi khoan no"
+Number Tokens: ["18"]
+
+=== PAIRWISE MATCH CHECK ===
+[MATCH] 568616 and 462040
+  Reason: Core Sim >= 80%
+  A: "Khu 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha; Khu sạt lở 9 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu-Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân; Khe Luông Sâu Cửa tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông sâu Cửa Đại-Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha; Khu vực Chòi khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+  B: "Khu nhóm ông 9 Hùng đã hết hạn hợp đồng. Diện tích: 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha. ; Khu sạt lở 9 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 27 ha. ; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân. Diện tích: 6 ha; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha. ; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX. Diện tích: 64 ha"
+[MATCH] 568616 and 327027
+  Reason: Core Sim >= 55% + Có số chung
+  A: "Khu 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha; Khu sạt lở 9 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu-Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân; Khe Luông Sâu Cửa tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông sâu Cửa Đại-Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha; Khu vực Chòi khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+  B: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha.; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy. Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha.; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại (sau khi cho thuê 11 cá nhân). Diện tích: 20 ha. ; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại. ; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+[MATCH] 462040 and 327027
+  Reason: Core Sim >= 55% + Có số chung
+  A: "Khu nhóm ông 9 Hùng đã hết hạn hợp đồng. Diện tích: 82 ha; Khu Doi Bắc (giáp đất HTX). Diện tích: 61 ha; Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha. ; Khu sạt lở 9 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 27 ha. ; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy). Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý. Diện tích: 87 ha; Từ vành chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân. Diện tích: 6 ha; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha. ; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại. Diện tích: 20 ha; Khu đối diện Cồn Ngang. Diện tích: 350 ha; Khu Doi Nam, giáp HTX. Diện tích: 64 ha"
+  B: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha.; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy. Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha.; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại (sau khi cho thuê 11 cá nhân). Diện tích: 20 ha. ; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại. ; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+[MATCH] 336284 and 327027
+  Reason: Core Sim >= 80%
+  A: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha.; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha.; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha. "
+  B: "Khu 22 hộ có đất gốc sạt lở đã hết hạn hợp đồng. Diện tích: 105 ha.; Khu sạt lở 09 hộ có đất gốc sạt lở (đã hết hạn hợp đồng). Diện tích: 27 ha; Khu Doi Nam 1 hết hạn hợp đồng (gần khu nghỉ mát Chung Gia Huy. Diện tích: 6 ha; Khu Doi Nam 2 (Nhóm CAH). Diện tích: 23 ha.; Khu Doi Bắc (Khe Luông Sâu – Miễu). Diện tích: 29 ha; Khu vực Chốt Biên phòng Phú Tân quản lý (Từ vành đai chốt Biên phòng Cồn Ngang đến ranh giới đất Hợp tác xã thủy sản Phú Tân). Diện tích: 87 ha. ; Khe Luông Sâu Cửa Tiểu (Bãi Bần). Diện tích: 10 ha; Khe Luông Sâu cửa Đại – Trạm kiểm soát Biên phòng. Diện tích: 36 ha. ; Khu vực Cửa Đại (BCH QS và Biên phòng trả lại). Diện tích: 120 ha. ; Khu vực Chòi Khỉ còn lại (sau khi cho thuê 11 cá nhân). Diện tích: 20 ha. ; Nhóm Quốc Thanh trả lại, Nhóm 2 Thương trả lại, Nhóm Mười một trả lại. ; Khu Doi Nam, giáp HTX (chưa cho thuê). Diện tích: 64 ha"
+[MATCH] 163076 and 148592
+  Reason: Core Sim >= 55% + Có số chung
+  A: "Toàn bộ 18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú."
+  B: "Bán đấu giá không tách rời toàn bộ 18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú (tọa lạc tại xã Phong Phú, huyện Bình Chánh, Tp. HCM) theo nguyên trạng khoản nợ."
+[MATCH] 163076 and 143346
+  Reason: Overlap Sim >= 85% + Có số chung
+  A: "Toàn bộ 18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú."
+  B: "18 khoản nợ được đảm bảo bằng quyền tài sản tại Dự án KCN Phong Phú (tọa lạc tại xã Phong Phú, Bình Chánh, Tp. HCM) theo nguyên trạng khoản nợ, bao gồm: chuyển giao toàn bộ quyền, nghĩa vụ của chủ nợ và bên nhận bảo đảm đối với tài sản bảo đảm của các khoản nợ này."

@@ -30,7 +30,7 @@ import {
 } from "@/domains/auction";
 import { formatVND, formatVNDShort, formatRelativeDays } from "@/lib/format";
 import { getAuctionDisplayTitle, getAuctionPropertyLines } from "@/utils/auction-display";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
@@ -52,6 +52,13 @@ function LoadingBlock({ className = "" }: { className?: string }) {
 
 export function DashboardContainer() {
   const [trendDays, setTrendDays] = useState(14);
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 250);
+    return () => clearTimeout(t);
+  }, []);
+
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: trendData } = useDashboardTrend(trendDays);
   const { data: top10 } = useTopDiscounted(10);
@@ -158,8 +165,8 @@ export function DashboardContainer() {
             </Tabs>
           </div>
           <div className="h-48 sm:h-64">
-            {chartTrend.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+            {chartTrend.length > 0 && mounted ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <LineChart data={chartTrend} margin={{ left: -10, right: 5, top: 5, bottom: 0 }}>
                   <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
@@ -183,8 +190,8 @@ export function DashboardContainer() {
             <p className="text-xs text-muted-foreground">Phân bố tài sản đang theo dõi</p>
           </div>
           <div className="h-64">
-            {typeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+            {typeData.length > 0 && mounted ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={typeData} layout="vertical" margin={{ left: 60, right: 10 }}>
                   <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />

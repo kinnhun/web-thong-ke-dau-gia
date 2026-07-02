@@ -9,6 +9,7 @@ import {
   TrendingDown,
   History,
   Star,
+  Activity,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -40,6 +41,7 @@ const mainItems = [
 
 const adminItems = [
   { title: "Quản trị dữ liệu", url: "/admin", icon: Database },
+  { title: "Nhật ký & Tiến trình", url: "/admin/crawler", icon: Activity },
 ];
 
 function SidebarNavLink({ href, end, icon: Icon, title }: { href: string; end?: boolean; icon: typeof LayoutDashboard; title: string }) {

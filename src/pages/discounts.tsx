@@ -1,7 +1,7 @@
 import Head from "next/head";
 import type { ReactElement } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { RelistedContainer } from "@/features/relisted/RelistedContainer";
+import { DiscountsContainer } from "@/features/discounts/DiscountsContainer";
 
 export default function DiscountsPage() {
   return (
@@ -10,7 +10,7 @@ export default function DiscountsPage() {
         <title>Tài sản giảm giá & đăng lại | AuctionWatch</title>
         <meta name="description" content="Danh sách tài sản đấu giá giảm giá và đăng lại với bộ lọc nâng cao" />
       </Head>
-      <RelistedContainer />
+      <DiscountsContainer />
     </>
   );
 }

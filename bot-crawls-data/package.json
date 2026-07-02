@@ -11,7 +11,8 @@
     "crawl:auction": "node --max-old-space-size=8192 src/crawler.js --type=auction",
     "crawl:org": "node --max-old-space-size=8192 src/crawler.js --type=org",
     "crawl:detail": "node --max-old-space-size=8192 src/crawler.js --type=detail",
-    "crawl:missing_places": "node --max-old-space-size=8192 crawl_missing_places.js"
+    "crawl:missing_places": "node --max-old-space-size=8192 crawl_missing_places.js",
+    "crawl:cli": "node --max-old-space-size=8192 cli-crawler.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

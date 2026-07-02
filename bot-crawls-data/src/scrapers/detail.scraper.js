@@ -14,7 +14,9 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
-const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers } = require('../utils/helpers');
+const AssetItem = require('../models/AssetItem');
+const PotentialDuplicate = require('../models/PotentialDuplicate');
+const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, isSignificantNumber, isGenericTitle, extractLocationIdentity, generateBlockingKeys, detectHardConflict, compareArea, compareRelistPrice, scoreAssetPair } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -150,7 +152,7 @@ async function handleDuplicate(sourceId, name, relatedIds, type = 'auction') {
   // Nạp chi tiết giá + ngày từ DB cho tất cả sourceIds
   const entries = await buildDuplicateEntries(dup.sourceIds, type);
   dup.entries = entries;
-  dup.relistCount = entries.length;
+  dup.relistCount = new Set(entries.map(e => e.publishRound).filter(r => r > 0)).size || entries.length;
 
   // Lấy province, district, commune và organizer từ các entry
   const Model = type === 'org' ? OrgSelection : AuctionNotice;
@@ -225,11 +227,11 @@ async function buildDuplicateEntries(sourceIds, type) {
 function buildDuplicateEntriesFromItems(sourceIds, items, type) {
   const priceField = type === 'org' ? 'startingPrice' : 'initialPrice';
 
-  const entries = items.map((item, idx) => ({
+  const entries = items.map((item) => ({
     sourceId: item.sourceId,
     price: item[priceField] || item.currentPrice || 0,
     publishedAt: item.publishedAt,
-    publishRound: item.publishRound || idx + 1,
+    publishRound: item.publishRound || 0,
     publishRoundLabel: item.publishRoundLabel || '',
     rootId: item.rootId || null,
     sourceUrl: item.sourceUrl || '',
@@ -260,6 +262,22 @@ function buildDuplicateEntriesFromItems(sourceIds, items, type) {
 
     return a.sourceId - b.sourceId;
   });
+
+  // Gom các entries cùng ngày đăng thành cùng 1 round (bản đính chính/liên quan)
+  let currentRound = 0;
+  let lastDateKey = '';
+  for (const entry of entries) {
+    if (!entry.publishedAt) {
+      entry.publishRound = entry.publishRound || 0;
+      continue;
+    }
+    const dateKey = new Date(entry.publishedAt).toISOString().slice(0, 10); // YYYY-MM-DD
+    if (dateKey !== lastDateKey) {
+      currentRound++;
+      lastDateKey = dateKey;
+    }
+    entry.publishRound = currentRound;
+  }
 
   return entries;
 }
@@ -355,7 +373,7 @@ function summarizeDuplicateEntries(entries, type) {
 
   return {
     entries,
-    relistCount: entries.length,
+    relistCount: new Set(entries.map(e => e.publishRound).filter(r => r > 0)).size || entries.length,
     firstPrice,
     latestPrice,
     isPriceDrop,
@@ -1318,7 +1336,7 @@ async function rebuildAllDuplicateEntries(shouldStop, onProgress, filter = {}) {
     // Cập nhật Duplicate
     const updateDoc = {
       entries,
-      relistCount: entries.length,
+      relistCount: new Set(entries.map(e => e.publishRound).filter(r => r > 0)).size || entries.length,
       firstPrice,
       latestPrice,
       isPriceDrop,
@@ -1382,10 +1400,18 @@ async function rebuildAllDuplicateEntries(shouldStop, onProgress, filter = {}) {
     }
 
     if (auctionNoticeOps.length > 0) {
-      await AuctionNotice.bulkWrite(auctionNoticeOps, { ordered: false });
+      const batchSize = 10000;
+      for (let i = 0; i < auctionNoticeOps.length; i += batchSize) {
+        const batch = auctionNoticeOps.slice(i, i + batchSize);
+        await AuctionNotice.bulkWrite(batch, { ordered: false });
+      }
     }
     if (orgSelectionOps.length > 0) {
-      await OrgSelection.bulkWrite(orgSelectionOps, { ordered: false });
+      const batchSize = 10000;
+      for (let i = 0; i < orgSelectionOps.length; i += batchSize) {
+        const batch = orgSelectionOps.slice(i, i + batchSize);
+        await OrgSelection.bulkWrite(batch, { ordered: false });
+      }
     }
   }
 
@@ -1531,271 +1557,676 @@ function getWordSet(str) {
 }
 
 
-async function getFuzzyNameGroups(Model, progressCallback) {
-  const items = await Model.find({ name: { $type: 'string', $ne: '' } })
-    .select('sourceId name province')
-    .maxTimeMS(0)
-    .lean();
+function extractAssetItemsFromNotice(notice, type) {
+  const items = [];
+  const { extractPropertyIdentifiers, mapAssetType, removeDiacritics, extractCoreIdentity } = require('../utils/helpers');
 
-  if (progressCallback) await progressCallback(`Đã tải ${items.length} bản ghi để gom nhóm tương đồng...`);
+  if (Array.isArray(notice.properties) && notice.properties.length > 0) {
+    notice.properties.forEach((prop, index) => {
+      const pName = prop.name || notice.name;
+      if (!pName) return;
+      const rawText = `${pName} ${prop.place || ''} ${prop.quality || ''} ${notice.address || ''}`;
+      const cleanName = removeDiacritics(pName.toLowerCase()).trim();
+      const ids = extractPropertyIdentifiers(rawText);
 
-  const buckets = {};
-  for (const item of items) {
-    const prov = normalizeProvince(item.province) || 'unknown';
-    if (!buckets[prov]) buckets[prov] = {};
-    const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
-    const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
-    buckets[prov][cleanName].sourceIds.push(item.sourceId);
-  }
-
-  const allFuzzyGroups = [];
-  const provKeys = Object.keys(buckets);
-  let processedProv = 0;
-
-  for (const prov of provKeys) {
-    const cleanNames = Object.keys(buckets[prov]);
-    if (cleanNames.length === 0) continue;
-
-    // ★ THUẬT TOÁN V2: So sánh trên LÕI DANH TÍNH
-    const data = cleanNames.map((cleanName, i) => {
-      const originalName = buckets[prov][cleanName].name;
-      return {
-        index: i,
-        coreBigrams: getBigrams(extractCoreIdentity(originalName)),
-        numbers: getNumberTokens(originalName),
-        identifiers: extractPropertyIdentifiers(originalName),
-        sourceIds: buckets[prov][cleanName].sourceIds
+      const item = {
+        noticeId: notice._id,
+        sourceType: type,
+        sourceId: notice.sourceId,
+        itemIndex: index,
+        name: pName,
+        assetType: mapAssetType(notice.propertyTypeName, pName),
+        rawText,
+        normalizedText: cleanName,
+        coreIdentity: extractCoreIdentity(pName),
+        locationIdentity: `${ids.commune || ''} ${ids.district || ''} ${notice.province || ''}`.trim(),
+        identifiers: ids,
+        area: parseFloat(ids.area) || null,
+        quantity: parseFloat(prop.amount) || 1,
+        startingPrice: prop.startPrice || (type === 'auction' ? notice.initialPrice : notice.startingPrice),
+        ownerName: ids.ownerName || notice.owner,
+        auctionOrg: notice.organizer,
+        province: notice.province,
+        district: ids.district || notice.district,
+        ward: ids.commune,
+        attachmentTextUsed: false
       };
+      item.blockingKeys = generateBlockingKeys(item);
+      items.push(item);
+    });
+  } else {
+    const pName = notice.name;
+    if (!pName) return items;
+    const rawText = `${pName} ${notice.address || ''} ${notice.shortDescription || ''}`;
+    const cleanName = removeDiacritics(pName.toLowerCase()).trim();
+    const ids = extractPropertyIdentifiers(rawText);
+
+    const item = {
+      noticeId: notice._id,
+      sourceType: type,
+      sourceId: notice.sourceId,
+      itemIndex: 0,
+      name: pName,
+      assetType: mapAssetType(notice.propertyTypeName, pName),
+      rawText,
+      normalizedText: cleanName,
+      coreIdentity: extractCoreIdentity(pName),
+      locationIdentity: `${ids.commune || ''} ${ids.district || ''} ${notice.province || ''}`.trim(),
+      identifiers: ids,
+      area: parseFloat(ids.area) || null,
+      quantity: 1,
+      startingPrice: type === 'auction' ? notice.initialPrice : notice.startingPrice,
+      ownerName: ids.ownerName || notice.owner,
+      auctionOrg: notice.organizer,
+      province: notice.province,
+      district: ids.district || notice.district,
+      ward: ids.commune,
+      attachmentTextUsed: false
+    };
+    item.blockingKeys = generateBlockingKeys(item);
+    items.push(item);
+  }
+  return items;
+}
+
+async function syncAllAssetItems(progressCallback) {
+  if (progressCallback) await progressCallback('Đang dọn dẹp bảng AssetItem cũ và cấu trúc lại chỉ mục...');
+  try {
+    await AssetItem.collection.dropIndexes();
+  } catch (err) {
+    // Ignore if collection or index doesn't exist yet
+  }
+  await AssetItem.deleteMany({});
+  await AssetItem.createIndexes();
+
+  if (progressCallback) await progressCallback('Đang chuẩn bị trích xuất AssetItem từ AuctionNotice...');
+  
+  let totalItems = 0;
+  let batchOps = [];
+  const batchSize = 10000;
+
+  const cursorAuction = AuctionNotice.find({ name: { $type: 'string', $ne: '' } }).lean().cursor();
+  for await (const notice of cursorAuction) {
+    const items = extractAssetItemsFromNotice(notice, 'auction');
+    items.forEach(item => {
+      batchOps.push({
+        insertOne: {
+          document: item
+        }
+      });
     });
 
-    // Sắp xếp theo kích thước core bigrams để tối ưu hoá break sớm cho Rule 3
-    data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
-
-    const parent = Array.from({ length: data.length }, (_, i) => i);
-    const find = (i) => {
-      if (parent[i] === i) return i;
-      return parent[i] = find(parent[i]);
-    };
-    const union = (i, j) => {
-      const rootI = find(i);
-      const rootJ = find(j);
-      if (rootI !== rootJ) parent[rootI] = rootJ;
-    };
-
-    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
-    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
-    const strongMap = new Map();
-    for (let i = 0; i < data.length; i++) {
-      const ids = data[i].identifiers;
-      for (const key of strongKeys) {
-        if (ids[key]) {
-          const hash = key + ':' + ids[key];
-          if (!strongMap.has(hash)) strongMap.set(hash, []);
-          strongMap.get(hash).push(i);
+    if (batchOps.length >= batchSize) {
+      totalItems += batchOps.length;
+      if (progressCallback) await progressCallback(`Đang ghi ${totalItems} AssetItem (Auctions)...`);
+      try {
+        await AssetItem.bulkWrite(batchOps, { ordered: false });
+      } catch (err) {
+        if (err.code === 11000) {
+          const dupeCount = err.writeErrors?.length || 0;
+          console.warn(`[SYNC] Bỏ qua ${dupeCount} AssetItem trùng key (Auctions batch).`);
+        } else {
+          throw err;
         }
       }
-      if (ids.plotNumber && ids.mapSheet) {
-        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
-        if (!strongMap.has(hash)) strongMap.set(hash, []);
-        strongMap.get(hash).push(i);
+      batchOps = [];
+    }
+  }
+  if (batchOps.length > 0) {
+    totalItems += batchOps.length;
+    try {
+      await AssetItem.bulkWrite(batchOps, { ordered: false });
+    } catch (err) {
+      if (err.code === 11000) {
+        const dupeCount = err.writeErrors?.length || 0;
+        console.warn(`[SYNC] Bỏ qua ${dupeCount} AssetItem trùng key (Auctions cuối).`);
+      } else {
+        throw err;
       }
     }
-    for (const indices of strongMap.values()) {
-      if (indices.length > 1) {
-        for (let k = 0; k < indices.length; k++) {
-          for (let m = k + 1; m < indices.length; m++) {
-            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
-              union(indices[k], indices[m]);
-            }
-          }
+    batchOps = [];
+  }
+
+  if (progressCallback) await progressCallback('Đang chuẩn bị trích xuất AssetItem từ OrgSelection...');
+  const cursorOrg = OrgSelection.find({ name: { $type: 'string', $ne: '' } }).lean().cursor();
+  for await (const notice of cursorOrg) {
+    const items = extractAssetItemsFromNotice(notice, 'org');
+    items.forEach(item => {
+      batchOps.push({
+        insertOne: {
+          document: item
         }
+      });
+    });
+
+    if (batchOps.length >= batchSize) {
+      totalItems += batchOps.length;
+      if (progressCallback) await progressCallback(`Đang ghi ${totalItems} AssetItem (Orgs)...`);
+      try {
+        await AssetItem.bulkWrite(batchOps, { ordered: false });
+      } catch (err) {
+        if (err.code === 11000) {
+          const dupeCount = err.writeErrors?.length || 0;
+          console.warn(`[SYNC] Bỏ qua ${dupeCount} AssetItem trùng key (Orgs batch).`);
+        } else {
+          throw err;
+        }
+      }
+      batchOps = [];
+    }
+  }
+  if (batchOps.length > 0) {
+    totalItems += batchOps.length;
+    try {
+      await AssetItem.bulkWrite(batchOps, { ordered: false });
+    } catch (err) {
+      if (err.code === 11000) {
+        const dupeCount = err.writeErrors?.length || 0;
+        console.warn(`[SYNC] Bỏ qua ${dupeCount} AssetItem trùng key (Orgs cuối).`);
+      } else {
+        throw err;
       }
     }
+  }
 
-    // Xây dựng inverted indexes cho các trường định danh để tối ưu hoá tìm kiếm ứng viên
-    const numberMap = new Map();
-    const apartmentMap = new Map();
-    const houseNumberMap = new Map();
-    const bigramMap = new Map();
+  if (progressCallback) await progressCallback(`Đã đồng bộ thành công ${totalItems} AssetItem vào Database.`);
+}
 
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
-      if (item.numbers) {
-        for (const num of item.numbers) {
-          if (!numberMap.has(num)) numberMap.set(num, []);
-          numberMap.get(num).push(i);
-        }
-      }
-      if (item.identifiers && item.identifiers.apartment) {
-        const apt = item.identifiers.apartment;
-        if (!apartmentMap.has(apt)) apartmentMap.set(apt, []);
-        apartmentMap.get(apt).push(i);
-      }
-      if (item.identifiers && item.identifiers.houseNumber) {
-        const hn = item.identifiers.houseNumber;
-        if (!houseNumberMap.has(hn)) houseNumberMap.set(hn, []);
-        houseNumberMap.get(hn).push(i);
-      }
-      if (item.coreBigrams) {
-        for (const bg of item.coreBigrams) {
-          if (!bigramMap.has(bg)) bigramMap.set(bg, []);
-          bigramMap.get(bg).push(i);
-        }
-      }
+async function getFuzzyNameGroups(Model, progressCallback, targetSourceIds = null) {
+  const type = Model.modelName === 'AuctionNotice' ? 'auction' : 'org';
+  if (progressCallback) await progressCallback(`Đang quét trùng lặp cho AssetItem (${type})...`);
+
+  if (type === 'auction' && !targetSourceIds) {
+    await PotentialDuplicate.deleteMany({});
+  }
+
+  const targetSet = targetSourceIds ? new Set(targetSourceIds) : null;
+  const provinces = await AssetItem.distinct('province', { sourceType: type });
+  const allFuzzyGroups = [];
+  let potentialDupOps = [];
+
+  for (let pIdx = 0; pIdx < provinces.length; pIdx++) {
+    const prov = provinces[pIdx];
+    const normalizedProv = normalizeProvince(prov);
+    if (!normalizedProv) continue;
+
+    const query = { sourceType: type, province: prov };
+    const items = await AssetItem.find(query).lean();
+    if (items.length < 2) continue;
+
+    if (targetSet) {
+      const hasAnyTarget = items.some(item => targetSet.has(item.sourceId));
+      if (!hasAnyTarget) continue;
     }
 
-    let lastYield = Date.now();
-    for (let i = 0; i < data.length; i++) {
-      if (i % 200 === 0 && Date.now() - lastYield > 20) {
-        await new Promise(r => setImmediate(r));
-        lastYield = Date.now();
-      }
-
-      const itemA = data[i];
-      const sizeA = itemA.coreBigrams.size;
-      if (sizeA === 0) continue;
-
-      // 1. So sánh Jaccard (Rule 3: coreSim >= 0.80) - Tra cứu qua bigramMap cực nhanh
-      const jaccardCandidates = new Set();
-      for (const bg of itemA.coreBigrams) {
-        const list = bigramMap.get(bg);
-        if (list && list.length <= 200) { // Pruning các bigram quá phổ biến
-          for (const j of list) {
-            if (j > i) jaccardCandidates.add(j);
-          }
-        }
-      }
-
-      const maxSizeB = sizeA / 0.80;
-      const minSizeB = sizeA * 0.80;
-
-      for (const j of jaccardCandidates) {
-        const itemB = data[j];
-        const sizeB = itemB.coreBigrams.size;
-        if (sizeB < minSizeB || sizeB > maxSizeB) continue;
-
-        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
-          continue;
-        }
-
-        const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-        if (coreSim >= 0.80) {
-          union(i, j);
-        }
-      }
-
-      // 2. So sánh nâng cao bằng cách tra cứu qua inverted indexes (giảm O(N^2) xuống O(1) ứng viên)
-      const candidates = new Set();
-
-      if (itemA.numbers) {
-        for (const num of itemA.numbers) {
-          const list = numberMap.get(num);
-          if (list && list.length <= 100) { // Pruning các số quá phổ biến/rác
-            for (const j of list) {
-              if (j > i) candidates.add(j);
-            }
-          }
-        }
-      }
-
-      if (itemA.identifiers && itemA.identifiers.apartment) {
-        const apt = itemA.identifiers.apartment;
-        const list = apartmentMap.get(apt);
-        if (list) {
-          for (const j of list) {
-            if (j > i) candidates.add(j);
-          }
-        }
-      }
-
-      if (itemA.identifiers && itemA.identifiers.houseNumber) {
-        const hn = itemA.identifiers.houseNumber;
-        const list = houseNumberMap.get(hn);
-        if (list) {
-          for (const j of list) {
-            if (j > i) candidates.add(j);
-          }
-        }
-      }
-
-      for (const j of candidates) {
-        const itemB = data[j];
-        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
-          continue;
-        }
-        if (find(i) === find(j)) continue;
-
-        const bothHaveNumbers = itemA.numbers.length > 0 && itemB.numbers.length > 0;
-        const commonNumbers = bothHaveNumbers ? itemA.numbers.filter(t => itemB.numbers.includes(t)) : [];
-
-        // Rule 4 & 5
-        if (commonNumbers.length > 0) {
-          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (coreSim >= 0.55) {
-            union(i, j);
-            continue;
-          }
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.85) {
-            union(i, j);
-            continue;
-          }
-        }
-
-        // Rule 6: apartment match
-        if (itemA.identifiers.apartment && itemA.identifiers.apartment === itemB.identifiers.apartment) {
-          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (coreSim >= 0.20) {
-            union(i, j);
-            continue;
-          }
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.33) {
-            union(i, j);
-            continue;
-          }
-        }
-
-        // Rule 7: houseNumber match
-        if (itemA.identifiers.houseNumber && itemA.identifiers.houseNumber === itemB.identifiers.houseNumber) {
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.60) {
-            union(i, j);
-            continue;
-          }
-        }
-      }
-    }
-
-    const provGroups = {};
-    for (let i = 0; i < data.length; i++) {
-      const root = find(i);
-      if (!provGroups[root]) provGroups[root] = [];
-      provGroups[root].push(...data[i].sourceIds);
-    }
-
-    for (const root in provGroups) {
-      const ids = [...new Set(provGroups[root])];
-      if (ids.length >= 2) {
-        if (ids.length > 200) {
-          console.warn(`[DUPLICATE SCAN] Warning: Discarding fuzzy group at root ${root} with size ${ids.length} to prevent generic title clustering (sample ID: ${ids[0]}).`);
-          continue;
-        }
-        allFuzzyGroups.push({ ids: ids });
-      }
-    }
-
-    processedProv++;
-    const msg = `Gom nhóm tương đồng: đang xử lý [${prov}] (${data.length} mục) - Tiến độ: ${processedProv}/${provKeys.length} tỉnh/thành`;
+    const msg = `Gom nhóm tương đồng: đang xử lý [${prov}] (${items.length} tài sản con) - Tiến độ: ${pIdx + 1}/${provinces.length} tỉnh/thành`;
     console.log(`[DUPLICATE SCAN] ${msg}`);
-
-    if (progressCallback && (processedProv % 2 === 0 || processedProv === provKeys.length)) {
+    if (progressCallback && (pIdx % 5 === 0 || pIdx === provinces.length - 1)) {
       await progressCallback(msg);
     }
+
+    const blockingMap = new Map();
+    items.forEach((item, idx) => {
+      item.index = idx;
+      if (Array.isArray(item.blockingKeys)) {
+        if (item.blockingKeys.length > 0) {
+          item.blockingKeys.forEach(key => {
+            if (!blockingMap.has(key)) blockingMap.set(key, []);
+            blockingMap.get(key).push(item);
+          });
+        }
+      }
+    });
+
+    const parent = {};
+    items.forEach(item => {
+      parent[item._id.toString()] = item._id.toString();
+    });
+
+    const find = (id) => {
+      if (parent[id] === id) return id;
+      return parent[id] = find(parent[id]);
+    };
+
+    const union = (id1, id2) => {
+      const r1 = find(id1);
+      const r2 = find(id2);
+      if (r1 !== r2) {
+        parent[r1] = r2;
+      }
+    };
+
+    let lastYield = Date.now();
+
+    for (let i = 0; i < items.length; i++) {
+      if (i % 100 === 0 && Date.now() - lastYield > 15) {
+        await new Promise(resolve => setImmediate(resolve));
+        lastYield = Date.now();
+      }
+      const itemA = items[i];
+      const idAStr = itemA._id.toString();
+      const hasTargetA = targetSet ? targetSet.has(itemA.sourceId) : true;
+
+      const candidates = new Set();
+      if (Array.isArray(itemA.blockingKeys)) {
+        itemA.blockingKeys.forEach(key => {
+          const list = blockingMap.get(key);
+          if (list) {
+            list.forEach(candidate => {
+              if (candidate._id.toString() !== idAStr) {
+                candidates.add(candidate);
+              }
+            });
+          }
+        });
+      }
+
+      for (const itemB of candidates) {
+        if (itemB.index <= i) continue;
+
+        const idBStr = itemB._id.toString();
+        const hasTargetB = targetSet ? targetSet.has(itemB.sourceId) : true;
+
+        if (targetSet && !hasTargetA && !hasTargetB) continue;
+
+        const scoreRes = scoreAssetPair(itemA, itemB);
+
+        if (scoreRes.decision === 'auto_group') {
+          union(idAStr, idBStr);
+        } else if (scoreRes.decision === 'review' && !targetSet) {
+          potentialDupOps.push({
+            insertOne: {
+              document: {
+                assetItemIdA: itemA._id,
+                assetItemIdB: itemB._id,
+                score: scoreRes.score,
+                reasons: scoreRes.reasons,
+                conflicts: scoreRes.conflicts,
+                status: 'pending'
+              }
+            }
+          });
+        }
+      }
+    }
+
+    const groupsMap = {};
+    items.forEach(item => {
+      const root = find(item._id.toString());
+      if (!groupsMap[root]) groupsMap[root] = [];
+      groupsMap[root].push(item.sourceId);
+    });
+
+    for (const root in groupsMap) {
+      const ids = [...new Set(groupsMap[root])];
+      if (ids.length >= 2) {
+        if (ids.length > 150) {
+          console.warn(`[DUPLICATE SCAN] Discarding extremely large group with size ${ids.length} (sample sourceId: ${ids[0]})`);
+          continue;
+        }
+        allFuzzyGroups.push({ ids });
+      }
+    }
+  }
+
+  if (potentialDupOps.length > 0 && !targetSourceIds) {
+    if (progressCallback) await progressCallback(`Đang lưu ${potentialDupOps.length} cặp nghi trùng lặp vào hàng chờ duyệt...`);
+    await PotentialDuplicate.bulkWrite(potentialDupOps, { ordered: false });
   }
 
   return allFuzzyGroups;
+}
+
+/**
+ * Cross-Group Merge: Gom các Duplicate records cùng tài sản vật lý nhưng bị tách riêng.
+ * 
+ * Vấn đề: Organizer đăng lại tài sản mỗi lần tạo cặp relatedIds mới (không link lại lần trước).
+ * Kết quả: Cùng 1 tài sản nhưng có nhiều rootId khác nhau.
+ * 
+ * Giải pháp: Dùng AssetItem identifiers (plotNumber + mapSheet + district + ward + organizer)
+ * làm key để merge các Duplicate records cùng key.
+ */
+async function mergeIdenticalAssetGroups(type, saveProgress, checkCancelled) {
+  const label = type === 'auction' ? 'AuctionNotice' : 'OrgSelection';
+  const Model = type === 'auction' ? AuctionNotice : OrgSelection;
+
+  if (saveProgress) await saveProgress(`[Cross-Merge] Đang tải Duplicate records (${label})...`);
+
+  // Phase 1: Convergence loop — lặp lại cho đến khi không còn merge được
+  let totalPhase1Merged = 0;
+  let totalPhase1Deleted = 0;
+  const MAX_ITERATIONS = 5;
+
+  for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
+    const duplicates = await Duplicate.find({ type }).lean();
+    if (duplicates.length === 0) break;
+
+    if (iteration === 1) {
+      if (saveProgress) await saveProgress(`[Cross-Merge] Đang phân tích ${duplicates.length} nhóm duplicate...`);
+    }
+
+    const allSourceIds = [...new Set(duplicates.flatMap(d => d.sourceIds))];
+
+    const items = await AssetItem.find({
+      sourceId: { $in: allSourceIds },
+      sourceType: type
+    }).select('sourceId identifiers district ward assetType province').lean();
+
+    const notices = await Model.find({ sourceId: { $in: allSourceIds } })
+      .select('sourceId organizer')
+      .lean();
+    const orgMap = {};
+    for (const n of notices) orgMap[n.sourceId] = n.organizer || '';
+
+    const sourceIdKeys = {};
+    for (const item of items) {
+      const ids = item.identifiers || {};
+      if (!ids.plotNumber) continue;
+      const key = [
+        `p:${ids.plotNumber}`,
+        `s:${ids.mapSheet || '?'}`,
+        `d:${(item.district || '?').toLowerCase().trim()}`,
+        `w:${(item.ward || '?').toLowerCase().trim()}`,
+      ].join('|');
+      if (!sourceIdKeys[item.sourceId]) sourceIdKeys[item.sourceId] = new Set();
+      sourceIdKeys[item.sourceId].add(key);
+    }
+
+    const keyToDupIds = {};
+    const sourceIdToDupIds = {};
+    for (const dup of duplicates) {
+      const orgs = dup.sourceIds.map(sid => orgMap[sid]).filter(Boolean);
+      const mainOrg = orgs[0] || '';
+
+      for (const sid of dup.sourceIds) {
+        const keys = sourceIdKeys[sid];
+        if (keys) {
+          for (const key of keys) {
+            const orgSlug = mainOrg.substring(0, 30).toLowerCase().replace(/[^a-z0-9]/g, '');
+            const fullKey = `${key}|org:${orgSlug}`;
+            if (!keyToDupIds[fullKey]) keyToDupIds[fullKey] = new Set();
+            keyToDupIds[fullKey].add(dup._id.toString());
+          }
+        }
+
+        if (!sourceIdToDupIds[sid]) sourceIdToDupIds[sid] = new Set();
+        sourceIdToDupIds[sid].add(dup._id.toString());
+      }
+    }
+
+    const dupById = {};
+    for (const d of duplicates) dupById[d._id.toString()] = d;
+
+    const parent = {};
+    for (const d of duplicates) parent[d._id.toString()] = d._id.toString();
+    const find = (id) => {
+      if (parent[id] === id) return id;
+      return parent[id] = find(parent[id]);
+    };
+    const union = (a, b) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+
+    let mergeableKeys = 0;
+    for (const [key, dupIdSet] of Object.entries(keyToDupIds)) {
+      const dupIds = [...dupIdSet];
+      if (dupIds.length < 2) continue;
+      mergeableKeys++;
+      for (let i = 1; i < dupIds.length; i++) union(dupIds[0], dupIds[i]);
+    }
+
+    let sourceIdOverlaps = 0;
+    for (const [sid, dupIdSet] of Object.entries(sourceIdToDupIds)) {
+      const dupIds = [...dupIdSet];
+      if (dupIds.length < 2) continue;
+      sourceIdOverlaps++;
+      for (let i = 1; i < dupIds.length; i++) union(dupIds[0], dupIds[i]);
+    }
+
+    if (mergeableKeys === 0 && sourceIdOverlaps === 0) break;
+
+    const groupsByRoot = {};
+    for (const d of duplicates) {
+      const root = find(d._id.toString());
+      if (!groupsByRoot[root]) groupsByRoot[root] = [];
+      groupsByRoot[root].push(d);
+    }
+
+    const toMerge = Object.values(groupsByRoot).filter(g => g.length > 1);
+    if (toMerge.length === 0) break;
+
+    if (saveProgress) await saveProgress(`[Cross-Merge] Iteration ${iteration}: merge ${toMerge.length} nhóm (${mergeableKeys} keys, ${sourceIdOverlaps} overlaps)...`);
+    console.log(`[DUPLICATE SCAN] [Cross-Merge] Iteration ${iteration}: ${toMerge.length} groups to merge`);
+
+    let mergedCount = 0;
+    const bulkOps = [];
+    const idsToDelete = [];
+
+    for (const group of toMerge) {
+      if (checkCancelled && checkCancelled()) break;
+      const allIds = [...new Set(group.flatMap(d => d.sourceIds))].sort((a, b) => a - b);
+      const keeper = group.reduce((best, d) => {
+        const bestRoot = best.rootId || best.sourceIds[0];
+        const dRoot = d.rootId || d.sourceIds[0];
+        return (dRoot < bestRoot) ? d : best;
+      });
+      const keeperId = keeper._id.toString();
+      const rootId = keeper.rootId || allIds[0];
+
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: keeper._id },
+          update: { $set: { sourceIds: allIds, rootId, name: keeper.name } }
+        }
+      });
+      for (const d of group) {
+        if (d._id.toString() !== keeperId) idsToDelete.push(d._id);
+      }
+      mergedCount++;
+    }
+
+    if (bulkOps.length > 0) await Duplicate.bulkWrite(bulkOps, { ordered: false });
+    if (idsToDelete.length > 0) await Duplicate.deleteMany({ _id: { $in: idsToDelete } });
+
+    // Update rootId
+    const updatedDups = await Duplicate.find({ type }).lean();
+    const rootBulkOps = [];
+    for (const dup of updatedDups) {
+      if (!dup.rootId) continue;
+      for (const sid of dup.sourceIds) {
+        rootBulkOps.push({
+          updateOne: {
+            filter: { sourceId: sid },
+            update: { $set: { rootId: dup.rootId } }
+          }
+        });
+      }
+    }
+
+    if (rootBulkOps.length > 0) {
+      for (let i = 0; i < rootBulkOps.length; i += 5000) {
+        const batch = rootBulkOps.slice(i, i + 5000);
+        await Model.bulkWrite(batch, { ordered: false });
+      }
+    }
+
+    totalPhase1Merged += mergedCount;
+    totalPhase1Deleted += idsToDelete.length;
+
+    console.log(`[DUPLICATE SCAN] [Cross-Merge] Iteration ${iteration}: merged ${mergedCount}, deleted ${idsToDelete.length}`);
+  }
+
+  if (totalPhase1Merged > 0) {
+    console.log(`[DUPLICATE SCAN] [Cross-Merge] Phase 1 total: merged ${totalPhase1Merged} groups, deleted ${totalPhase1Deleted} records`);
+    if (saveProgress) await saveProgress(`[Cross-Merge] Phase 1 hoàn tất: merge ${totalPhase1Merged} nhóm, xóa ${totalPhase1Deleted} bản ghi trùng.`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 2: Tạo Duplicate records cho các tin đơn lẻ (orphan) cùng identifier
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (saveProgress) await saveProgress(`[Cross-Merge Phase 2] Đang tìm tin đơn lẻ chưa được gom nhóm...`);
+
+  // Lấy lại duplicates sau merge phase 1
+  const currentDups = await Duplicate.find({ type }).select('sourceIds').lean();
+  const groupedSourceIds = new Set(currentDups.flatMap(d => d.sourceIds));
+
+  // Tìm tất cả AssetItems KHÔNG nằm trong bất kỳ Duplicate record nào
+  const allItems = await AssetItem.find({ sourceType: type })
+    .select('sourceId identifiers district ward province')
+    .lean();
+
+  const orphanItems = allItems.filter(item => !groupedSourceIds.has(item.sourceId));
+
+  // Group orphan items by identifier key + organizer
+  const allOrphanSourceIds = [...new Set(orphanItems.map(i => i.sourceId))];
+  let orphanOrgMap = {};
+  if (allOrphanSourceIds.length > 0) {
+    const orphanNotices = await Model.find({ sourceId: { $in: allOrphanSourceIds } })
+      .select('sourceId organizer name')
+      .lean();
+    for (const n of orphanNotices) {
+      orphanOrgMap[n.sourceId] = { organizer: n.organizer || '', name: n.name || '' };
+    }
+  }
+
+  const orphanKeyGroups = {};
+  for (const item of orphanItems) {
+    const ids = item.identifiers || {};
+    if (!ids.plotNumber) continue;
+
+    const org = orphanOrgMap[item.sourceId]?.organizer || '';
+    const orgSlug = org.substring(0, 30).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const key = [
+      `p:${ids.plotNumber}`,
+      `s:${ids.mapSheet || '?'}`,
+      `d:${(item.district || '?').toLowerCase().trim()}`,
+      `w:${(item.ward || '?').toLowerCase().trim()}`,
+      `org:${orgSlug}`,
+    ].join('|');
+
+    if (!orphanKeyGroups[key]) orphanKeyGroups[key] = new Set();
+    orphanKeyGroups[key].add(item.sourceId);
+  }
+
+  // Cũng check orphan items có khớp với Duplicate đã tồn tại không
+  // (trường hợp tin đơn lẻ có cùng identifier với 1 nhóm đã gom)
+  const existingDupKeyMap = {}; // key → dupId
+  const reloadedDups = await Duplicate.find({ type }).lean();
+
+  // Dùng Map thay vì filter() để O(1) lookup
+  const groupedItems = allItems.filter(item => groupedSourceIds.has(item.sourceId));
+  const itemsBySourceId = new Map();
+  for (const item of groupedItems) {
+    if (!itemsBySourceId.has(item.sourceId)) itemsBySourceId.set(item.sourceId, []);
+    itemsBySourceId.get(item.sourceId).push(item);
+  }
+
+  // Lấy lại orgMap
+  const reloadNotices = await Model.find({ sourceId: { $in: [...groupedSourceIds].slice(0, 500000) } })
+    .select('sourceId organizer')
+    .lean();
+  const reloadOrgMap = {};
+  for (const n of reloadNotices) reloadOrgMap[n.sourceId] = n.organizer || '';
+
+  for (const dup of reloadedDups) {
+    const dupOrg = dup.sourceIds.map(sid => reloadOrgMap[sid]).filter(Boolean)[0] || '';
+    const dupOrgSlug = dupOrg.substring(0, 30).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    for (const sid of dup.sourceIds) {
+      const matchItems = itemsBySourceId.get(sid);
+      if (!matchItems) continue;
+      for (const item of matchItems) {
+        const ids = item.identifiers || {};
+        if (!ids.plotNumber) continue;
+        const key = [
+          `p:${ids.plotNumber}`,
+          `s:${ids.mapSheet || '?'}`,
+          `d:${(item.district || '?').toLowerCase().trim()}`,
+          `w:${(item.ward || '?').toLowerCase().trim()}`,
+          `org:${dupOrgSlug}`,
+        ].join('|');
+
+        if (!existingDupKeyMap[key]) existingDupKeyMap[key] = dup;
+      }
+    }
+  }
+
+  let phase2Created = 0;
+  let phase2Merged = 0;
+  const phase2BulkOps = [];
+
+  for (const [key, sourceIdSet] of Object.entries(orphanKeyGroups)) {
+    const sourceIds = [...sourceIdSet].sort((a, b) => a - b);
+    if (sourceIds.length < 2 && !existingDupKeyMap[key]) continue;
+
+    const existingDup = existingDupKeyMap[key];
+
+    if (existingDup) {
+      // Merge orphans vào Duplicate record đã tồn tại
+      const mergedIds = [...new Set([...existingDup.sourceIds, ...sourceIds])].sort((a, b) => a - b);
+      phase2BulkOps.push({
+        updateOne: {
+          filter: { _id: existingDup._id },
+          update: { $set: { sourceIds: mergedIds } }
+        }
+      });
+
+      // Update rootId cho orphan notices
+      for (const sid of sourceIds) {
+        phase2BulkOps.push({
+          updateOne: {
+            filter: { sourceId: sid },
+            update: { $set: { rootId: existingDup.rootId } }
+          }
+        });
+      }
+      phase2Merged++;
+    } else if (sourceIds.length >= 2) {
+      // Tạo Duplicate record mới
+      const rootId = sourceIds[0];
+      const name = orphanOrgMap[sourceIds[0]]?.name || '';
+      
+      phase2BulkOps.push({
+        insertOne: {
+          document: {
+            type,
+            name,
+            sourceIds,
+            rootId,
+            relistCount: sourceIds.length,
+            entries: [],
+          }
+        }
+      });
+
+      // Update rootId cho notices
+      for (const sid of sourceIds) {
+        await Model.updateOne({ sourceId: sid }, { $set: { rootId } });
+      }
+      phase2Created++;
+    }
+  }
+
+  if (phase2BulkOps.length > 0) {
+    // Tách Duplicate operations và Model operations
+    const dupOps = phase2BulkOps.filter(op => op.insertOne || (op.updateOne && !op.updateOne.filter.sourceId));
+    const modelOps = phase2BulkOps.filter(op => op.updateOne && op.updateOne.filter.sourceId);
+
+    if (dupOps.length > 0) {
+      await Duplicate.bulkWrite(dupOps, { ordered: false });
+    }
+    if (modelOps.length > 0) {
+      for (let i = 0; i < modelOps.length; i += 5000) {
+        await Model.bulkWrite(modelOps.slice(i, i + 5000), { ordered: false });
+      }
+    }
+  }
+
+  console.log(`[DUPLICATE SCAN] [Cross-Merge Phase 2] Created ${phase2Created} new groups, merged ${phase2Merged} orphans into existing groups`);
+  if (saveProgress) await saveProgress(`[Cross-Merge Phase 2] Tạo ${phase2Created} nhóm mới, gom ${phase2Merged} tin đơn lẻ vào nhóm đã có.`);
 }
 
 async function runFullDuplicateScan() {
@@ -1874,7 +2305,7 @@ async function runFullDuplicateScan() {
 
     const mergedGroups = mergeDuplicateGroups(relatedGroups, normalizedNameGroups)
       .filter((group) => {
-        if (group.length > 200) {
+        if (group.length > 150) {
           console.warn(`[DUPLICATE SCAN] Warning: Discarding merged group with size ${group.length} to prevent generic title clustering.`);
           return false;
         }
@@ -1913,10 +2344,15 @@ async function runFullDuplicateScan() {
     console.log('[TRIGGER] Starting full duplicate scan...');
     await saveProgress('Đang xoá dữ liệu duplicate cũ để tạo mới hoàn toàn...');
     await Duplicate.deleteMany({});
+    await AuctionNotice.updateMany({}, { $unset: { rootId: "", publishRound: "", publishRoundLabel: "" } });
+    await OrgSelection.updateMany({}, { $unset: { rootId: "", publishRound: "", publishRoundLabel: "" } });
+
+    await saveProgress('Đang trích xuất AssetItem từ cơ sở dữ liệu...');
+    await syncAllAssetItems(saveProgress);
 
     await saveProgress('Đang tải dữ liệu AuctionNotice...');
     const auctions = await AuctionNotice.find({})
-      .select('sourceId relatedIds name province')
+      .select('sourceId relatedIds name province address')
       .maxTimeMS(0)
       .lean();
     await saveProgress(`Đang gom nhóm AuctionNotice (${auctions.length} bài)...`);
@@ -1925,12 +2361,21 @@ async function runFullDuplicateScan() {
 
     await saveProgress('Đang tải dữ liệu OrgSelection...');
     const orgs = await OrgSelection.find({})
-      .select('sourceId relatedIds name province')
+      .select('sourceId relatedIds name province address')
       .maxTimeMS(0)
       .lean();
     await saveProgress(`Đang gom nhóm OrgSelection (${orgs.length} bài)...`);
     const nameGroupsOrg = await getFuzzyNameGroups(OrgSelection, saveProgress);
     await processTypeGroups('org', 'OrgSelection', orgs, nameGroupsOrg);
+
+    // Cross-Group Merge: Gom các Duplicate records cùng tài sản vật lý nhưng bị tách riêng
+    await ensureNotCancelled('Đã dừng trước khi chạy Cross-Group Merge.');
+    await saveProgress('[Cross-Merge] Đang gom các nhóm duplicate bị tách riêng (AuctionNotice)...');
+    await mergeIdenticalAssetGroups('auction', saveProgress, () => duplicateScanState.cancelRequested);
+    
+    await ensureNotCancelled('Đã dừng trước khi chạy Cross-Group Merge OrgSelection.');
+    await saveProgress('[Cross-Merge] Đang gom các nhóm duplicate bị tách riêng (OrgSelection)...');
+    await mergeIdenticalAssetGroups('org', saveProgress, () => duplicateScanState.cancelRequested);
 
     await ensureNotCancelled('Đã dừng trước khi khôi phục duplicate bị thiếu.');
     if (!duplicateScanState.skipDetailCrawl) {
@@ -2150,292 +2595,7 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
  * Version của getFuzzyNameGroups nhưng chạy trên dữ liệu đã được nạp sẵn thay vì query DB lại
  */
 async function getFuzzyNameGroupsFiltered(items, progressCallback, targetSourceIds = null) {
-  const { extractCoreIdentity, getBigrams, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, jaccardSimilarity, overlapSimilarity, normalizeProvince } = require('../utils/helpers');
-
-  const targetSet = targetSourceIds ? new Set(targetSourceIds) : null;
-
-  const buckets = {};
-  for (let idx = 0; idx < items.length; idx++) {
-    const item = items[idx];
-    const prov = normalizeProvince(item.province) || 'unknown';
-    if (!buckets[prov]) buckets[prov] = {};
-    
-    const normalizedName = item.name ? item.name.normalize('NFC').normalize('NFD') : '';
-    const cleanName = normalizedName.toLowerCase().replace(/[,\.\(\):\-]/g, ' ').replace(/\s+/g, ' ').trim();
-    
-    if (!buckets[prov][cleanName]) buckets[prov][cleanName] = { name: item.name, sourceIds: [] };
-    buckets[prov][cleanName].sourceIds.push(item.sourceId);
-
-    if (idx % 10000 === 0) {
-      await new Promise(r => setImmediate(r));
-    }
-  }
-
-  const allFuzzyGroups = [];
-  const provKeys = Object.keys(buckets);
-  
-  for (let pIdx = 0; pIdx < provKeys.length; pIdx++) {
-    const prov = provKeys[pIdx];
-    const bucket = buckets[prov];
-    delete buckets[prov]; // Clear reference to help GC free memory early
-    const cleanNames = Object.keys(bucket);
-    if (cleanNames.length === 0) continue;
-
-    // TỐI ƯU: Nếu quét theo đơn vị, bỏ qua tỉnh nếu tỉnh đó không chứa tài sản nào của đơn vị này
-    let hasAnyTarget = false;
-    if (targetSet) {
-      for (const name of cleanNames) {
-        const sIds = bucket[name].sourceIds;
-        if (sIds.some(id => targetSet.has(id))) {
-          hasAnyTarget = true;
-          break;
-        }
-      }
-    } else {
-      hasAnyTarget = true;
-    }
-    if (!hasAnyTarget) continue;
-
-    const data = cleanNames.map((cleanName, i) => {
-      const originalName = bucket[cleanName].name;
-      const sourceIds = bucket[cleanName].sourceIds;
-      const hasTarget = targetSet ? sourceIds.some(id => targetSet.has(id)) : true;
-      return {
-        index: i,
-        coreBigrams: getBigrams(extractCoreIdentity(originalName)),
-        numbers: getNumberTokens(originalName),
-        identifiers: extractPropertyIdentifiers(originalName),
-        sourceIds,
-        hasTarget
-      };
-    });
-
-    data.sort((a, b) => a.coreBigrams.size - b.coreBigrams.size);
-    const parent = Array.from({ length: data.length }, (_, i) => i);
-    const find = (i) => {
-      if (parent[i] === i) return i;
-      return parent[i] = find(parent[i]);
-    };
-    const union = (i, j) => {
-      const rootI = find(i);
-      const rootJ = find(j);
-      if (rootI !== rootJ) parent[rootI] = rootJ;
-    };
-
-    if (progressCallback) await progressCallback(`Đang so sánh fuzzy tỉnh ${prov} (${pIdx + 1}/${provKeys.length}) với ${data.length} tên duy nhất...`);
-
-    // PRE-PASS: Group by strong identifiers to avoid missing matches with different lengths
-    const strongKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'certificateNumber', 'certificateEntryNumber', 'shipNumber', 'streetAddress', 'taxCode', 'contractNumber', 'ownerName', 'stockAmount', 'serialNumber', 'debtorName'];
-    const strongMap = new Map();
-    for (let i = 0; i < data.length; i++) {
-      const ids = data[i].identifiers;
-      for (const key of strongKeys) {
-        if (ids[key]) {
-          const hash = key + ':' + ids[key];
-          if (!strongMap.has(hash)) strongMap.set(hash, []);
-          strongMap.get(hash).push(i);
-        }
-      }
-      if (ids.plotNumber && ids.mapSheet) {
-        const hash = 'land:' + ids.plotNumber + ':' + ids.mapSheet;
-        if (!strongMap.has(hash)) strongMap.set(hash, []);
-        strongMap.get(hash).push(i);
-      }
-    }
-    for (const indices of strongMap.values()) {
-      if (indices.length > 1) {
-        for (let k = 0; k < indices.length; k++) {
-          for (let m = k + 1; m < indices.length; m++) {
-            // TỐI ƯU: Chỉ so sánh nếu ít nhất 1 trong 2 chứa ID mục tiêu
-            if (targetSet && !data[indices[k]].hasTarget && !data[indices[m]].hasTarget) {
-              continue;
-            }
-            if (!hasConflictingIdentifiers(data[indices[k]].identifiers, data[indices[m]].identifiers)) {
-              union(indices[k], indices[m]);
-            }
-          }
-        }
-      }
-    }
-
-    // Xây dựng inverted indexes cho các trường định danh để tối ưu hoá tìm kiếm ứng viên
-    const numberMap = new Map();
-    const apartmentMap = new Map();
-    const houseNumberMap = new Map();
-    const bigramMap = new Map();
-
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
-      if (item.numbers) {
-        for (const num of item.numbers) {
-          if (!numberMap.has(num)) numberMap.set(num, []);
-          numberMap.get(num).push(i);
-        }
-      }
-      if (item.identifiers && item.identifiers.apartment) {
-        const apt = item.identifiers.apartment;
-        if (!apartmentMap.has(apt)) apartmentMap.set(apt, []);
-        apartmentMap.get(apt).push(i);
-      }
-      if (item.identifiers && item.identifiers.houseNumber) {
-        const hn = item.identifiers.houseNumber;
-        if (!houseNumberMap.has(hn)) houseNumberMap.set(hn, []);
-        houseNumberMap.get(hn).push(i);
-      }
-      if (item.coreBigrams) {
-        for (const bg of item.coreBigrams) {
-          if (!bigramMap.has(bg)) bigramMap.set(bg, []);
-          bigramMap.get(bg).push(i);
-        }
-      }
-    }
-
-    let lastYield = Date.now();
-    for (let i = 0; i < data.length; i++) {
-      if (Date.now() - lastYield > 20) {
-        await new Promise(r => setImmediate(r));
-        lastYield = Date.now();
-      }
-
-      const itemA = data[i];
-      // TỐI ƯU: Nếu quét theo đơn vị, chỉ đối chiếu các mục thuộc đơn vị mục tiêu (các mục khác sẽ được đối chiếu khi vòng lặp duyệt qua chúng)
-      if (targetSet && !itemA.hasTarget) continue;
-
-      const sizeA = itemA.coreBigrams.size;
-      if (sizeA === 0) continue;
-
-      // 1. So sánh Jaccard (Rule 3: coreSim >= 0.80) - Tra cứu qua bigramMap cực nhanh
-      const jaccardCandidates = new Set();
-      for (const bg of itemA.coreBigrams) {
-        const list = bigramMap.get(bg);
-        if (list && list.length <= 200) { // Pruning các bigram quá phổ biến
-          for (const j of list) {
-            if (targetSet ? (j !== i) : (j > i)) jaccardCandidates.add(j);
-          }
-        }
-      }
-
-      const maxSizeB = sizeA / 0.80;
-      const minSizeB = sizeA * 0.80;
-
-      for (const j of jaccardCandidates) {
-        const itemB = data[j];
-        if (targetSet && !itemA.hasTarget && !itemB.hasTarget) continue;
-        const sizeB = itemB.coreBigrams.size;
-        if (sizeB < minSizeB || sizeB > maxSizeB) continue;
-
-        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
-          continue;
-        }
-
-        const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-        if (coreSim >= 0.80) {
-          union(i, j);
-        }
-      }
-
-      // 2. So sánh nâng cao bằng cách tra cứu qua inverted indexes (giảm O(N^2) xuống O(1) ứng viên)
-      const candidates = new Set();
-
-      if (itemA.numbers) {
-        for (const num of itemA.numbers) {
-          const list = numberMap.get(num);
-          if (list && list.length <= 100) { // Pruning các số quá phổ biến/rác
-            for (const j of list) {
-              if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
-            }
-          }
-        }
-      }
-
-      if (itemA.identifiers && itemA.identifiers.apartment) {
-        const apt = itemA.identifiers.apartment;
-        const list = apartmentMap.get(apt);
-        if (list) {
-          for (const j of list) {
-            if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
-          }
-        }
-      }
-
-      if (itemA.identifiers && itemA.identifiers.houseNumber) {
-        const hn = itemA.identifiers.houseNumber;
-        const list = houseNumberMap.get(hn);
-        if (list) {
-          for (const j of list) {
-            if (targetSet ? (j !== i) : (j > i)) candidates.add(j);
-          }
-        }
-      }
-
-      for (const j of candidates) {
-        const itemB = data[j];
-        if (targetSet && !itemA.hasTarget && !itemB.hasTarget) continue;
-        if (hasConflictingIdentifiers(itemA.identifiers, itemB.identifiers)) {
-          continue;
-        }
-        if (find(i) === find(j)) continue;
-
-        const bothHaveNumbers = itemA.numbers.length > 0 && itemB.numbers.length > 0;
-        const commonNumbers = bothHaveNumbers ? itemA.numbers.filter(t => itemB.numbers.includes(t)) : [];
-
-        // Rule 4 & 5
-        if (commonNumbers.length > 0) {
-          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (coreSim >= 0.55) {
-            union(i, j);
-            continue;
-          }
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.85) {
-            union(i, j);
-            continue;
-          }
-        }
-
-        // Rule 6: apartment match
-        if (itemA.identifiers.apartment && itemA.identifiers.apartment === itemB.identifiers.apartment) {
-          const coreSim = jaccardSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (coreSim >= 0.20) {
-            union(i, j);
-            continue;
-          }
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.33) {
-            union(i, j);
-            continue;
-          }
-        }
-
-        // Rule 7: houseNumber match
-        if (itemA.identifiers.houseNumber && itemA.identifiers.houseNumber === itemB.identifiers.houseNumber) {
-          const overlapSim = overlapSimilarity(itemA.coreBigrams, itemB.coreBigrams);
-          if (overlapSim >= 0.60) {
-            union(i, j);
-            continue;
-          }
-        }
-      }
-    }
-
-    const provGroups = {};
-    for (let i = 0; i < data.length; i++) {
-      const root = find(i);
-      if (!provGroups[root]) provGroups[root] = [];
-      provGroups[root].push(...data[i].sourceIds);
-    }
-    for (const root in provGroups) {
-      const ids = [...new Set(provGroups[root])];
-      if (ids.length >= 2) {
-        if (ids.length > 200) {
-          console.warn(`[DUPLICATE SCAN] Warning: Discarding fuzzy group (filtered) at root ${root} with size ${ids.length} to prevent generic title clustering.`);
-          continue;
-        }
-        allFuzzyGroups.push({ ids: ids });
-      }
-    }
-  }
-  return allFuzzyGroups;
+  return getFuzzyNameGroups(AuctionNotice, progressCallback, targetSourceIds);
 }
 
 function isOrgDetailIncomplete(item) {
@@ -2549,6 +2709,7 @@ module.exports = {
   searchDuplicatesByFuzzyName,
   getFuzzyNameGroupsFiltered,
   buildDuplicateEntries,
+  summarizeDuplicateEntries,
   recrawlMissingAuctionDetails,
   crawlDetails,
   crawlOrgDetails,
@@ -2561,5 +2722,7 @@ module.exports = {
   getDuplicateScanState,
   setSkipDetailCrawl,
   runFixMissingData,
+  extractAssetItemsFromNotice,
+  syncAllAssetItems,
 };
 

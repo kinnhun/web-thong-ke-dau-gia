@@ -162,7 +162,18 @@ export function AdminContainer() {
   };
 
   const actions = [
-    { icon: RefreshCw, title: "Crawl thủ công", desc: "Cập nhật dữ liệu mới", fn: () => triggerListCrawl(5, "auction") },
+    {
+      icon: RefreshCw,
+      title: "Crawl thủ công",
+      desc: "Cập nhật dữ liệu mới (chọn số trang)",
+      fn: () => {
+        const val = window.prompt("Nhập số trang muốn cào:", "5");
+        if (val === null) return Promise.reject(new Error("Hủy bỏ thao tác"));
+        const pages = parseInt(val, 10);
+        if (isNaN(pages) || pages <= 0) return Promise.reject(new Error("Số trang không hợp lệ"));
+        return triggerListCrawl(pages, "auction");
+      }
+    },
     { icon: Wand2, title: "Quét trùng lặp", desc: "Tìm & gộp bài trùng", fn: () => triggerDuplicateScan() },
     { icon: XCircle, title: "Dừng quét trùng", desc: "Hủy quét trùng đang chạy", fn: () => triggerKillDuplicateScan() },
     { icon: Split, title: "Sửa dữ liệu lỗi", desc: "Cào lại item thiếu chi tiết", fn: () => triggerRecrawlMissingProperties(0, "auction", 100) },

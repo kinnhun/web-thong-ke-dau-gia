@@ -142,59 +142,112 @@ function extractCoreIdentity(name) {
 function extractPropertyIdentifiers(name) {
   if (!name) return {};
   let s = removeDiacritics(name.toLowerCase());
-  // Xoá toạ lạc trước khi phân tích
-  s = s.replace(/toa lac tai/g, ' ');
-  s = s.replace(/toa lac/g, ' ');
   
   const ids = {};
 
   // 1. ĐẤT ĐAI: Thửa đất & Tờ bản đồ (Thêm các case viết tắt Thửa: X, Tờ: Y)
-  const plotMatch = s.match(/(?:\bthua\b|\bt\b)\s*(?:dat\s*)?(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
-  if (plotMatch) ids.plotNumber = plotMatch[1].replace(/\s+/g, '');
+  const plotMatch = s.match(/(?:\bthua\b)\s*(?:dat\s*)?(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
+  if (plotMatch) {
+    ids.plotNumber = plotMatch[1].replace(/\s+/g, '');
+    s = s.replace(plotMatch[0], ' ');
+  }
 
-  const mapMatch = s.match(/(?:\bto\b|\btbd\b|\bban\s*do\b)\s*(?:ban\s*do\s*)?(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)/i);
-  if (mapMatch) ids.mapSheet = mapMatch[1].replace(/\s+/g, '');
+  // Revised mapMatch logic
+  // Pattern A: definite map sheet keywords (tbd, ban do, to ban do) -> no lookahead
+  let mapMatch = s.match(/(?:\btbd\b|\bban\s*do\b|\bto\s+ban\s*do\b)\s*(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)\b/i);
+  // Pattern B: ambiguous "tờ" -> check lookahead to avoid matching "tổ dân phố / tổ 3"
+  if (!mapMatch) {
+    mapMatch = s.match(/(?<!\bo\s+)\bto\b(?![\s-]*(?:chuc|hop|dan|nhom|doi|trinh))\s*(?:so\s*)?[:\.]?\s*(\d+[a-z]?(?:[/-]\d+[a-z]?(?:\(\d+\))?)?)(?![\s,\.\/\-]*(?:phuong|xa|thi\s*tran|p(?=\s|\d|\.)|q(?=\s|\d|\.)|quan|huyen|tp|thanh\s*pho|tinh|dan\s*pho|dan\s*cu|dan))\b/i);
+  }
+
+  if (mapMatch) {
+    ids.mapSheet = mapMatch[1].replace(/\s+/g, '');
+    s = s.replace(mapMatch[0], ' ');
+  }
 
   // 2. CHUNG CƯ / DỰ ÁN: Lô, Ô, Khu, Căn hộ, Tòa (Phòng 1205, Căn 12.05, Mã căn...)
-  const aptMatch = s.match(/(?:can\s*ho|phong|ma\s*can|can|unit)\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);
-  if (aptMatch) ids.apartment = aptMatch[1].toUpperCase();
+  const aptMatch = s.match(/\b(?:can\s*ho|phong|ma\s*can|can\s*so|unit)\b\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[.-][a-z0-9]+)?)/i);
+  if (aptMatch) {
+    const val = aptMatch[1].toUpperCase();
+    const hasDigit = /\d/.test(val);
+    if (val.length < 3 || hasDigit) {
+      ids.apartment = val;
+      s = s.replace(aptMatch[0], ' ');
+    }
+  }
 
-  const blockMatch = s.match(/(?:toa\s*nha|toa|block|thap|tower|building)\s*[:\.]?\s*([a-z0-9]+)/i);
+  const blockMatch = s.match(/\b(?:toa\s*nha|toa|block|thap|tower|building)\b\s*[:\.]?\s*([a-z0-9]+)/i);
   if (blockMatch && blockMatch[1] && !/^(phuong|xa|quan|huyen|tinh|lac|do)$/i.test(blockMatch[1])) {
-    ids.block = blockMatch[1].toUpperCase();
+    const val = blockMatch[1].toUpperCase();
+    const hasDigit = /\d/.test(val);
+    if (val.length < 3 || hasDigit) {
+      ids.block = val;
+      s = s.replace(blockMatch[0], ' ');
+    }
   }
 
   // 3. GIẤY TỜ PHÁP LÝ: GCN, Sổ đỏ, Sổ hồng, Số seri phát hành (cho phép không chữ cái đầu)
   const certMatch = s.match(/(?:gcn|qsdd|so\s*do|so\s*hong|giay\s*chung\s*nhan|phat\s*hanh|seri|so\s*hieu)[^\d]{0,50}\b([a-z]{0,2}\s*[0-9]{4,10})\b/i);
-  if (certMatch) ids.certificateNumber = certMatch[1].replace(/\s+/g, '').toUpperCase();
+  if (certMatch) {
+    ids.certificateNumber = certMatch[1].replace(/\s+/g, '').toUpperCase();
+    s = s.replace(certMatch[0], ' ');
+  }
 
   const certEntryMatch = s.match(/(?:vao\s*so\s*cap|so\s*vao\s*so|vao\s*so)[^\d]{0,30}\b([a-z]{0,2}\s*[0-9]{3,9})\b/i);
-  if (certEntryMatch) ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '').toUpperCase();
+  if (certEntryMatch) {
+    ids.certificateEntryNumber = certEntryMatch[1].replace(/\s+/g, '').toUpperCase();
+    s = s.replace(certEntryMatch[0], ' ');
+  }
 
   // 4. XE CỘ: Biển số, Số khung, Số máy (Bắt cả case viết tắt SK, SM, và có dash)
   const bksMatch = s.match(/(?:bien\s*so|bks|bs|bien\s*kiem\s*soat|so\s*xe)[:\s\-\.]*([0-9]{2}[\s\-\.]*[a-zđ][a-z0-9]?[\s\-\.]*(?:[0-9][\s\-\.]*){4,6})/i) || s.match(/\b([0-9]{2}[\s\-\.]*[a-zđ][a-z0-9]?[\s\-\.]*(?:[0-9][\s\-\.]*){4,6})\b/i);
-  if (bksMatch) ids.licensePlate = bksMatch[1].replace(/[\s.\-\/]/g, '').toUpperCase();
+  if (bksMatch) {
+    ids.licensePlate = bksMatch[1].replace(/[\s.\-\/]/g, '').toUpperCase();
+    s = s.replace(bksMatch[0], ' ');
+  }
 
   const skMatch = s.match(/(?:so\s*khung|sk|chassis|vin)[:\s\-\.]*([a-z0-9\-\.]{6,30})/i);
-  if (skMatch) ids.chassisNumber = skMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+  if (skMatch) {
+    ids.chassisNumber = skMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    s = s.replace(skMatch[0], ' ');
+  }
 
   const smMatch = s.match(/(?:so\s*may|sm|engine|motor)[:\s\-\.]*([a-z0-9\-\.]{6,30})/i);
-  if (smMatch) ids.engineNumber = smMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+  if (smMatch) {
+    ids.engineNumber = smMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    s = s.replace(smMatch[0], ' ');
+  }
 
   // 5. KHOẢN NỢ / DOANH NGHIỆP: Tên công ty nợ, MST, Số hợp đồng
   const debtMatch = s.match(/(?:khoan\s*no\s*cua|no\s*cua|tai\s*san\s*cua)\s*(?:cty|cong\s*ty|doanh\s*nghiep)\s+([a-z0-9\s]{5,60})(?:-|\s+mst|,|$)/i);
-  if (debtMatch) ids.debtorName = debtMatch[1].trim().toUpperCase();
+  if (debtMatch) {
+    ids.debtorName = debtMatch[1].trim().toUpperCase();
+    s = s.replace(debtMatch[0], ' ');
+  }
 
   const mstMatch = s.match(/(?:ma\s*so\s*thue|mst)[:\s]*(\d{10}(?:[-]\d{3})?)/i);
-  if (mstMatch) ids.taxCode = mstMatch[1];
+  if (mstMatch) {
+    ids.taxCode = mstMatch[1];
+    s = s.replace(mstMatch[0], ' ');
+  }
 
   const contractMatch = s.match(/(?:hop\s*dong|hdtd|hdtc|so\s*hd)[:\s]*([a-z0-9\/\-]{5,30})/i);
-  if (contractMatch) ids.contractNumber = contractMatch[1].replace(/[\s]/g, '').toUpperCase();
+  if (contractMatch) {
+    ids.contractNumber = contractMatch[1].replace(/[\s]/g, '').toUpperCase();
+    s = s.replace(contractMatch[0], ' ');
+  }
 
   // 6. MÁY MÓC / ĐIỆN TỬ: Serial, Model, SKU
-  const serialMatch = s.match(/(?:serial|seri|s\/n|sku|model|so\s*hieu)[:\s]*([a-z0-9\-]{5,25})/i);
+  const serialMatch = s.match(/(?:serial|seri|s\/n|so\s*hieu)[:\s]*([a-z0-9\-]{5,25})/i);
   if (serialMatch) {
-    ids.serialNumber = serialMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    const val = serialMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    const prefix = val.match(/^[A-Z]+/);
+    const prefixStr = prefix ? prefix[0] : '';
+    const blacklistedPrefixes = ['MS', 'TB', 'QD', 'CV', 'QDTHAA', 'P', 'Q', 'TO', 'KP', 'AP'];
+    if (!blacklistedPrefixes.includes(prefixStr)) {
+      ids.serialNumber = val;
+      s = s.replace(serialMatch[0], ' ');
+    }
   } else {
     // Alphanumeric codes (VD: PK123456, AB-1234) - fallback khi không có từ khoá
     const codeMatch = s.match(/\b([a-z]{1,4}[\-][0-9]{3,10}|[a-z]{1,4}[0-9]{3,10})\b/i);
@@ -202,7 +255,13 @@ function extractPropertyIdentifiers(name) {
       const code = codeMatch[1].replace(/[\s.-]/g, '').toUpperCase();
       // Không lấy làm serial nếu nó trùng với biển số, số khung, số máy đã lấy
       if (code !== ids.licensePlate && code !== ids.chassisNumber && code !== ids.engineNumber) {
-        ids.serialNumber = code;
+        const prefix = code.match(/^[A-Z]+/);
+        const prefixStr = prefix ? prefix[0] : '';
+        const blacklistedPrefixes = ['MS', 'TB', 'QD', 'CV', 'QDTHAA', 'P', 'Q', 'TO', 'KP', 'AP'];
+        if (!blacklistedPrefixes.includes(prefixStr)) {
+          ids.serialNumber = code;
+          s = s.replace(codeMatch[0], ' ');
+        }
       }
     }
   }
@@ -212,16 +271,38 @@ function extractPropertyIdentifiers(name) {
   if (areaMatch) ids.area = areaMatch[1].replace(',', '.');
 
   // Ki ốt / Kios / Quầy / Gian hàng
-  const kioskMatch = s.match(/(?:ki\s*ot|kios|quay|gian\s*hang)\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
-  if (kioskMatch) ids.kiosk = kioskMatch[1];
+  const kioskMatch = s.match(/\b(?:ki\s*ot|kios|quay|gian\s*hang)\b\s*(?:so)?\s*[:\.]?\s*([a-z0-9]+(?:[/-][a-z0-9]+)?)/i);
+  if (kioskMatch) {
+    const val = kioskMatch[1].toUpperCase();
+    const hasDigit = /\d/.test(val);
+    if (val.length < 3 || hasDigit) {
+      ids.kiosk = val;
+      s = s.replace(kioskMatch[0], ' ');
+    }
+  }
 
   // Tàu thuyền (Số đăng ký / Ký hiệu) (VD: SG-1234, HP-12345, QN-1234-TS)
   const shipMatch = s.match(/(?:tau\s*ca|tau\s*bien|so\s*dang\s*ky|ky\s*hieu|tau|thuyen)\s*[:\.]?\s*([a-z]{2,4}[\s.-]*[0-9]{4,5}(?:[\s.-]*[a-z]{1,2})?)/i);
-  if (shipMatch) ids.shipNumber = shipMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+  if (shipMatch) {
+    ids.shipNumber = shipMatch[1].replace(/[\s.-]/g, '').toUpperCase();
+    s = s.replace(shipMatch[0], ' ');
+  }
 
   // Chủ tài sản / Người nợ (Ông/Bà/Công ty) (Thêm các case viết tắt và từ khoá chu so huu)
   const ownerMatch = s.match(/(?:cua|so\s*huu\s*cua|no\s*cua|chu\s*so\s*huu|nguoi\s*co\s*tai\s*san|dung\s*ten)[:\s]*(?:ong|ba|cty|cong\s*ty)?\s+([a-z\s]{5,45})(?:\s*tai|\s*dia\s*chi|,|$)/i);
-  if (ownerMatch) ids.ownerName = ownerMatch[1].trim().toUpperCase();
+  if (ownerMatch) {
+    const rawOwner = ownerMatch[1].trim().toUpperCase();
+    const lowerOwner = rawOwner.toLowerCase();
+    const blacklistedTerms = [
+      'chu no', 'ben nhan', 'bao dam', 'the chap', 'tai san', 'dau gia', 
+      'quy dinh', 'phap luat', 'quyen', 'nghia vu', 'chuyen giao', 'uy quyen',
+      'thi hanh an', 'chi cuc', 'cuc thi hanh', 'quyen so huu', 'quyen su dung'
+    ];
+    const isBoilerplate = blacklistedTerms.some(term => lowerOwner.includes(term));
+    if (!isBoilerplate) {
+      ids.ownerName = rawOwner;
+    }
+  }
 
   // Ngân hàng / Tổ chức tín dụng
   const bankMatch = s.match(/(?:tai|cua)\s*(agribank|bidiv|vietcombank|vietinbank|sacombank|techcombank|mb|shb|vpbank|vib|vpbank|ncb|oceanbank|gpbank|bac\s*a|ban\s*viet|pvc|vpb|tpbank|hdbank|lienvietpostbank)(?:\s*-\s*chi\s*nhanh\s+([a-z\s]{2,30}))?/i);
@@ -240,7 +321,7 @@ function extractPropertyIdentifiers(name) {
   sCleanParen = sCleanParen.replace(/[\(\)]/g, ' ');
 
   const communes = [];
-  const communeRegex = /\b(?:phuong\b|xa\b|thi\s*tran\b|p(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:quan\b|huyen\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
+  const communeRegex = /\b(?:phuong\b|xa\b|thi\s*tran\b|p(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q|tinh|tp|thanh|thanh\s*pho)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:quan\b|huyen\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
   let comMatch;
   while ((comMatch = communeRegex.exec(sCleanParen)) !== null) {
     const com = comMatch[1].trim();
@@ -252,7 +333,7 @@ function extractPropertyIdentifiers(name) {
   }
 
   const districts = [];
-  const districtRegex = /\b(?:quan\b|huyen\b|thi\s*xa\b|tp\b|thanh\s*pho\b|q(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:tinh\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
+  const districtRegex = /\b(?:quan\b|huyen\b|thi\s*xa\b|tp\b|thanh\s*pho\b|q(?=\s|\.|\d))\.?\s*((?:(?!\b(?:phuong|quan|xa|huyen|p|q|tinh|tp|thanh|thanh\s*pho)\b)[a-z0-9\s]){1,30})(?=,|$|[\s]+(?:tinh\b|tp\b|thanh\b|hcm\b|phuong\b|quan\b|xa\b|huyen\b|p\b|q\b))/gi;
   let distMatch;
   while ((distMatch = districtRegex.exec(sCleanParen)) !== null) {
     const dist = distMatch[1].trim();
@@ -268,7 +349,7 @@ function extractPropertyIdentifiers(name) {
   // Trích xuất Số nhà (House number) - hỗ trợ số nhà nhiều xuyệt
   let houseMatch = s.match(/(?:so\s*nha|dia\s*chi|tai\s*so|nha\s*o\s*so|nha\s*dat\s*so|nha\s*so|toa\s*lac\s*tai|toa\s*lac)\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
   if (!houseMatch) {
-    houseMatch = s.match(/\bso\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
+    houseMatch = s.match(/(?<!\b(?:thua|to|tbd|lo|o|gcn|seri|qd|quyet\s+dinh|cv|cong\s+van|ban\s+an|ba|so|sk|sm|chuyen\s+khoan)\s+(?:dat\s+)?(?:so\s+)?)\bso\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
   }
   if (houseMatch && !/^(19|20)\d{2}$/.test(houseMatch[1])) {
     ids.houseNumber = houseMatch[1].replace(/\s+/g, '').toUpperCase();
@@ -294,6 +375,56 @@ function normalizeNameIdentifier(nameStr) {
  * Trả về true nếu CÓ MÂU THUẪN thực sự: cùng loại identifier nhưng giá trị KHÁC nhau.
  */
 function hasConflictingIdentifiers(idsA, idsB) {
+  // Relax vehicle keys conflicts if at least 2 strong identifiers match exactly
+  let vehicleMatchCount = 0;
+  const vKeys = ['licensePlate', 'chassisNumber', 'engineNumber'];
+  for (const key of vKeys) {
+    if (idsA[key] && idsB[key]) {
+      const valA = idsA[key].replace(/[^A-Z0-9]/g, '');
+      const valB = idsB[key].replace(/[^A-Z0-9]/g, '');
+      if (valA === valB && valA.length >= 4) {
+        vehicleMatchCount++;
+      }
+    }
+  }
+  if (vehicleMatchCount >= 2) {
+    idsA = { ...idsA };
+    idsB = { ...idsB };
+    for (const key of vKeys) {
+      const valA = idsA[key] ? idsA[key].replace(/[^A-Z0-9]/g, '') : '';
+      const valB = idsB[key] ? idsB[key].replace(/[^A-Z0-9]/g, '') : '';
+      if (valA !== valB) {
+        delete idsA[key];
+        delete idsB[key];
+      }
+    }
+  }
+
+  // Relax area checks for properties if plotNumber and mapSheet match exactly and location matches
+  if (idsA.plotNumber && idsB.plotNumber && idsA.mapSheet && idsB.mapSheet &&
+      idsA.plotNumber === idsB.plotNumber && idsA.mapSheet === idsB.mapSheet) {
+    const sameCommune = idsA.commune && idsB.commune && idsA.commune === idsB.commune;
+    const sameDistrict = idsA.district && idsB.district && idsA.district === idsB.district;
+    if (sameCommune || sameDistrict) {
+      idsA = { ...idsA };
+      delete idsA.area;
+      idsB = { ...idsB };
+      delete idsB.area;
+    }
+  }
+
+  // Relax area checks for properties if houseNumber matches exactly and location matches
+  if (idsA.houseNumber && idsB.houseNumber && idsA.houseNumber === idsB.houseNumber) {
+    const sameCommune = idsA.commune && idsB.commune && idsA.commune === idsB.commune;
+    const sameDistrict = idsA.district && idsB.district && idsA.district === idsB.district;
+    if (sameCommune || sameDistrict) {
+      idsA = { ...idsA };
+      delete idsA.area;
+      idsB = { ...idsB };
+      delete idsB.area;
+    }
+  }
+
   // 1. Thửa đất (plotNumber) & Tờ bản đồ (mapSheet) - cho phép lệch nhẹ chứa nhau
   if (idsA.plotNumber && idsB.plotNumber && idsA.plotNumber !== idsB.plotNumber) {
     const pA = idsA.plotNumber.toLowerCase();
@@ -412,7 +543,7 @@ function hasMatchingStrongIdentifiers(idsA, idsB) {
   }
 
   // 2. Xe cộ & máy móc: Biển số, Số khung, Số máy, Số tàu
-  const vehicleKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'shipNumber', 'serialNumber'];
+  const vehicleKeys = ['licensePlate', 'chassisNumber', 'engineNumber', 'shipNumber'];
   for (const key of vehicleKeys) {
     if (idsA[key] && idsB[key]) {
       const valA = idsA[key].replace(/[^A-Z0-9]/g, '');
@@ -483,6 +614,85 @@ function hasMatchingStrongIdentifiers(idsA, idsB) {
 }
 
 /**
+ * Kiểm tra xem một tiêu đề có phải là tiêu đề chung chung/boilerplate hay không
+ */
+function isGenericTitle(title) {
+  if (!title) return true;
+  const clean = removeDiacritics(title.toLowerCase())
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // If too short, it's generic
+  if (clean.length < 15) return true;
+
+  // Check if it's purely boilerplate
+  const boilerplatePhrases = [
+    'tai san thi hanh an',
+    'quy dinh cua phap luat',
+    'thi hanh an dan su',
+    'quyen su dung dat',
+    'quyen so huu nha',
+    'va tai san khac gan lien',
+    'tai san bao dam',
+    'giao dich bao dam',
+    'tang vat phuong tien vi pham',
+    'tich thu sung quy nha nuoc',
+    'xe o to da qua su dung',
+    'xe mo to da qua su dung',
+    'tai san nha nuoc',
+    'quan ly su dung tai san cong',
+    'quan ly su dung tai san nha nuoc',
+    'quan ly su dung tai san',
+    'tai san thanh ly',
+    'tai san ban thanh ly',
+    'phuong tien vi pham hanh chinh',
+    'phuong tien vi pham',
+    'tang vat vi pham',
+    'tang vat phuong tien',
+    'tich thu sung cong quy',
+    'tich thu sung quy',
+    'xac lap quyen so huu toan dan'
+  ];
+
+  const genericWords = [
+    'tai san', 'lo', 'so', 'lan', 'dot', 'nhom', 'dan', 'danh sach', 'chi tiet', 'kem theo',
+    'ban thanh ly', 'thanh ly', 'thu hoi', 'khong co nhu cau su dung', 'vat tu', 'thiet bi',
+    'quy quyen', 'giay chung nhan', 'theo', 've', 'cua', 'cho', 'tai', 'la', 'co', 'va',
+    'quan ly', 'su dung', 'nha nuoc', 'cong san', 'tai san cong', 'co quan', 'don vi',
+    'hanh chinh', 'dan su', 'thi hanh an', 'khoan no', 'bao dam', 'the chap', 'cam co',
+    'tin dung', 'ngan hang', 'no xau', 'dau gia', 'ban dau gia', 'xe o to', 'xe mo to',
+    'xe gan may', 'o to', 'mo to', 'xe may', 'xe mo', 'xe tai', 'xe con', 'xe khach',
+    'phoi ban', 'tang vat', 'phuong tien', 'tich thu', 'sung quy', 'sung cong',
+    'ban phe lieu', 'phe lieu', 'phế lieu', 'ban phế liệu'
+  ];
+
+  // Remove all boilerplate phrases
+  let remaining = clean;
+  for (const phrase of boilerplatePhrases) {
+    remaining = remaining.replace(new RegExp(phrase, 'g'), ' ');
+  }
+
+  // Remove all generic words
+  for (const word of genericWords) {
+    remaining = remaining.replace(new RegExp('\\b' + word + '\\b', 'g'), ' ');
+  }
+
+  // Remove all numbers and single chars
+  remaining = remaining.replace(/[0-9]/g, ' ');
+  remaining = remaining.replace(/\b[a-z]\b/g, ' ');
+  
+  remaining = remaining.replace(/\s+/g, '').trim();
+
+  // If what is left is very short, it is generic!
+  if (remaining.length < 10) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Trích xuất số tài sản (đã loại bỏ ngày, năm, đơn vị hành chính)
  */
 function getNumberTokens(name) {
@@ -494,6 +704,17 @@ function getNumberTokens(name) {
   s = s.replace(/\b(phuong|quan|p|q|to|khu pho|kp|ap|thon)[\s\.\,\-]*\d+\b/g, '');
   const tokens = s.match(/[\w/\\-]*\d+[\w/\\-]*/g) || [];
   return [...new Set(tokens)];
+}
+
+/**
+ * Kiểm tra xem một số có ý nghĩa để phân biệt tài sản hay không (loại bỏ single digits, common years, round tens)
+ */
+function isSignificantNumber(num) {
+  if (!num) return false;
+  if (num.length < 3) return false; // Must be at least 3 digits (e.g. 100, 236, 491, etc.)
+  const val = parseInt(num, 10);
+  if (!isNaN(val) && val >= 1990 && val <= 2030) return false;
+  return true;
 }
 
 /**
@@ -574,14 +795,32 @@ function slugify(str) {
  * Map propertyTypeName → AssetType
  */
 function mapAssetType(propertyTypeName = '', propertyName = '') {
-  const combined = `${propertyTypeName} ${propertyName}`.toLowerCase();
+  const combined = removeDiacritics(`${propertyTypeName} ${propertyName}`.toLowerCase());
 
-  if (combined.includes('quyền sử dụng đất') || combined.includes('đất đai')) return 'land';
-  if (combined.includes('nhà ở') || combined.includes('căn hộ') || combined.includes('chung cư')) return 'house';
-  if (combined.includes('phương tiện') || combined.includes('ô tô') || combined.includes('xe')) return 'car';
-  if (combined.includes('máy móc') || combined.includes('thiết bị') || combined.includes('dây chuyền')) return 'machinery';
-  if (combined.includes('thi hành án')) return 'enforcement';
-  if (combined.includes('tài sản công') || combined.includes('nhà nước') || combined.includes('công vụ')) return 'public';
+  // 1. Vehicles
+  if (/\b(?:phuong tien|o to|xe mo to|xe may|xe gan may|xe tai|xe khach|xe ben|xe dau keo|ro mooc|xe cap|xe du lich|xe nang|xe cuoc|xe xuc|xe ui|tau|thuyen|cano|bien so|bks|so khung|so may)\b/i.test(combined)) {
+    return 'car';
+  }
+  // 2. House / Apartments / Buildings
+  if (/\b(?:nha o|can ho|chung cu|biet thu|ki ot|kios|quay ban|gian hang|nha tap the|toa nha|van phong|hotel|khach san|nha dat|nha xuong|kho bai|cong trinh xay dung)\b/i.test(combined)) {
+    return 'house';
+  }
+  // 3. Land / Plots
+  if (/\b(?:quyen su dung dat|dat dai|thua dat|dat o|dat trong cay|dat nong nghiep|qsd|qsdd|qsdđ|qsd dat|giay chung nhan quyen su dung)\b/i.test(combined)) {
+    return 'land';
+  }
+  // 4. Machinery & Equipment
+  if (/\b(?:may moc|thiet bi|day chuyen|he thong may|may phat dien|may tron|he thong|cong cu dung cu|vat tu)\b/i.test(combined)) {
+    return 'machinery';
+  }
+  // 5. Public assets
+  if (/\b(?:tai san cong|nha nuoc|cong vu|thanh ly tai san|ubnd)\b/i.test(combined)) {
+    return 'public';
+  }
+  // 6. Judgement Enforcement
+  if (/\b(?:thi hanh an|tha|chads|cctha|thi hanh an dan su)\b/i.test(combined)) {
+    return 'enforcement';
+  }
 
   return 'other';
 }
@@ -688,6 +927,445 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Kiểm tra xem một tiêu đề có phải là thông báo bán nguyên lô/nhiều tài sản hay không.
+ */
+function isBatchNotice(name) {
+  if (!name) return false;
+  const clean = removeDiacritics(name).toLowerCase();
+  
+  const batchKeywords = [
+    'nguyen lo',
+    'tron lo',
+    'lo gom',
+    'nhieu tai san',
+    'danh sach tai san',
+    'thanh ly lo',
+    'nguyen lo xe',
+    'lo o to'
+  ];
+  
+  for (const kw of batchKeywords) {
+    if (clean.includes(kw)) return true;
+  }
+  
+  if (/\b\d+\s*xe\b/.test(clean) || /\b\d+\s*tai\s*san\b/.test(clean) || /\b\d+\s*cong\s*cu\b/.test(clean)) {
+    return true;
+  }
+
+  // 1. Kiểm tra tài sản 1 ... tài sản 2 hoặc lô 1 ... lô 2 hoặc ts 1 ... ts 2
+  if (/\b(?:tai\s*san|ts|lo)\s*1\b.*\b(?:tai\s*san|ts|lo)\s*2\b/.test(clean)) {
+    return true;
+  }
+
+  // 2. Kiểm tra có nhiều thửa đất khác nhau trong tiêu đề
+  const plotMatches = clean.match(/\bthua\s*(?:dat\s*)?(?:so\s*)?\d+/g);
+  if (plotMatches && plotMatches.length >= 2) {
+    const uniquePlots = new Set(plotMatches.map(p => p.replace(/\s+/g, '')));
+    if (uniquePlots.size >= 2) return true;
+  }
+
+  // 3. Kiểm tra có nhiều giấy chứng nhận khác nhau trong tiêu đề
+  const certMatches = clean.match(/(?:gcn|qsdd|so\s*do|so\s*hong|giay\s*chung\s*nhan|phat\s*hanh|seri|so\s*hieu)[^\d]{0,50}\b([a-z]{0,2}\s*[0-9]{4,10})\b/g);
+  if (certMatches && certMatches.length >= 2) {
+    const uniqueCerts = new Set(certMatches.map(c => c.replace(/[^a-z0-9]/g, '')));
+    if (uniqueCerts.size >= 2) return true;
+  }
+  
+  return false;
+}
+
+function extractLocationIdentity(ids) {
+  if (!ids) return '';
+  const parts = [];
+  if (ids.commune) parts.push(ids.commune);
+  if (ids.district) parts.push(ids.district);
+  if (ids.province) parts.push(ids.province);
+  return removeDiacritics(parts.join(' ').toLowerCase()).replace(/\s+/g, ' ').trim();
+}
+
+function generateBlockingKeys(asset) {
+  const keys = [];
+  const pClean = removeDiacritics(asset.province || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ids = asset.identifiers || {};
+
+  // 1. Xe cộ
+  if (ids.licensePlate) {
+    keys.push(`vehicle:plate:${ids.licensePlate}`);
+  }
+  if (ids.chassisNumber) {
+    keys.push(`vehicle:chassis:${ids.chassisNumber}`);
+  }
+  if (ids.engineNumber) {
+    keys.push(`vehicle:engine:${ids.engineNumber}`);
+  }
+
+  // 2. Pháp lý / Sổ đỏ
+  if (ids.certificateNumber) {
+    keys.push(`cert:${ids.certificateNumber}`);
+  }
+  if (ids.contractNumber) {
+    keys.push(`contract:${ids.contractNumber}`);
+  }
+  if (ids.taxCode) {
+    keys.push(`tax:${ids.taxCode}`);
+  }
+
+  // 3. Đất đai (Thửa / Tờ)
+  if (ids.plotNumber && pClean) {
+    if (ids.mapSheet) {
+      keys.push(`land:pm:${pClean}:${ids.plotNumber}:${ids.mapSheet}`);
+    }
+    if (asset.district) {
+      const dClean = removeDiacritics(asset.district).toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (dClean) {
+        keys.push(`land:pd:${pClean}:${dClean}:${ids.plotNumber}`);
+      }
+    }
+  }
+
+  // 4. Số nhà / Căn hộ
+  if (ids.houseNumber && pClean) {
+    const hClean = ids.houseNumber.toLowerCase().replace(/[^a-z0-9]/g, '');
+    keys.push(`addr:ph:${pClean}:${hClean}`);
+  }
+  if (ids.apartment && pClean) {
+    const aClean = ids.apartment.toLowerCase().replace(/[^a-z0-9]/g, '');
+    keys.push(`apt:pa:${pClean}:${aClean}`);
+  }
+
+  // 5. Tên chủ sở hữu
+  if (asset.ownerName && pClean) {
+    const oClean = normalizeNameIdentifier(asset.ownerName).replace(/\s+/g, '');
+    const ignoredOwners = new Set(['nganhang', 'congty', 'chinhanh', 'ubnd', 'uybannhandan', 'doanhnghiep', 'trungtam', 'cuchihanhap']);
+    if (oClean.length >= 5 && !ignoredOwners.has(oClean)) {
+      keys.push(`owner:po:${pClean}:${oClean}`);
+    }
+  }
+
+  // 6. Địa phương + Khoảng diện tích
+  if (pClean && asset.district && asset.area) {
+    const dClean = removeDiacritics(asset.district).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (dClean) {
+      const areaBucket = Math.round(parseFloat(asset.area) / 10) * 10;
+      if (!isNaN(areaBucket)) {
+        keys.push(`loc_area:${pClean}:${dClean}:${areaBucket}`);
+      }
+    }
+  }
+
+  return [...new Set(keys)];
+}
+
+function isAssetTypeCompatible(typeA, typeB) {
+  if (!typeA || !typeB || typeA === 'other' || typeB === 'other') return true;
+  if (typeA === 'enforcement' || typeB === 'enforcement') return true;
+  if (typeA === 'public' || typeB === 'public') return true;
+
+  const isRealEstateA = (typeA === 'land' || typeA === 'house');
+  const isRealEstateB = (typeB === 'land' || typeB === 'house');
+  if (isRealEstateA && isRealEstateB) return true;
+
+  return typeA === typeB;
+}
+
+function detectHardConflict(a, b) {
+  const idsA = a.identifiers || {};
+  const idsB = b.identifiers || {};
+
+  // 1. Khác loại tài sản
+  if (!isAssetTypeCompatible(a.assetType, b.assetType)) {
+    return 'different_asset_type';
+  }
+
+  // 2. Khác tỉnh rõ ràng (cho phép khớp nếu trùng các chỉ số định danh thửa đất rất mạnh)
+  if (a.province && b.province) {
+    const provA = normalizeProvince(a.province);
+    const provB = normalizeProvince(b.province);
+    if (provA !== provB) {
+      const samePlotAndMap = idsA.plotNumber && idsB.plotNumber && idsA.plotNumber === idsB.plotNumber && idsA.mapSheet && idsB.mapSheet && idsA.mapSheet === idsB.mapSheet;
+      const sameDistrictAndWard = a.district && b.district && a.district === b.district && a.ward && b.ward && a.ward === b.ward;
+      const sameCert = idsA.certificateNumber && idsB.certificateNumber && idsA.certificateNumber.replace(/[^A-Z0-9]/g, '') === idsB.certificateNumber.replace(/[^A-Z0-9]/g, '');
+
+      if ((samePlotAndMap && sameDistrictAndWard) || sameCert) {
+        // Bỏ qua xung đột tỉnh vì đây là lỗi trích xuất tỉnh sai
+      } else {
+        return 'different_province';
+      }
+    }
+  }
+
+  // 3. Khác số khung / số máy nếu cả hai đều có
+  if (idsA.chassisNumber && idsB.chassisNumber && idsA.chassisNumber !== idsB.chassisNumber) {
+    const valA = idsA.chassisNumber.replace(/[^A-Z0-9]/g, '');
+    const valB = idsB.chassisNumber.replace(/[^A-Z0-9]/g, '');
+    if (valA !== valB && !valA.endsWith(valB) && !valB.endsWith(valA)) {
+      // Cho phép ghi đè trong hàm scoring nếu trùng biển số + số máy
+    }
+  }
+
+  // 4. Khác số thửa trên cùng một tờ bản đồ và cùng vị trí địa lý
+  if (idsA.plotNumber && idsB.plotNumber && idsA.mapSheet && idsB.mapSheet) {
+    if (idsA.mapSheet === idsB.mapSheet && idsA.plotNumber !== idsB.plotNumber) {
+      const sameWard = a.ward && b.ward && a.ward === b.ward;
+      const sameDistrict = a.district && b.district && a.district === b.district;
+      if (sameWard || sameDistrict) {
+        return 'different_plot_same_map_sheet';
+      }
+    }
+  }
+
+  // 5. Khác số nhà trong cùng khu vực
+  if (idsA.houseNumber && idsB.houseNumber && idsA.houseNumber !== idsB.houseNumber) {
+    const sameWard = a.ward && b.ward && a.ward === b.ward;
+    const sameDistrict = a.district && b.district && a.district === b.district;
+    if (sameWard || sameDistrict) {
+      const hA = idsA.houseNumber.toLowerCase();
+      const hB = idsB.houseNumber.toLowerCase();
+      if (!hA.includes(hB) && !hB.includes(hA)) {
+        return 'different_house_number';
+      }
+    }
+  }
+
+  // 6. Khác số sổ đỏ rõ ràng
+  if (idsA.certificateNumber && idsB.certificateNumber) {
+    const cA = idsA.certificateNumber.replace(/[^A-Z0-9]/g, '');
+    const cB = idsB.certificateNumber.replace(/[^A-Z0-9]/g, '');
+    if (cA.length >= 6 && cB.length >= 6 && cA !== cB) {
+      return 'different_certificate_number';
+    }
+  }
+
+  return null;
+}
+
+function compareArea(a, b) {
+  if (!a || !b) return { points: 0 };
+  const valA = parseFloat(a);
+  const valB = parseFloat(b);
+  if (isNaN(valA) || isNaN(valB) || valA <= 0 || valB <= 0) return { points: 0 };
+
+  const diff = Math.abs(valA - valB);
+  const pct = diff / Math.max(valA, valB);
+
+  if (diff <= 2 || pct <= 0.01) {
+    return { points: 20, reason: 'area_very_close' };
+  }
+  if (diff <= 10 || pct <= 0.03) {
+    return { points: 10, reason: 'area_close' };
+  }
+  if (pct <= 0.1) {
+    return { points: -5, reason: 'area_somewhat_different' };
+  }
+  return { points: -20, reason: 'area_very_different' };
+}
+
+function compareRelistPrice(a, b) {
+  if (!a || !b) return { points: 0 };
+  const valA = parseFloat(a);
+  const valB = parseFloat(b);
+  if (isNaN(valA) || isNaN(valB) || valA <= 0 || valB <= 0) return { points: 0 };
+
+  const high = Math.max(valA, valB);
+  const low = Math.min(valA, valB);
+  const dropPct = (high - low) / high;
+
+  if (dropPct === 0) {
+    return { points: 8, reason: 'same_price' };
+  }
+  if (dropPct > 0 && dropPct <= 0.3) {
+    return { points: 12, reason: 'reasonable_price_drop' };
+  }
+  if (dropPct > 0.3 && dropPct <= 0.5) {
+    return { points: 5, reason: 'large_but_possible_price_drop' };
+  }
+  return { points: -10, reason: 'price_too_different' };
+}
+
+function scoreAssetPair(a, b) {
+  const reasons = [];
+  const conflicts = [];
+
+  // 1. Kiểm tra Hard Conflict
+  const hardConflict = detectHardConflict(a, b);
+  
+  // Ngoại lệ đặc biệt cho xe cộ: Nếu trùng biển số + số máy hoặc số khung, cho phép bypass lệch số khung nhẹ
+  let isVehicleBypass = false;
+  const idsA = a.identifiers || {};
+  const idsB = b.identifiers || {};
+  if (a.assetType === 'car' && b.assetType === 'car') {
+    let vehicleMatchCount = 0;
+    const vKeys = ['licensePlate', 'chassisNumber', 'engineNumber'];
+    for (const key of vKeys) {
+      if (idsA[key] && idsB[key]) {
+        const valA = idsA[key].replace(/[^A-Z0-9]/g, '');
+        const valB = idsB[key].replace(/[^A-Z0-9]/g, '');
+        if (valA === valB && valA.length >= 4) {
+          vehicleMatchCount++;
+        }
+      }
+    }
+    if (vehicleMatchCount >= 2) {
+      isVehicleBypass = true;
+    }
+  }
+
+  if (hardConflict && !isVehicleBypass) {
+    return {
+      score: 0,
+      decision: 'reject',
+      conflicts: [hardConflict],
+      reasons: []
+    };
+  }
+
+  // 2. Kiểm tra trùng định danh xe cộ mạnh
+  if (isVehicleBypass) {
+    return {
+      score: 95,
+      decision: 'auto_group',
+      reasons: ['same_vehicle_identity'],
+      conflicts: []
+    };
+  }
+
+  // So sánh biển số xe đơn lẻ
+  if (idsA.licensePlate && idsB.licensePlate && idsA.licensePlate.replace(/[^A-Z0-9]/g, '') === idsB.licensePlate.replace(/[^A-Z0-9]/g, '')) {
+    return {
+      score: 90,
+      decision: 'auto_group',
+      reasons: ['same_license_plate'],
+      conflicts: []
+    };
+  }
+
+  // So sánh sổ đỏ / giấy chứng nhận mạnh
+  if (idsA.certificateNumber && idsB.certificateNumber) {
+    const valA = idsA.certificateNumber.replace(/[^A-Z0-9]/g, '');
+    const valB = idsB.certificateNumber.replace(/[^A-Z0-9]/g, '');
+    if (valA === valB && valA.length >= 5) {
+      return {
+        score: 90,
+        decision: 'auto_group',
+        reasons: ['same_certificate_number'],
+        conflicts: []
+      };
+    }
+  }
+
+  let score = 0;
+
+  // 3. So sánh thửa đất + tờ bản đồ
+  if (idsA.plotNumber && idsB.plotNumber) {
+    if (idsA.mapSheet && idsB.mapSheet && idsA.plotNumber === idsB.plotNumber && idsA.mapSheet === idsB.mapSheet) {
+      score += 75;
+      reasons.push('same_plot_and_map_sheet');
+    } else if (idsA.plotNumber === idsB.plotNumber) {
+      const sameWard = a.ward && b.ward && a.ward === b.ward;
+      const sameDistrict = a.district && b.district && a.district === b.district;
+      if (sameWard || sameDistrict) {
+        score += 65;
+        reasons.push('same_plot_shared_locality');
+      }
+    }
+  }
+
+  // 4. So sánh số nhà hoặc căn hộ
+  if (idsA.houseNumber && idsB.houseNumber && idsA.houseNumber === idsB.houseNumber) {
+    const sameDistrict = a.district && b.district && a.district === b.district;
+    if (sameDistrict) {
+      score += 65;
+      reasons.push('same_house_number_district');
+    }
+  }
+  if (idsA.apartment && idsB.apartment && idsA.apartment === idsB.apartment) {
+    score += 60;
+    reasons.push('same_apartment_number');
+  }
+
+  // 5. Địa lý (Xã/phường, Quận/huyện)
+  if (a.province && b.province && a.province === b.province) {
+    const dCleanA = removeDiacritics(a.district || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const dCleanB = removeDiacritics(b.district || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    if (dCleanA && dCleanB && dCleanA === dCleanB) {
+      score += 15;
+      reasons.push('same_district');
+      
+      const wCleanA = removeDiacritics(a.ward || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const wCleanB = removeDiacritics(b.ward || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (wCleanA && wCleanB && wCleanA === wCleanB) {
+        score += 10;
+        reasons.push('same_ward');
+      } else if (wCleanA && wCleanB) {
+        // Soft conflict: khác phường xã cùng quận
+        score -= 5;
+        conflicts.push('different_ward_in_district');
+      }
+    } else if (dCleanA && dCleanB) {
+      // Khác huyện cùng tỉnh
+      score -= 15;
+      conflicts.push('different_district_in_province');
+    }
+  }
+
+  // 6. Chủ sở hữu / Ngân hàng bảo lãnh
+  if (a.ownerName && b.ownerName) {
+    const normA = normalizeNameIdentifier(a.ownerName);
+    const normB = normalizeNameIdentifier(b.ownerName);
+    if (normA && normB && normA === normB && normA.split(' ').length >= 2) {
+      score += 15;
+      reasons.push('same_owner_name');
+    }
+  }
+  if (idsA.bankName && idsB.bankName && idsA.bankName === idsB.bankName) {
+    score += 10;
+    reasons.push('same_bank_name');
+  }
+
+  // 7. So sánh diện tích (Area)
+  const areaRes = compareArea(a.area, b.area);
+  score += areaRes.points;
+  if (areaRes.points > 0) reasons.push(areaRes.reason);
+  if (areaRes.points < 0) conflicts.push(areaRes.reason);
+
+  // 8. So sánh giá bán lại (Price)
+  const priceRes = compareRelistPrice(a.startingPrice, b.startingPrice);
+  score += priceRes.points;
+  if (priceRes.points > 0) reasons.push(priceRes.reason);
+  if (priceRes.points < 0) conflicts.push(priceRes.reason);
+
+  // 9. So sánh độ tương đồng văn bản lõi (Jaccard / Overlap)
+  if (a.coreIdentity && b.coreIdentity) {
+    const setA = getBigrams(a.coreIdentity);
+    const setB = getBigrams(b.coreIdentity);
+    const jaccard = jaccardSimilarity(setA, setB);
+    const overlap = overlapSimilarity(setA, setB);
+
+    if (jaccard >= 0.8) {
+      score += 25;
+      reasons.push('high_fuzzy_similarity');
+    } else if (jaccard >= 0.55) {
+      score += 12;
+      reasons.push('medium_fuzzy_similarity');
+    } else if (overlap >= 0.85) {
+      score += 15;
+      reasons.push('high_overlap_similarity');
+    }
+  }
+
+  // Phân loại quyết định
+  const decision = score >= 85 ? 'auto_group' : (score >= 65 ? 'review' : 'no_match');
+
+  return {
+    score: Math.max(0, score),
+    decision,
+    reasons,
+    conflicts
+  };
+}
+
 module.exports = {
   slugify,
   mapAssetType,
@@ -708,4 +1386,14 @@ module.exports = {
   hasConflictingIdentifiers,
   hasMatchingStrongIdentifiers,
   normalizeNameIdentifier,
+  isSignificantNumber,
+  isGenericTitle,
+  isBatchNotice,
+  extractLocationIdentity,
+  generateBlockingKeys,
+  detectHardConflict,
+  compareArea,
+  compareRelistPrice,
+  scoreAssetPair,
 };
+

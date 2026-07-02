@@ -4,6 +4,14 @@ const AuctionNotice = require('../models/AuctionNotice');
 const OrgSelection = require('../models/OrgSelection');
 const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
+const { 
+  isBatchNotice, 
+  extractPropertyIdentifiers, 
+  hasMatchingStrongIdentifiers, 
+  hasConflictingIdentifiers,
+  getBigrams,
+  jaccardSimilarity 
+} = require('../utils/helpers');
 
 const router = Router();
 
@@ -52,6 +60,74 @@ function buildProvinceFilter(provinceQuery) {
 
   return {
     $in: provinces.map((province) => new RegExp(province, 'i')),
+  };
+}
+
+async function buildDuplicateGroupResponse(dup, currentItem, ModelToUse) {
+  if (!dup) return null;
+
+  // Query details (name) of all notices in the duplicate group
+  const groupNotices = await ModelToUse.find({ sourceId: { $in: dup.sourceIds || [] } })
+    .select('sourceId name')
+    .lean();
+  const noticeMap = new Map(groupNotices.map(n => [n.sourceId, n]));
+
+  const currentIsBatch = isBatchNotice(currentItem.name);
+  let filteredEntries = dup.entries || [];
+
+  if (!currentIsBatch) {
+    // If current notice is an individual asset, only keep:
+    // - Batch notices (lot/group notices)
+    // - Duplicates of the current notice
+    const idsItem = extractPropertyIdentifiers(currentItem.name);
+    const bigramsItem = getBigrams(currentItem.name);
+    
+    filteredEntries = filteredEntries.filter(entry => {
+      if (entry.sourceId === currentItem.sourceId) return true;
+      
+      const entryNotice = noticeMap.get(entry.sourceId);
+      if (!entryNotice) return true; // Keep if not found
+      
+      if (isBatchNotice(entryNotice.name)) return true; // Keep batch notices
+      
+      // Check if it's a duplicate of item
+      const idsEntry = extractPropertyIdentifiers(entryNotice.name);
+      if (hasConflictingIdentifiers(idsItem, idsEntry)) {
+        return false;
+      }
+      
+      const isMatch = hasMatchingStrongIdentifiers(idsItem, idsEntry) || (jaccardSimilarity(bigramsItem, getBigrams(entryNotice.name)) >= 0.4);
+      return isMatch;
+    });
+  }
+
+  let firstPrice = dup.firstPrice || 0;
+  let latestPrice = dup.latestPrice || 0;
+  let priceDropPercent = dup.priceDropPercent || 0;
+  let isPriceDrop = dup.isPriceDrop || false;
+
+  if (filteredEntries.length > 0) {
+    firstPrice = filteredEntries[0].price || firstPrice;
+    latestPrice = filteredEntries[filteredEntries.length - 1].price || latestPrice;
+    if (filteredEntries.length > 1 && firstPrice > 0) {
+      const diff = firstPrice - latestPrice;
+      priceDropPercent = Math.round((diff / firstPrice) * 10000) / 100;
+      isPriceDrop = diff > 0;
+    } else {
+      priceDropPercent = 0;
+      isPriceDrop = false;
+    }
+  }
+
+  return {
+    id: dup._id.toString(),
+    name: currentIsBatch ? dup.name : currentItem.name,
+    relistCount: filteredEntries.length,
+    isPriceDrop,
+    priceDropPercent,
+    firstPrice,
+    latestPrice,
+    entries: filteredEntries,
   };
 }
 
@@ -277,19 +353,7 @@ router.get('/auctions/:id', async (req, res, next) => {
       Duplicate.findOne({ sourceIds: item.sourceId, type: dupType }).lean(),
     ]);
 
-    let duplicateGroup = null;
-    if (dup) {
-      duplicateGroup = {
-        id: dup._id.toString(),
-        name: dup.name,
-        relistCount: dup.relistCount || dup.sourceIds.length,
-        isPriceDrop: dup.isPriceDrop || false,
-        priceDropPercent: dup.priceDropPercent || 0,
-        firstPrice: dup.firstPrice || 0,
-        latestPrice: dup.latestPrice || 0,
-        entries: dup.entries || [],
-      };
-    }
+    let duplicateGroup = await buildDuplicateGroupResponse(dup, item, ModelToUse);
 
     res.json({
       ...transformAuction(item),
@@ -332,20 +396,8 @@ router.get('/org-selections/:id', async (req, res, next) => {
     if (!item) return res.status(404).json({ error: true, message: 'Không tìm thấy' });
 
     // Tìm nhóm Duplicate
-    let duplicateGroup = null;
     const dup = await Duplicate.findOne({ sourceIds: item.sourceId, type: 'org' }).lean();
-    if (dup) {
-      duplicateGroup = {
-        id: dup._id.toString(),
-        name: dup.name,
-        relistCount: dup.relistCount || dup.sourceIds.length,
-        isPriceDrop: dup.isPriceDrop || false,
-        priceDropPercent: dup.priceDropPercent || 0,
-        firstPrice: dup.firstPrice || 0,
-        latestPrice: dup.latestPrice || 0,
-        entries: dup.entries || [],
-      };
-    }
+    let duplicateGroup = await buildDuplicateGroupResponse(dup, item, OrgSelection);
 
     res.json({ ...item, duplicateGroup });
   } catch (err) { next(err); }

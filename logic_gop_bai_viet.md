@@ -1,145 +1,173 @@
-# Hướng Dẫn Về Logic Gộp Nhóm Bài Viết Liên Quan (Relisted / Deduplication)
+# Hướng Dẫn Kỹ Thuật: Hệ Thống Gộp Trùng Tài Sản (AssetItem Deduplication & Relisting System)
 
-Tài liệu này giải thích chi tiết kiến trúc dự án Thống kê Đấu giá và logic cốt lõi giúp phát hiện, gộp nhóm các bài viết liên quan (bài đăng lại - relisted) khi đấu giá tài sản.
-
----
-
-## 1. Tổng Quan Kiến Trúc Dự Án
-Dự án được phát triển nhằm thu thập, chuẩn hóa, phân tích và hiển thị thông tin đấu giá tài sản công, bất động sản, xe cộ,... từ cổng thông tin gốc.
-
-*   **Bộ Thu Thập (Crawler Bot):** Viết bằng Node.js, chịu trách nhiệm cào danh sách tài sản đấu giá và thông tin chi tiết bằng cách gọi trực tiếp các API của cổng thông tin gốc (`dgts.moj.gov.vn`).
-*   **Cơ Sở Dữ Liệu (MongoDB):**
-    *   `AuctionNotice`: Lưu các thông báo đấu giá độc lập (mỗi lần đăng có 1 `sourceId` khác nhau).
-    *   `Duplicate`: Lưu thông tin nhóm các bài đăng đã được gộp (chứa mảng `sourceIds` liên kết với các bản ghi `AuctionNotice`).
-    *   `CrawlLog`: Lưu nhật ký các tiến trình cào và quét trùng lặp.
-*   **Giao Diện Người Dùng (Next.js & React):** Hiển thị danh sách các tài sản đã gộp nhóm, lịch sử đăng lại, tỷ lệ giảm giá qua các lần đấu giá.
+Tài liệu này trình bày toàn bộ kiến trúc, logic đối khớp nâng cấp cấp độ tài sản con (`AssetItem`), thuật toán chấm điểm mềm (`scoreAssetPair`), và các mô-đun mở rộng giúp tối đa hóa khả năng phát hiện tài sản đấu giá lại (relisted) trên cổng thông tin Quốc gia (DGTS).
 
 ---
 
-## 2. Logic Phát Hiện và Gộp Nhóm Bài Viết Liên Quan
+## 1. Tổng Quan Kiến Trúc Cơ Sở Dữ Liệu
 
-Hệ thống sử dụng **3 cơ chế độc lập nhưng bổ trợ cho nhau** để xác định xem các bài đăng có thuộc về cùng một tài sản hay không:
+Để không bỏ sót tài sản đấu giá lại khi dữ liệu đầu vào không sạch, hệ thống chuyển dịch từ việc so khớp "bài đăng" sang quản lý chi tiết các "tài sản con" thực tế:
+
+*   **`AuctionNotice` / `OrgSelection`**: Chứa thông tin thô của bài đăng gốc được cào về từ hệ thống cổng thông tin.
+*   **`AssetItem`**: Lưu trữ các thực thể tài sản con sau khi bóc tách từ thông báo. Mỗi thông báo gốc có thể bóc thành một hoặc nhiều `AssetItem` (khớp bằng unique compound index: `{ sourceType, sourceId, itemIndex }`).
+*   **`Duplicate` (AssetGroup-level)**: Lưu trữ các nhóm trùng đã được tự động gộp (chứa mảng liên kết tài sản con `assetItemIds` và lịch sử chi tiết đợt đăng `entries` để hiển thị).
+*   **`PotentialDuplicate`**: Lưu trữ các cặp hoặc nhóm nghi ngờ trùng lặp (điểm từ 65 đến 84) cần duyệt thủ công ở trang quản trị.
+
+---
+
+## 2. Quy Trình Trích Xuất & Đối Khớp Chi Tiết
 
 ```mermaid
 graph TD
-    A[Bắt đầu quét Trùng lặp / Đăng lại] --> B{Cơ chế 1: Kiểm tra API gốc}
-    B -- Có Related IDs / Root ID --> C[Gom cụm liên thông đồ thị]
-    B -- Không có liên kết từ API --> D{Cơ chế 2: So sánh Fuzzy & Định danh mạnh}
+    A[Bắt đầu đối khớp] --> B[Trích xuất AssetItem con & Đọc file đính kèm]
+    B --> C[Tạo tập ứng viên: Blocking Keys + Fallback Candidates]
+    C --> D[Chấm điểm so khớp mềm cặp tài sản - scoreAssetPair]
     
-    D --> D1[Trích xuất Lõi danh tính - extractCoreIdentity]
-    D --> D2[Phân tích Định danh tài sản - extractPropertyIdentifiers]
+    D -- Có Hard Conflict / Score < 65 --> E[Bỏ qua - Khác tài sản]
+    D -- 65 <= Score < 85 --> F[Hàng chờ duyệt - PotentialDuplicate]
+    D -- Score >= 85 --> G[Gộp tự động - Union-Find]
     
-    D2 --> E{Có xung đột định danh? - hasConflictingIdentifiers}
-    E -- Có Xung đột --> F[Loại bỏ - Khác tài sản]
-    E -- Không Xung đột --> G{Có trùng Định danh mạnh? - hasMatchingStrongIdentifiers}
-    
-    G -- Trùng khớp mạnh --> H[Xác nhận Trùng lặp]
-    G -- Không trùng mạnh --> I{Tính toán độ tương đồng văn bản}
-    
-    I --> I1[Jaccard Similarity >= 80%]
-    I --> I2[Có số chung + Jaccard >= 55%]
-    I --> I3[Overlap Similarity >= 85% + chung >= 1 số]
-    
-    I1 & I2 & I3 -- Đúng --> H
-    I1 & I2 & I3 -- Sai --> F
-    
-    C & H --> J[Cơ chế 3: Hợp nhất Đồ thị - buildGraphGroups]
-    J --> K[Tạo/Cập nhật bản ghi Duplicate & Tính toán giảm giá]
+    G --> H[Kiểm tra liên thông - Weighted Graph Validation]
+    H -- Đạt chuẩn --> I[Cập nhật nhóm Duplicate & Tính toán giảm giá]
+    H -- Chain-merge yếu --> F
 ```
 
-### 2.1. Cơ chế 1: Liên Kết từ Hệ Thống Gốc (API-based Relisting)
-Đây là cơ chế chính xác nhất vì nó dựa trên dữ liệu liên kết có sẵn của Cổng thông tin đấu giá quốc gia.
+### 2.1. Phân Tách Tài Sản Con (`extractAssetItemsFromNotice`)
+Hệ thống không chỉ dựa vào mảng `properties` được trả về từ API gốc mà bóc tách sâu từ:
+*   Mảng `properties` có cấu trúc.
+*   Nội dung văn bản thô trong `title`, `description`, `shortDescription`.
+*   Nội dung văn bản trích xuất từ file đính kèm (Quy chế đấu giá, thông báo đấu giá).
+*   Các bảng biểu HTML (`<table>`) và bảng biểu trong tài liệu.
 
-*   **Hàm thực hiện:** `fetchPublishHistory(sourceId)` trong [detail.scraper.js](file:///d:/web-thong-ke-dau-gia/bot-crawls-data/src/scrapers/detail.scraper.js#L61-L108).
-*   **Cách hoạt động:** Khi cào chi tiết một tài sản, crawler gọi đồng thời 2 API:
-    1.  `/portal/pageAuctionInfoPublish2?auctionInfoId=X`: Trả về danh sách tất cả các đợt công bố của tài sản đó (ví dụ: Lần 1, Lần 2, Lần 3...). Từ đây, hệ thống lấy được nhãn đợt đăng (`publishRoundLabel` như *"Thông báo công khai lần 2"*), mã gốc (`rootId`) và danh sách các ID của những lần đăng khác (`relatedIds`).
-    2.  `/portal/pageAuctionInfoCorrections?auctionInfoId=X`: Trả về các ID của các đợt đính chính hoặc chỉnh sửa thông tin liên quan đến tài sản đó.
-*   **Kết quả:** Hệ thống gộp tất cả các `sourceId` tìm thấy từ hai API này lại để tạo liên kết ban đầu.
-
----
-
-### 2.2. Cơ chế 2: Thuật Toán So Sánh Tên và Định Danh (Fuzzy Match & Identifiers)
-Trong nhiều trường hợp, hệ thống gốc không trả về `relatedIds` (do lỗi nhập liệu hoặc đăng mới hoàn toàn dưới dạng tin khác). Khi đó, hệ thống sử dụng thuật toán phân tích văn bản nâng cao trong [helpers.js](file:///d:/web-thong-ke-dau-gia/bot-crawls-data/src/utils/helpers.js).
-
-#### Bước 1: Trích xuất "Lõi danh tính" tài sản (`extractCoreIdentity`)
-Tên tài sản đấu giá thường chứa rất nhiều văn bản pháp lý rác (boilerplate) làm loãng thuật toán so sánh. Hàm `extractCoreIdentity` sẽ:
-*   Chuẩn hóa bảng mã ký tự tiếng Việt (NFC/NFD), loại bỏ dấu và chuyển về viết thường.
-*   Thay thế các từ viết tắt phổ biến: `qsdd` $\rightarrow$ `quyen su dung dat`, `bks` $\rightarrow$ `bien kiem soat`, `tbd` $\rightarrow$ `to ban do`.
-*   Loại bỏ ngoặc đơn và các cụm từ pháp lý thừa: *"Quyền sử dụng đất và tài sản gắn liền với đất tại..."*, *"kê biên thi hành án..."*, *"Ủy ban nhân dân..."*, *"tổ chức đấu giá..."*.
-*   Loại bỏ đơn vị hành chính kèm tên và số: *"phường 12, quận 1"*, *"phường Võ Thị Sáu"*, *"tỉnh Lâm Đồng"*.
-*   Loại bỏ các thông số kỹ thuật rác: *"lộ giới đường..."*, *"kết cấu..."*.
-*   **Mục tiêu:** Giữ lại chuỗi ký tự tinh gọn nhất chứa thông tin duy nhất của tài sản (ví dụ: *"120/4 nguyen van cu thửa 45 tờ 12"*).
-
-#### Bước 2: Phân tích Định danh tài sản (`extractPropertyIdentifiers`)
-Sử dụng các mẫu biểu thức chính quy (Regex) để bóc tách các trường thông tin có cấu trúc:
-*   **Đất đai:** Số thửa (`plotNumber`), số tờ bản đồ (`mapSheet`).
-*   **Phương tiện:** Biển kiểm soát (`licensePlate`), số khung (`chassisNumber`), số máy (`engineNumber`).
-*   **Giấy tờ pháp lý:** Số GCN/Sổ đỏ (`certificateNumber`), số vào sổ cấp GCN (`certificateEntryNumber`), số hợp đồng (`contractNumber`), mã số thuế (`taxCode`).
-*   **Căn hộ/Tòa nhà:** Số căn hộ (`apartment`), tòa/block (`block`), ki-ốt (`kiosk`), số nhà (`houseNumber`).
-*   **Thông tin khác:** Diện tích (`area`), tên chủ tài sản (`ownerName`), tên ngân hàng (`bankName`).
-
-#### Bước 3: Kiểm tra Xung Đột Định Danh (`hasConflictingIdentifiers`)
-Trước khi so sánh độ tương đồng, hệ thống kiểm tra xem có xung đột thông tin hay không.
-> [!IMPORTANT]
-> Nếu hai tài sản có cùng một loại trường định danh nhưng giá trị khác nhau, chúng sẽ bị **bỏ qua lập tức** (xác định là hai tài sản khác nhau).
-> *   *Ví dụ:* Cùng ở một con đường nhưng một bên ghi `Thửa đất số: 10`, một bên ghi `Thửa đất số: 11` $\rightarrow$ Không gộp nhóm.
-> *   *Ví dụ:* Khác Quận/Huyện hoặc khác Xã/Phường $\rightarrow$ Không gộp nhóm.
-> *   *Ví dụ:* Diện tích đất chênh lệch lớn hơn 2.0 $m^2$ $\rightarrow$ Không gộp nhóm.
-
-#### Bước 4: Kiểm tra Khớp Định Danh Mạnh (`hasMatchingStrongIdentifiers`)
-Nếu không có xung đột, hệ thống kiểm tra xem có trùng khớp định danh mạnh hay không:
-*   Trùng khớp hoàn toàn một trong các trường: **Số khung, số máy, biển số xe, số sổ đỏ (GCN), số đăng ký tàu, mã số thuế, số hợp đồng**.
-*   Hoặc trùng khớp đồng thời cả cặp **Số thửa đất** và **Số tờ bản đồ**.
-> [!TIP]
-> Nếu thỏa mãn điều kiện này, hệ thống sẽ **gộp nhóm ngay lập tức** mà không cần xét đến độ tương đồng của phần văn bản còn lại.
-
-#### Bước 5: Tính toán Độ tương đồng văn bản (Fuzzy Similarity)
-Nếu không có định danh mạnh nhưng cũng không bị xung đột định danh, hệ thống sử dụng thuật toán so sánh từ ghép đôi (Bigrams):
-1.  **Jaccard Similarity $\ge$ 80%:** Chấp nhận gộp (áp dụng cho các tên tài sản được viết gần như giống hệt nhau).
-2.  **Jaccard Similarity $\ge$ 55% + Có số chung** (Ví dụ: chung số nhà hoặc một mã số đặc trưng) $\rightarrow$ Chấp nhận gộp.
-3.  **Overlap Similarity $\ge$ 85% + Chung ít nhất 1 số:** Chấp nhận gộp (thường dùng khi một bài đăng bị viết rút gọn đi rất nhiều so với bài đăng kia).
-4.  **Trùng số căn hộ/số nhà + Độ tương đồng tương đối:** Chấp nhận gộp.
+**Thuật toán nhận diện phân mảnh**: Sử dụng Regex nhận diện các mẫu (pattern) phân chia như: `Tài sản 1:`, `Tài sản số 1:`, `Lô 1:`, `STT 1:`, `Thửa đất số...`. Mỗi phân mảnh con sẽ được trích xuất thành 1 `AssetItem` riêng. Trường hợp độ tin cậy bóc tách thấp (`splitConfidence: 'low'`), hệ thống ưu tiên định tuyến tài sản sang hàng chờ duyệt thủ công.
 
 ---
 
-### 2.3. Cơ chế 3: Gom Cụm và Hợp Nhất Đồ Thị (Graph Clustering)
-Sau khi có các mối liên hệ đơn lẻ (Bài A liên quan Bài B, Bài B liên quan Bài C, v.v.), hệ thống cần gộp tất cả chúng lại thành các nhóm hoàn chỉnh.
-
-*   **Hàm thực hiện:** `buildGraphGroups` và `mergeDuplicateGroups` trong [detail.scraper.js](file:///d:/web-thong-ke-dau-gia/bot-crawls-data/src/scrapers/detail.scraper.js#L358-L475).
-*   **Thuật toán:** Xây dựng đồ thị vô hướng.
-    *   Mỗi `sourceId` là một nút (Node).
-    *   Mối quan hệ liên quan (từ API hoặc Fuzzy Match) là cạnh (Edge).
-    *   Sử dụng thuật toán tìm các thành phần liên thông (Connected Components) bằng duyệt đồ thị (DFS/BFS).
-*   **Kết quả:** Gom tất cả các bài viết có liên quan trực tiếp hoặc gián tiếp vào một nhóm duy nhất.
-    *   *Ví dụ:* Nếu A liên quan đến B (qua API), và B liên quan đến C (qua so sánh tên fuzzy), thì nhóm gộp cuối cùng sẽ chứa cả `[A, B, C]`.
+### 2.2. Attachment Parser (Đọc File Đính Kèm)
+Nhiều thông báo đấu giá có tên tiêu đề cực kỳ chung chung (ví dụ: *"Quyền sử dụng đất..."*). Mọi định danh mạnh đều nằm trong file phụ lục.
+*   **Quy trình**: Download và parse các tài liệu đính kèm dạng `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`.
+*   **Thông tin trích xuất**: Số thửa, tờ bản đồ, diện tích, địa chỉ chi tiết, số GCN/Sổ đỏ, biển số xe, số khung, số máy, danh sách tài sản con dạng bảng, giá khởi điểm từng tài sản.
+*   **Merge dữ liệu**: Kết quả trích xuất được tích hợp trực tiếp vào `AssetItem` tương ứng và đánh dấu bằng cờ `attachmentTextUsed = true`.
 
 ---
 
-## 3. Lưu Trữ và Tính Toán Giảm Giá (Duplicate Model)
+### 2.3. Khởi Tạo Ứng Viên Đa Tầng (Candidate Generation & Fallbacks)
+Hệ thống tạo ra một liên hợp (Union) các tập ứng viên thông qua nhiều loại khóa để tránh bỏ sót khi tài sản bị khuyết thông tin:
 
-Khi một nhóm tài sản được gộp lại, thông tin được lưu trữ vào collection `duplicates` với các logic tính toán giá trị:
-
-*   **Sắp xếp danh sách đợt đăng (`entries`):** Toàn bộ các bài đăng trong nhóm được sắp xếp theo thời gian công bố (`publishedAt`) tăng dần. Lần đăng đầu tiên là `entries[0]`, lần đăng cuối cùng là `entries[entries.length - 1]`.
-*   **Giá đầu tiên (`firstPrice`):** Lấy giá khởi điểm (`initialPrice` hoặc `startingPrice`) của lần đăng đầu tiên có giá trị lớn hơn 0.
-*   **Giá hiện tại (`latestPrice`):** Lấy giá khởi điểm của lần đăng mới nhất.
-*   **Xác định giảm giá (`isPriceDrop`):** Được đánh dấu là `true` khi và chỉ khi:
-    1.  Giá đợt mới nhất nhỏ hơn giá đợt đầu tiên (`latestPrice < firstPrice`).
-    2.  Có ít nhất 2 thời điểm công bố khác nhau (tránh trường hợp gộp nhầm các tài sản khác nhau đăng cùng ngày).
-*   **Phần trăm giảm giá (`priceDropPercent`):** Tính theo công thức:
-    $$\text{priceDropPercent} = \frac{\text{firstPrice} - \text{latestPrice}}{\text{firstPrice}} \times 100\%$$
+1.  **Liên kết trực tiếp từ API**: Lấy danh sách `relatedIds` từ cơ chế đồng bộ gốc.
+2.  **Khóa Blocking mạnh**:
+    *   `land:pm:${province}:${plot}:${map}` (Thửa đất + Tờ bản đồ)
+    *   `addr:ph:${province}:${house}` (Số nhà + Tên đường)
+    *   `vehicle:plate:${plate}` / `vehicle:chassis:${chassis}` (Mã định danh xe)
+3.  **Khóa dự phòng mở rộng (Fallback Candidates)**:
+    *   `owner_area:${province}:${ownerCleaned}:${areaRounded}`
+    *   `owner_price:${province}:${ownerCleaned}:${priceBucket}`
+    *   `location_area_price:${province}:${district}:${areaRounded}:${priceBucket}`
+    *   `bank_area:${bankName}:${province}:${areaRounded}`
+    *   `address_area:${province}:${street}:${areaRounded}`
+    *   `cert_owner:${certificateNumber}:${ownerCleaned}`
+4.  **Dự phòng cuối cùng**: Khi khuyết hoàn toàn khóa mạnh, lấy các ứng viên cùng tỉnh + cùng chủ sở hữu cũ, hoặc cùng tỉnh + cùng diện tích làm tròn, hoặc sử dụng tìm kiếm tương đồng ngữ nghĩa (Semantic Embedding).
 
 ---
 
-## 4. Hiển Thị Ở Giao Diện (Frontend Integration)
+### 2.4. Luật Chấm Điểm Mềm & Xử Lý Xung Đột (`scoreAssetPair`)
 
-Trang hiển thị tài sản đăng lại [RelistedContainer.tsx](file:///d:/web-thong-ke-dau-gia/src/features/relisted/RelistedContainer.tsx) gọi API `/api/relisted` để lấy dữ liệu.
+#### A. Luật Hard Conflict (Chỉ Reject khi gặp định danh cực mạnh)
+Hệ thống không tự động huỷ bỏ khi khác Quận/Huyện/Phường hoặc lệch diện tích/giá vì địa giới hành chính có thể sáp nhập hoặc nhập liệu viết tắt.
+**Hard conflict chỉ kích hoạt khi**:
+*   Khác số khung xe rõ ràng.
+*   Khác số máy xe rõ ràng.
+*   Khác biển số xe rõ ràng.
+*   Khác số GCN/sổ đỏ rõ ràng.
+*   Khác đồng thời cả số thửa và tờ bản đồ tại cùng một vị trí địa lý đã được chuẩn hóa chắc chắn.
+*   Khác loại tài sản hoàn toàn (ví dụ: đất vs xe cộ, xe cộ vs máy móc thiết bị).
 
-1.  **Dữ liệu kết hợp (Aggregation):** API `/api/relisted` thực hiện `$lookup` để lấy thông tin của bản ghi `AuctionNotice` mới nhất làm đại diện hiển thị (để lấy trạng thái hiện tại, ngày tổ chức đấu giá gần nhất, địa chỉ hiển thị).
-2.  **Sắp xếp & Bộ lọc:**
-    *   Hỗ trợ sắp xếp theo: Số lần đấu giá giảm dần (`rounds_desc`), phần trăm giảm giá cao nhất (`discount_pct`), tin mới cập nhật (`newest`), hoặc giá thấp nhất (`price_asc`).
-    *   Bộ lọc nâng cao cho phép người dùng lọc theo % giảm tối thiểu, số lần đấu giá tối thiểu (ví dụ: lọc các bài đã đấu giá $\ge 3$ lần), khu vực tỉnh/thành, loại tài sản, và đơn vị tổ chức đấu giá.
-3.  **Cách trình bày thông tin:**
-    *   **Giá cũ (First Price):** Hiển thị ở dạng chữ nhỏ, gạch ngang (ví dụ: ~~1.2 Tỷ~~).
-    *   **Giá mới (Latest Price):** Hiển thị nổi bật, chữ đậm.
-    *   **Số lần đấu giá (Relist Count):** Hiển thị số lần tài sản này được đưa ra đấu giá (ví dụ: *3 lần ĐG*).
-    *   **Nhãn giảm giá:** Badge màu sắc thể hiện phần trăm giảm giá (ví dụ: *-25%*).
+*Lưu ý (Chassis Typo Bypass)*: Với tài sản xe cộ, nếu khớp $\ge 2$ định danh mạnh (ví dụ trùng biển số + số máy), hệ thống sẽ bỏ qua mọi xung đột của định danh thứ 3 (số khung gõ sai kí tự vẫn gộp tự động).
+
+#### B. Thang Điểm Chấm Mềm (Soft Matches & Soft Conflicts)
+*   **Trùng khớp định danh mạnh**: Trùng biển số/khung/máy (**+95**), trùng số GCN (**+85**), trùng cả thửa và tờ bản đồ (**+75**), trùng số nhà (**+60**).
+*   **Trùng khớp thông tin địa lý**: Trùng xã/phường (**+20**), trùng quận/huyện (**+15**).
+*   **Trùng chủ tài sản cũ**: **+20 điểm**.
+*   **Giá đấu giá lại**:
+    *   Giá giống nhau: **+8 điểm**.
+    *   Giá giảm từ 1% đến 40% (giảm giá hợp lý): **+15 điểm**.
+    *   Giá giảm từ 40% đến 70%: **+5 điểm**.
+    *   Giá tăng đột biến: **-5 điểm** (không reject thẳng).
+*   **Diện tích**: Khớp diện tích trong khoảng chênh lệch chấp nhận được (**+20 điểm**). Lệch diện tích lớn (**-15 điểm**).
+*   **Mâu thuẫn địa danh nhẹ (Khác huyện/xã)**: **-15 điểm** (Soft Conflict - dùng để trừ điểm chứ không loại bỏ).
+
+#### C. Đối Khớp Ngữ Nghĩa (Semantic Embedding)
+Hệ thống tạo vector embedding cho chuỗi thông tin chuẩn hóa: `assetType + coreIdentity + locationIdentity + ownerCleaned + identifiers + area`.
+*   Semantic Score $\ge 0.92$: **+25 điểm**.
+*   Semantic Score $0.86 - 0.92$: **+12 điểm**.
+*   Độ tương đồng ngữ nghĩa cao kết hợp trùng khớp diện tích/chủ sở hữu: tự động đưa vào hàng chờ duyệt thủ công.
+
+---
+
+### 2.5. Xác Thực Đồ Thị Gom Nhóm (Weighted Graph Validation)
+Khi gộp nhóm tự động bằng Union-Find, hệ thống có thể bị hiện tượng gộp dây chuyền sai lệch (Chain Merge - ví dụ A giống B, B giống C, C giống D nhưng A khác D).
+*   **Giải pháp**: Lưu trữ các liên kết dưới dạng cạnh đồ thị có trọng số (`MatchEdge` chứa `score`, `reasons`, `matchType`).
+*   **Xác thực sau gom cụm**: Một `AssetItem` chỉ được duy trì trong nhóm nếu:
+    1.  Có liên kết từ hệ thống gốc (API-based relatedIds).
+    2.  Hoặc có ít nhất một liên kết trực tiếp đạt điểm rất mạnh ($\ge 90$ điểm).
+    3.  Hoặc có điểm số đối khớp với tài sản đại diện của nhóm (Canonical Item) đạt chuẩn $\ge 75$ điểm.
+*   Nếu không thoả mãn các điều kiện trên, hệ thống sẽ tách tài sản ra và đẩy về hàng chờ duyệt thủ công.
+
+---
+
+## 3. Quản Lý Địa Danh & Chủ Thể Alias
+
+Để nâng cao khả năng chuẩn hóa dữ liệu bẩn trước khi so khớp:
+
+### 3.1. Chuẩn Hóa Địa Danh (Location Alias)
+Xây dựng bảng từ điển chuyển đổi địa danh cũ/mới và viết tắt:
+*   Chuyển đổi các dạng tương đương: `TP. HCM`, `TP Hồ Chí Minh`, `Thành phố Hồ Chí Minh`, `Hồ Chí Minh` $\rightarrow$ `TP. Hồ Chí Minh`.
+*   Hỗ trợ sáp nhập hành chính (ví dụ: `thị xã Phú Mỹ` và `thành phố Phú Mỹ` được coi là một địa danh hợp lệ).
+
+### 3.2. Chuẩn Hóa Chủ Thể / Ngân Hàng (Organization Alias)
+Hệ thống chuẩn hóa tên các chủ thể phát mãi tài sản phổ biến (đặc biệt là ngân hàng):
+*   `BIDV` $\leftarrow$ `Ngân hàng TMCP Đầu tư và Phát triển Việt Nam`, `BIDV Chi nhánh...`
+*   `Agribank` $\leftarrow$ `Ngân hàng Nông nghiệp và Phát triển nông thôn Việt Nam`, `Agribank CN...`
+*   `VietinBank` $\leftarrow$ `Ngân hàng TMCP Công Thương Việt Nam`, `Vietinbank...`
+Các từ khóa như `Chi nhánh`, `Phòng giao dịch`, `CN`, `PGD` được loại bỏ để so khớp phần tên lõi.
+
+---
+
+## 4. Quản Lý Nhóm Trùng Lặp Ngoài Frontend (Duplicate Model)
+
+Để tránh hiện tượng gom nhầm cả bài đăng chứa nhiều tài sản con vào một nhóm đấu giá lại, bảng `Duplicate` được cấu trúc lại như sau:
+
+```javascript
+const duplicateSchema = new mongoose.Schema({
+  assetGroupId: { type: String, unique: true }, // Định danh nhóm tài sản con trùng lặp
+  assetItemIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AssetItem' }],
+  sourceIds: [Number], // Các sourceId liên quan để hiển thị bài đăng gốc
+  
+  entries: [{
+    sourceId: Number,
+    assetItemId: mongoose.Schema.Types.ObjectId,
+    itemIndex: Number,
+    publishedAt: Date,
+    auctionTime: Date,
+    price: Number,
+    title: String,
+    url: String,
+    sourceType: { type: String, enum: ['auction_notice', 'org_selection'] }
+  }],
+
+  canonicalTitle: String,
+  canonicalLocation: String,
+  canonicalOwner: String,
+
+  firstPrice: Number,
+  latestPrice: Number,
+  priceDropPercent: Number,
+  relistCount: Number
+});
+```
+
+### Quy Tắc Tính Toán Chỉ Số Đăng Lại (Relisted):
+Không phải mọi thông báo đấu giá đều là vòng đấu giá lại.
+*   **Phân biệt nguồn**: Bản ghi từ `OrgSelection` (lựa chọn tổ chức đấu giá) chỉ được dùng để bổ sung định danh tài sản (như số thửa, số GCN) mà không được coi là một vòng đấu giá lại.
+*   **Tính toán**: Các chỉ số `relistCount`, `firstPrice`, `latestPrice`, và `priceDropPercent` chỉ được tính toán dựa trên các bản ghi có nguồn gốc từ `AuctionNotice`.
+*   **Nhận diện tín hiệu**: Hệ thống kiểm tra thêm các từ khóa đặc trưng đấu giá lại (`đấu giá lại`, `lần 2`, `lần 3`, `hạ giá`, `đấu giá không thành`...) trong tên và nội dung tài sản để củng cố độ chính xác của số vòng đấu giá (`relistCount`).
