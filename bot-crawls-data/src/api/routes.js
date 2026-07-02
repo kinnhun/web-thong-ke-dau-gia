@@ -206,73 +206,201 @@ router.get('/auctions', async (req, res, next) => {
     if (req.query.missingPrice === 'true') {
       filter.initialPrice = { $in: [null, 0] };
     }
-    let sortField = req.query.sort || 'publishedAt';
-    let sortOrder = req.query.order === 'asc' ? 1 : -1;
 
-    // Handle field:order format (e.g., publishedAt:desc)
-    if (sortField.includes(':')) {
-      const [field, order] = sortField.split(':');
-      sortField = field;
-      sortOrder = order.toLowerCase() === 'asc' ? 1 : -1;
-    }
+    if (req.query.unique === 'true') {
+      const pipeline = [];
+      
+      // 1. Match based on criteria
+      pipeline.push({ $match: filter });
 
-    const sort = { [sortField]: sortOrder };
+      // 2. Sort by publishedAt desc, sourceId desc so that $first retrieves the latest notice in each group
+      pipeline.push({ $sort: { publishedAt: -1, sourceId: -1 } });
 
-    const [items, total] = await Promise.all([
-      AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
-      AuctionNotice.countDocuments(filter),
-    ]);
+      // 3. Lookup duplicate group (optimized using indexed sourceIds lookup)
+      pipeline.push({
+        $lookup: {
+          from: 'duplicates',
+          localField: 'sourceId',
+          foreignField: 'sourceIds',
+          as: 'dupDoc'
+        }
+      });
 
-    // ⚡ Đồng bộ giá với bản ghi Detail (Duplicate) để tránh lệch giá giữa List và Detail
-    const sourceIds = items.map(i => i.sourceId);
-    const duplicates = await Duplicate.find({ sourceIds: { $in: sourceIds } }).lean();
-    
-    const dupMap = new Map();
-    duplicates.forEach(d => {
-      if (d.sourceIds) {
-        d.sourceIds.forEach(sid => dupMap.set(sid, d));
+      // 4. Extract dup object filtering by type === 'auction'
+      pipeline.push({
+        $addFields: {
+          dupFiltered: {
+            $filter: {
+              input: '$dupDoc',
+              as: 'd',
+              cond: { $eq: ['$$d.type', 'auction'] }
+            }
+          }
+        }
+      });
+
+      pipeline.push({
+        $addFields: {
+          dup: { $arrayElemAt: ['$dupFiltered', 0] }
+        }
+      });
+
+      // 5. Compute helper fields for grouping and sorting
+      pipeline.push({
+        $addFields: {
+          groupKey: {
+            $cond: {
+              if: { $and: [{ $ne: ['$dup', null] }, { $ne: [{ $type: '$dup' }, 'missing'] }] },
+              then: { $toString: '$dup._id' },
+              else: { $toString: '$sourceId' }
+            }
+          },
+          priceDropPercentVal: { $ifNull: ['$dup.priceDropPercent', 0] },
+          reducedAmtVal: {
+            $cond: {
+              if: { $and: [{ $ne: ['$dup', null] }, { $ne: [{ $type: '$dup' }, 'missing'] }] },
+              then: { $subtract: [{ $ifNull: ['$dup.firstPrice', 0] }, { $ifNull: ['$dup.latestPrice', 0] }] },
+              else: 0
+            }
+          },
+          relistCountVal: { $ifNull: ['$dup.relistCount', 1] }
+        }
+      });
+
+      // 6. Group by groupKey to keep only the latest representative of duplicate group
+      pipeline.push({
+        $group: {
+          _id: '$groupKey',
+          latestNotice: { $first: '$$ROOT' },
+          priceDropPercent: { $max: '$priceDropPercentVal' },
+          reducedAmount: { $max: '$reducedAmtVal' },
+          relistCount: { $max: '$relistCountVal' }
+        }
+      });
+
+      // 7. Apply primary sorting based on frontend requests
+      const sortKey = req.query.sort || 'publishedAt';
+      let sortStage = {};
+
+      if (sortKey === 'discount_pct') {
+        sortStage = { priceDropPercent: -1, 'latestNotice.publishedAt': -1 };
+      } else if (sortKey === 'discount_amt') {
+        sortStage = { reducedAmount: -1, 'latestNotice.publishedAt': -1 };
+      } else if (sortKey === 'rounds_desc') {
+        sortStage = { relistCount: -1, 'latestNotice.publishedAt': -1 };
+      } else if (sortKey === 'price_asc' || (sortKey === 'currentPrice' && req.query.order === 'asc')) {
+        sortStage = { 'latestNotice.currentPrice': 1, 'latestNotice.publishedAt': -1 };
+      } else if (sortKey === 'price_desc' || (sortKey === 'currentPrice' && req.query.order === 'desc')) {
+        sortStage = { 'latestNotice.currentPrice': -1, 'latestNotice.publishedAt': -1 };
+      } else if (sortKey === 'oldest' || (sortKey === 'publishedAt' && req.query.order === 'asc')) {
+        sortStage = { 'latestNotice.publishedAt': 1 };
+      } else {
+        sortStage = { 'latestNotice.publishedAt': -1 };
       }
-    });
 
-    let enrichedItems = items.map(item => {
-      const transformed = transformAuction(item);
-      const dup = dupMap.get(item.sourceId);
-      if (dup) {
+      // If explicit order parameter is passed, override the primary sort field direction
+      if (req.query.order) {
+        const orderVal = req.query.order === 'asc' ? 1 : -1;
+        const firstField = Object.keys(sortStage)[0];
+        sortStage[firstField] = orderVal;
+      }
+
+      pipeline.push({ $sort: sortStage });
+
+      // 8. Paginate using $facet
+      pipeline.push({
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [{ $skip: skip }, { $limit: limit }]
+        }
+      });
+
+      const aggregateResult = await AuctionNotice.aggregate(pipeline);
+      const total = aggregateResult[0]?.metadata?.[0]?.total || 0;
+      const rawGroupedItems = aggregateResult[0]?.data || [];
+
+      // Format back to the standard transformed items
+      let enrichedItems = rawGroupedItems.map(g => {
+        const item = g.latestNotice;
+        const transformed = transformAuction(item);
+        if (item.dup) {
+          return {
+            ...transformed,
+            initialPrice: item.dup.firstPrice || transformed.initialPrice,
+            currentPrice: item.dup.latestPrice || transformed.currentPrice,
+            publishRound: item.dup.relistCount || transformed.publishRound,
+            priceDropPercent: item.dup.priceDropPercent || 0,
+            isAggregated: true,
+            duplicateId: item.dup._id.toString(),
+            duplicateSourceIds: item.dup.sourceIds
+          };
+        }
         return {
           ...transformed,
-          // Lấy giá từ nhóm trùng lặp (giá lần đầu tiên và giá mới nhất)
-          initialPrice: dup.firstPrice || transformed.initialPrice,
-          currentPrice: dup.latestPrice || transformed.currentPrice,
-          publishRound: dup.relistCount || transformed.publishRound,
-          isAggregated: true,
-          duplicateId: dup._id.toString(),
-          duplicateSourceIds: dup.sourceIds
+          priceDropPercent: 0
         };
-      }
-      return transformed;
-    });
+      });
 
-    // Nếu FE yêu cầu unique (chỉ hiện 1 đại diện cho mỗi tài sản trên 1 trang)
-    if (req.query.unique === 'true') {
-      const seenGroups = new Set();
-      const uniqueItems = [];
-      for (const item of enrichedItems) {
-        if (item.duplicateId) {
-          if (!seenGroups.has(item.duplicateId)) {
-            seenGroups.add(item.duplicateId);
-            uniqueItems.push(item);
-          }
-        } else {
-          uniqueItems.push(item);
+      res.json({
+        items: enrichedItems,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      });
+    } else {
+      let sortField = req.query.sort || 'publishedAt';
+      let sortOrder = req.query.order === 'asc' ? 1 : -1;
+
+      // Handle field:order format (e.g., publishedAt:desc)
+      if (sortField.includes(':')) {
+        const [field, order] = sortField.split(':');
+        sortField = field;
+        sortOrder = order.toLowerCase() === 'asc' ? 1 : -1;
+      }
+
+      const sort = { [sortField]: sortOrder };
+
+      const [items, total] = await Promise.all([
+        AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
+        AuctionNotice.countDocuments(filter),
+      ]);
+
+      // ⚡ Đồng bộ giá với bản ghi Detail (Duplicate) để tránh lệch giá giữa List và Detail
+      const sourceIds = items.map(i => i.sourceId);
+      const duplicates = await Duplicate.find({ sourceIds: { $in: sourceIds } }).lean();
+      
+      const dupMap = new Map();
+      duplicates.forEach(d => {
+        if (d.sourceIds) {
+          d.sourceIds.forEach(sid => dupMap.set(sid, d));
         }
-      }
-      enrichedItems = uniqueItems;
-    }
+      });
 
-    res.json({
-      items: enrichedItems,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    });
+      let enrichedItems = items.map(item => {
+        const transformed = transformAuction(item);
+        const dup = dupMap.get(item.sourceId);
+        if (dup) {
+          return {
+            ...transformed,
+            // Lấy giá từ nhóm trùng lặp (giá lần đầu tiên và giá mới nhất)
+            initialPrice: dup.firstPrice || transformed.initialPrice,
+            currentPrice: dup.latestPrice || transformed.currentPrice,
+            publishRound: dup.relistCount || transformed.publishRound,
+            priceDropPercent: dup.priceDropPercent || 0,
+            isAggregated: true,
+            duplicateId: dup._id.toString(),
+            duplicateSourceIds: dup.sourceIds
+          };
+        }
+        return {
+          ...transformed,
+          priceDropPercent: 0
+        };
+      });
+
+      res.json({
+        items: enrichedItems,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      });
+    }
   } catch (err) { 
     console.error(`[API ERROR] /auctions:`, err);
     next(err); 

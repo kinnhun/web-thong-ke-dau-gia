@@ -46,6 +46,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/auction/StatusBadge";
+import { DiscountBadge } from "@/components/auction/DiscountBadge";
 import { 
   useAuctions, 
   useFilterOptions,
@@ -59,14 +60,15 @@ import {
 } from "@/services/auction.service";
 import { formatDate, formatVND } from "@/lib/format";
 
-type SortKey = "newest" | "oldest" | "price_desc" | "price_asc";
+type SortKey = "discount_pct" | "discount_amt" | "newest" | "price_asc" | "rounds_desc";
 type ViewMode = "table" | "card";
 
 const sortLabel: Record<SortKey, string> = {
-  newest: "Mới nhất",
-  oldest: "Cũ nhất",
-  price_desc: "Giá khởi điểm (Cao → Thấp)",
-  price_asc: "Giá khởi điểm (Thấp → Cao)",
+  discount_pct: "% giảm cao nhất",
+  discount_amt: "Số tiền giảm lớn nhất",
+  newest: "Mới cập nhật nhất",
+  price_asc: "Giá hiện tại thấp nhất",
+  rounds_desc: "Nhiều lần đấu giá nhất",
 };
 
 interface Props {
@@ -89,7 +91,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   const [publishedAtRange, setPublishedAtRange] = useState<[string, string] | null>(null);
   
   const [viewMode, setViewMode] = useState<ViewMode>("table");
-  const [sortKey, setSortKey] = useState<SortKey>("newest");
+  const [sortKey, setSortKey] = useState<SortKey>("discount_pct");
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -156,7 +158,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     if (filters.publishedAtTo) query.publishedAtTo = filters.publishedAtTo; else delete query.publishedAtTo;
     
     if (p > 1) query.page = String(p); else delete query.page;
-    if (s !== "newest") query.sort = s; else delete query.sort;
+    if (s !== "discount_pct") query.sort = s; else delete query.sort;
     if (v !== "table") query.view = v; else delete query.view;
 
     router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
@@ -170,8 +172,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
       page,
       limit: pageSize,
       organizer: fixedOrganizer,
-      sort: sortKey === 'price_asc' || sortKey === 'price_desc' ? 'currentPrice' : 'publishedAt',
-      order: sortKey === 'oldest' || sortKey === 'price_asc' ? 'asc' : 'desc',
+      sort: sortKey,
       unique: 'true', // ★ Gộp các bài đăng lại của cùng 1 tài sản
     };
     if (appliedFilters.keyword) p.search = appliedFilters.keyword;
@@ -526,6 +527,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
                 <th className="px-3 py-3 font-semibold text-foreground">Khu vực</th>
                 <th className="px-3 py-3 font-semibold text-foreground text-right">Giá đầu</th>
                 <th className="px-3 py-3 font-semibold text-foreground text-right">Giá hiện tại</th>
+                <th className="px-3 py-3 font-semibold text-foreground text-center">% giảm</th>
                 <th className="px-3 py-3 font-semibold text-foreground text-center">Lần ĐG</th>
                 <th className="px-3 py-3 font-semibold text-foreground">Thời gian tổ chức</th>
                 <th className="px-3 py-3 font-semibold text-foreground">Trạng thái</th>
@@ -544,6 +546,13 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
                   <td className="px-3 py-3 whitespace-nowrap">{item.province}</td>
                   <td className="px-3 py-3 text-right whitespace-nowrap num">{formatVND(item.initialPrice)}</td>
                   <td className="px-3 py-3 text-right whitespace-nowrap num font-semibold text-foreground">{formatVND(item.currentPrice)}</td>
+                  <td className="px-3 py-3 text-center whitespace-nowrap">
+                    <DiscountBadge percent={
+                      item.priceDropPercent || (item.initialPrice > item.currentPrice && item.initialPrice > 0
+                        ? Math.round((1 - item.currentPrice / item.initialPrice) * 10000) / 100
+                        : 0)
+                    } />
+                  </td>
                   <td className="px-3 py-3 text-center">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.publishRound > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
                       Lần {item.publishRound}
@@ -568,17 +577,27 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {items.map((item: any) => (
-            <div key={item.id} className="rounded-xl border bg-card p-4 hover:border-primary/20 transition-all shadow-sm">
-              <Link href={`/auction/${item.sourceId}`} className="font-medium text-sm line-clamp-2 hover:text-primary mb-2 min-h-[40px]">
-                {item.name}
-              </Link>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <div className="text-xs text-muted-foreground">{item.province}</div>
-                <div className="text-xs font-bold num">{formatVND(item.currentPrice)}</div>
+          {items.map((item: any) => {
+            const pct = item.priceDropPercent || (item.initialPrice > item.currentPrice && item.initialPrice > 0
+              ? Math.round((1 - item.currentPrice / item.initialPrice) * 10000) / 100
+              : 0);
+            return (
+              <div key={item.id} className="rounded-xl border bg-card p-4 hover:border-primary/20 transition-all shadow-sm">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <Link href={`/auction/${item.sourceId}`} className="font-medium text-sm line-clamp-2 hover:text-primary min-h-[40px]">
+                    {item.name}
+                  </Link>
+                  {pct > 0 && (
+                    <DiscountBadge percent={pct} size="sm" className="shrink-0" />
+                  )}
+                </div>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                  <div className="text-xs text-muted-foreground">{item.province}</div>
+                  <div className="text-xs font-bold num">{formatVND(item.currentPrice)}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
