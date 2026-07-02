@@ -11,6 +11,7 @@ import type {
   TypeReport,
   MonthlyTrend,
   TopDiscountItem,
+  CrawlLog,
 } from '@/domains/auction/auction.types';
 
 // ═══════════════════════════════════
@@ -140,7 +141,7 @@ export async function fetchReportTopDiscount(by: 'percent' | 'amount', limit: nu
 // ADMIN
 // ═══════════════════════════════════
 
-export async function fetchCrawlLogs(): Promise<{ logs: Record<string, unknown>[]; hasRunningDuplicateScan: boolean; hasRunningCrawl: boolean }> {
+export async function fetchCrawlLogs(): Promise<{ logs: CrawlLog[]; hasRunningDuplicateScan: boolean; hasRunningCrawl: boolean }> {
   const { data } = await httpClient.get('/api/crawl-logs');
   return data;
 }

@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useCrawlLogs, useAuctions, useDashboardStats, useCollections, useTunnelUrl } from "@/domains/auction";
+import { useCrawlLogs, useAuctions, useDashboardStats, useCollections, useTunnelUrl, CrawlLog } from "@/domains/auction";
 import { formatDate } from "@/lib/format";
 import {
   triggerListCrawl,
@@ -632,7 +632,7 @@ export function AdminContainer() {
               ) : logs.length === 0 ? (
                 <div className="px-5 py-8 text-center text-muted-foreground">Chưa có nhật ký</div>
               ) : (
-                logs.map((l: Record<string, unknown>, i: number) => {
+                logs.map((l: CrawlLog, i: number) => {
                   const status = String(l.status || "unknown");
                   const type = String(l.type || "");
                   const Icon = status === "failed" ? XCircle : status === "running" ? AlertCircle : CheckCircle2;
@@ -673,7 +673,7 @@ export function AdminContainer() {
                         {Array.isArray(l.recentNotices) && l.recentNotices.length > 0 && (
                           <div className="mt-2 space-y-1 rounded-lg border border-border/60 bg-secondary/20 p-2">
                             <div className="text-[10px] sm:text-xs font-medium text-muted-foreground">Notice đã lưu</div>
-                            {(l.recentNotices as Array<Record<string, unknown>>).slice(0, 5).map((notice, noticeIndex) => (
+                            {l.recentNotices.slice(0, 5).map((notice, noticeIndex) => (
                               <div key={`${String(notice.sourceId || noticeIndex)}-${noticeIndex}`} className="text-xs leading-relaxed text-foreground/90">
                                 <span className="font-mono text-muted-foreground">#{String(notice.sourceId || "?")}</span>
                                 <span className="mx-1.5">·</span>

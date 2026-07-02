@@ -81,7 +81,7 @@ export function CrawlerDashboardContainer() {
     let errorCount = 0;
 
     logs.forEach((log) => {
-      const date = new Date(log.startedAt || log.createdAt);
+      const date = new Date(log.startedAt || log.createdAt || 0);
       if (date >= startOfToday) {
         todayCount++;
       }
@@ -334,7 +334,7 @@ export function CrawlerDashboardContainer() {
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <RechartsTooltip />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, pt: 10 }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
                   <Area type="monotone" dataKey="Mới" stroke="#10b981" fillOpacity={1} fill="url(#colorNew)" strokeWidth={2} />
                   <Area type="monotone" dataKey="Cập nhật" stroke="#3b82f6" fillOpacity={1} fill="url(#colorUpdated)" strokeWidth={2} />
                 </AreaChart>

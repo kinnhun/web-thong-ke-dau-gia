@@ -229,3 +229,23 @@ export interface DiscountedParams {
   publishedAtFrom?: string;
   publishedAtTo?: string;
 }
+
+export interface CrawlLog {
+  _id: string;
+  type: string;
+  status: string;
+  startedAt?: string;
+  createdAt?: string;
+  finishedAt?: string;
+  pagesProcessed?: number;
+  totalPages?: number;
+  itemsInserted?: number;
+  itemsUpdated?: number;
+  itemsSkipped?: number;
+  recentNotices?: Array<{
+    name: string;
+    sourceId: number;
+    province?: string;
+  }>;
+  errorMessages?: string[];
+}
