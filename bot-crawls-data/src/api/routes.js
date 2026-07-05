@@ -380,7 +380,7 @@ router.get('/auctions', async (req, res, next) => {
       // Format back to the standard transformed items
       let enrichedItems = await Promise.all(rawGroupedItems.map(g => {
         const item = g.latestNotice;
-        const dup = g.dup;
+        const dup = item.dup;
         return enrichAuctionWithDuplicate(item, dup, AuctionNotice);
       }));
 

@@ -459,7 +459,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
             <Button variant="ghost" size="sm" onClick={reset} className="flex-1 sm:flex-none">
               <RotateCcw className="h-3.5 w-3.5 mr-1" /> Đặt lại
             </Button>
-            <Button 
+            {/* <Button 
               variant="outline" 
               size="sm" 
               onClick={handleCrawlMissingDetail} 
@@ -468,8 +468,8 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
             >
               {isCrawlingDetail ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Split className="h-3.5 w-3.5 mr-1" />}
               {crawlProgress ? `Đang xử lý ${crawlProgress.current}/${crawlProgress.total}` : "Crawl chi tiết (Missing)"}
-            </Button>
-            <Button 
+            </Button> */}
+            {/* <Button 
               variant="outline" 
               size="sm" 
               onClick={handleScanDuplicates} 
@@ -478,7 +478,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
             >
               {isScanning ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <History className="h-3.5 w-3.5 mr-1" />}
               Quét trùng lặp
-            </Button>
+            </Button> */}
             <Button 
               variant="outline" 
               size="sm" 

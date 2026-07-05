@@ -2586,7 +2586,8 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     }
 
     await saveProgress(`Đang cập nhật ${mergedGroups.length} nhóm trùng lặp...`);
-    const sourceMap = new Map(allAuctions.map(a => [a.sourceId, a]));
+    const allSourceIds = [...new Set(mergedGroups.flat())];
+    const sourceMap = await fetchDuplicateSourceMap('auction', allSourceIds);
     
     // Đảm bảo các nhóm mới tạo có đầy đủ thông tin organizer từ tham số đầu vào
     const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction', multiAssetSet);
