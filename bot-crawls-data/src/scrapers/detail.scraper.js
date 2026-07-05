@@ -2370,7 +2370,8 @@ async function runFullDuplicateScan() {
     await ensureNotCancelled(`Đã dừng trước khi preload dữ liệu ${label}.`);
     await saveProgress(`Đang preload dữ liệu ${label} (${allSourceIds.length} sourceIds / ${mergedGroups.length} cụm)...`);
     const sourceMap = await fetchDuplicateSourceMap(type, allSourceIds);
-    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, type, multiAssetSet);
+    const finalGroups = splitPollutedGroups(mergedGroups, sourceMap);
+    const operations = buildDuplicateBulkOperations(finalGroups, sourceMap, type, multiAssetSet);
 
     if (operations.length === 0) {
       log.itemsSkipped += rawItems.length;
@@ -2471,6 +2472,76 @@ async function runFullDuplicateScan() {
   } finally {
     resetDuplicateScanState();
   }
+}
+
+function splitPollutedGroups(mergedGroups, sourceMap) {
+  const cleanGroups = [];
+
+  for (const group of mergedGroups) {
+    if (group.length <= 2) {
+      cleanGroups.push(group);
+      continue;
+    }
+
+    // Build adjacency list for items within this group based on strict matching
+    const groupItems = group.map(id => sourceMap.get(id)).filter(Boolean);
+    const subAdjacency = new Map();
+    group.forEach(id => subAdjacency.set(id, new Set()));
+
+    for (let i = 0; i < groupItems.length; i++) {
+      const itemA = groupItems[i];
+      const idsA = extractPropertyIdentifiers(itemA.name);
+      const bigramsA = getBigrams(itemA.name);
+
+      for (let j = i + 1; j < groupItems.length; j++) {
+        const itemB = groupItems[j];
+        
+        // Check conflicts
+        const idsB = extractPropertyIdentifiers(itemB.name);
+        if (hasConflictingIdentifiers(idsA, idsB)) {
+          continue; // No edge if they conflict
+        }
+
+        // Check match
+        const jaccard = jaccardSimilarity(bigramsA, getBigrams(itemB.name));
+        const isMatch = hasMatchingStrongIdentifiers(idsA, idsB) || (jaccard >= 0.4);
+        
+        if (isMatch) {
+          subAdjacency.get(itemA.sourceId).add(itemB.sourceId);
+          subAdjacency.get(itemB.sourceId).add(itemA.sourceId);
+        }
+      }
+    }
+
+    // Find connected components in the sub-graph
+    const visited = new Set();
+    for (const id of group) {
+      if (visited.has(id)) continue;
+
+      const component = [];
+      const queue = [id];
+      visited.add(id);
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        component.push(current);
+
+        const neighbors = subAdjacency.get(current) || [];
+        for (const neighbor of neighbors) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      if (component.length >= 1) {
+        cleanGroups.push(component);
+      }
+    }
+  }
+
+  return cleanGroups;
 }
 
 async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
@@ -2589,8 +2660,12 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     const allSourceIds = [...new Set(mergedGroups.flat())];
     const sourceMap = await fetchDuplicateSourceMap('auction', allSourceIds);
     
+    // Tách các nhóm bị gộp lẫn lộn nhiều tài sản khác nhau
+    const finalGroups = splitPollutedGroups(mergedGroups, sourceMap);
+    console.log(`[ORG DUPLICATE SCAN] ✂️ Đã tách các nhóm bị nhiễm thành ${finalGroups.length} nhóm sạch.`);
+    
     // Đảm bảo các nhóm mới tạo có đầy đủ thông tin organizer từ tham số đầu vào
-    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction', multiAssetSet);
+    const operations = buildDuplicateBulkOperations(finalGroups, sourceMap, 'auction', multiAssetSet);
     operations.forEach(op => {
       if (op.updateOne.update.$set) {
         op.updateOne.update.$set.organizer = organizerName;

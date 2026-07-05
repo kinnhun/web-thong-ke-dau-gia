@@ -624,10 +624,12 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
                   className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                 />
               </PaginationItem>
-              {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-                let p = page - 2 + i;
-                if (p < 1) p = i + 1;
-                if (p > totalPages) return null;
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                let p: number;
+                if (totalPages <= 5) p = i + 1;
+                else if (page <= 3) p = i + 1;
+                else if (page >= totalPages - 2) p = totalPages - 4 + i;
+                else p = page - 2 + i;
                 return (
                   <PaginationItem key={p}>
                     <PaginationLink 

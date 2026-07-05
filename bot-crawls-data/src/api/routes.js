@@ -384,6 +384,19 @@ router.get('/auctions', async (req, res, next) => {
         return enrichAuctionWithDuplicate(item, dup, AuctionNotice);
       }));
 
+      // Sort in Node.js to match dynamic JS recalculated fields
+      if (sortKey === 'discount_pct') {
+        enrichedItems.sort((a, b) => (b.priceDropPercent || 0) - (a.priceDropPercent || 0));
+      } else if (sortKey === 'discount_amt') {
+        enrichedItems.sort((a, b) => {
+          const amtA = (a.initialPrice || 0) - (a.currentPrice || 0);
+          const amtB = (b.initialPrice || 0) - (b.currentPrice || 0);
+          return amtB - amtA;
+        });
+      } else if (sortKey === 'rounds_desc') {
+        enrichedItems.sort((a, b) => (b.publishRound || 0) - (a.publishRound || 0));
+      }
+
       res.json({
         items: enrichedItems,
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
