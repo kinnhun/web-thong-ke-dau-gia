@@ -85,7 +85,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   const [keyword, setKeyword] = useState("");
   const [type, setType] = useState<AssetType | "all">("all");
   const [province, setProvince] = useState<string[]>([]);
-  const [status, setStatus] = useState<string>("all");
+  const [status, setStatus] = useState<string>("receiving_docs");
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [rounds, setRounds] = useState<string>("all");
   const [auctionDateRange, setAuctionDateRange] = useState<[string, string] | null>(null);
@@ -100,7 +100,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     keyword: "",
     type: "all" as AssetType | "all",
     province: [] as string[],
-    status: "all",
+    status: "receiving_docs",
     maxPrice: "",
     rounds: "all",
     auctionDateFrom: "",
@@ -135,7 +135,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
       keyword: (q.keyword as string) || "",
       type: (q.type as AssetType | "all") || "all",
       province: (q.province as string)?.split(",") || [],
-      status: (q.status as string) || "all",
+      status: (q.status as string) || "receiving_docs",
       maxPrice: (q.maxPrice as string) || "",
       rounds: (q.rounds as string) || "all",
       auctionDateFrom: (q.auctionDateFrom as string) || "",
@@ -311,14 +311,14 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     setKeyword("");
     setType("all");
     setProvince([]);
-    setStatus("all");
+    setStatus("receiving_docs");
     setMaxPrice("");
     setRounds("all");
     setAuctionDateRange(null);
     setPublishedAtRange(null);
     setPage(1);
     const clean = {
-      keyword: "", type: "all" as const, province: [], status: "all", maxPrice: "", rounds: "all",
+      keyword: "", type: "all" as const, province: [], status: "receiving_docs", maxPrice: "", rounds: "all",
       auctionDateFrom: "", auctionDateTo: "", publishedAtFrom: "", publishedAtTo: ""
     };
     setAppliedFilters(clean);
