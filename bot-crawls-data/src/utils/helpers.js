@@ -349,10 +349,14 @@ function extractPropertyIdentifiers(name) {
   // Trích xuất Số nhà (House number) - hỗ trợ số nhà nhiều xuyệt
   let houseMatch = s.match(/(?:so\s*nha|dia\s*chi|tai\s*so|nha\s*o\s*so|nha\s*dat\s*so|nha\s*so|toa\s*lac\s*tai|toa\s*lac)\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
   if (!houseMatch) {
-    houseMatch = s.match(/(?<!\b(?:thua|to|tbd|lo|o|gcn|seri|qd|quyet\s+dinh|cv|cong\s+van|ban\s+an|ba|so|sk|sm|chuyen\s+khoan)\s+(?:dat\s+)?(?:so\s+)?)\bso\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
+    houseMatch = s.match(/(?<!\b(?:thua|to|tbd|ban\s*do|to\s+ban\s*do|ban|do|lo|o|gcn|seri|qd|quyet\s+dinh|cv|cong\s+van|ban\s+an|ba|so|sk|sm|chuyen\s+khoan|hop\s*dong|hdtd|hdtc|so\s*hd|dong|lan|dot|nhom|chi\s*tiet|ky|gia|tien|dieu|khoan|nghi\s*quyet|thong\s*bao|giay|chung\s*nhan)\s+(?:dat\s+)?(?:so\s+)?)\bso\s*[:\.]?\s*([0-9]+[a-z0-9\/\-]*)\b/i);
   }
   if (houseMatch && !/^(19|20)\d{2}$/.test(houseMatch[1])) {
-    ids.houseNumber = houseMatch[1].replace(/\s+/g, '').toUpperCase();
+    const val = houseMatch[1].replace(/\s+/g, '').toUpperCase();
+    // Tránh trùng với các số định danh khác đã nhận diện
+    if (val !== ids.plotNumber && val !== ids.mapSheet && val !== ids.apartment && val !== ids.block) {
+      ids.houseNumber = val;
+    }
   }
 
   return ids;
@@ -1275,12 +1279,12 @@ function scoreAssetPair(a, b) {
   if (idsA.houseNumber && idsB.houseNumber && idsA.houseNumber === idsB.houseNumber) {
     const sameDistrict = a.district && b.district && a.district === b.district;
     if (sameDistrict) {
-      score += 65;
+      score += 40;
       reasons.push('same_house_number_district');
     }
   }
   if (idsA.apartment && idsB.apartment && idsA.apartment === idsB.apartment) {
-    score += 60;
+    score += 40;
     reasons.push('same_apartment_number');
   }
 

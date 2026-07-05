@@ -77,27 +77,62 @@ async function buildDuplicateGroupResponse(dup, currentItem, ModelToUse) {
 
   if (!currentIsBatch) {
     // If current notice is an individual asset, only keep:
-    // - Batch notices (lot/group notices)
+    // - Batch notices (lot/group notices) that contain this asset
     // - Duplicates of the current notice
     const idsItem = extractPropertyIdentifiers(currentItem.name);
     const bigramsItem = getBigrams(currentItem.name);
-    
+
+    const batchSourceIds = filteredEntries.map(e => e.sourceId);
+    const AssetItem = require('../models/AssetItem');
+    const assetItems = await AssetItem.find({
+      sourceId: { $in: batchSourceIds }
+    }).lean();
+
+    const batchAssetMap = new Map();
+    assetItems.forEach(item => {
+      const idsEntry = item.identifiers || {};
+      if (hasConflictingIdentifiers(idsItem, idsEntry)) {
+        return;
+      }
+      if (hasMatchingStrongIdentifiers(idsItem, idsEntry)) {
+        batchAssetMap.set(item.sourceId, item);
+      }
+    });
+
     filteredEntries = filteredEntries.filter(entry => {
       if (entry.sourceId === currentItem.sourceId) return true;
-      
+
       const entryNotice = noticeMap.get(entry.sourceId);
       if (!entryNotice) return true; // Keep if not found
-      
-      if (isBatchNotice(entryNotice.name)) return true; // Keep batch notices
-      
+
+      if (isBatchNotice(entryNotice.name)) {
+        // Only keep batch notice if it contains a matching asset item
+        return batchAssetMap.has(entry.sourceId);
+      }
+
       // Check if it's a duplicate of item
       const idsEntry = extractPropertyIdentifiers(entryNotice.name);
       if (hasConflictingIdentifiers(idsItem, idsEntry)) {
         return false;
       }
-      
+
       const isMatch = hasMatchingStrongIdentifiers(idsItem, idsEntry) || (jaccardSimilarity(bigramsItem, getBigrams(entryNotice.name)) >= 0.4);
       return isMatch;
+    });
+
+    // Map the prices of the batch notices to their individual startingPrice!
+    filteredEntries = filteredEntries.map(entry => {
+      const entryNotice = noticeMap.get(entry.sourceId);
+      if (entryNotice && isBatchNotice(entryNotice.name)) {
+        const matchAsset = batchAssetMap.get(entry.sourceId);
+        if (matchAsset && matchAsset.startingPrice) {
+          return {
+            ...entry,
+            price: matchAsset.startingPrice
+          };
+        }
+      }
+      return entry;
     });
   }
 
@@ -122,12 +157,35 @@ async function buildDuplicateGroupResponse(dup, currentItem, ModelToUse) {
   return {
     id: dup._id.toString(),
     name: currentIsBatch ? dup.name : currentItem.name,
-    relistCount: filteredEntries.length,
+    relistCount: new Set(filteredEntries.map(e => e.publishRound).filter(r => r > 0)).size || filteredEntries.length,
     isPriceDrop,
     priceDropPercent,
     firstPrice,
     latestPrice,
     entries: filteredEntries,
+  };
+}
+
+async function enrichAuctionWithDuplicate(item, dup, ModelToUse) {
+  const transformed = transformAuction(item);
+  if (dup) {
+    const dupRes = await buildDuplicateGroupResponse(dup, item, ModelToUse);
+    if (dupRes) {
+      return {
+        ...transformed,
+        initialPrice: dupRes.firstPrice,
+        currentPrice: dupRes.latestPrice,
+        publishRound: dupRes.relistCount,
+        priceDropPercent: dupRes.priceDropPercent,
+        isAggregated: true,
+        duplicateId: dupRes.id,
+        duplicateSourceIds: dup.sourceIds
+      };
+    }
+  }
+  return {
+    ...transformed,
+    priceDropPercent: 0
   };
 }
 
@@ -320,26 +378,11 @@ router.get('/auctions', async (req, res, next) => {
       const rawGroupedItems = aggregateResult[0]?.data || [];
 
       // Format back to the standard transformed items
-      let enrichedItems = rawGroupedItems.map(g => {
+      let enrichedItems = await Promise.all(rawGroupedItems.map(g => {
         const item = g.latestNotice;
-        const transformed = transformAuction(item);
-        if (item.dup) {
-          return {
-            ...transformed,
-            initialPrice: item.dup.firstPrice || transformed.initialPrice,
-            currentPrice: item.dup.latestPrice || transformed.currentPrice,
-            publishRound: item.dup.relistCount || transformed.publishRound,
-            priceDropPercent: item.dup.priceDropPercent || 0,
-            isAggregated: true,
-            duplicateId: item.dup._id.toString(),
-            duplicateSourceIds: item.dup.sourceIds
-          };
-        }
-        return {
-          ...transformed,
-          priceDropPercent: 0
-        };
-      });
+        const dup = g.dup;
+        return enrichAuctionWithDuplicate(item, dup, AuctionNotice);
+      }));
 
       res.json({
         items: enrichedItems,
@@ -374,27 +417,10 @@ router.get('/auctions', async (req, res, next) => {
         }
       });
 
-      let enrichedItems = items.map(item => {
-        const transformed = transformAuction(item);
+      let enrichedItems = await Promise.all(items.map(item => {
         const dup = dupMap.get(item.sourceId);
-        if (dup) {
-          return {
-            ...transformed,
-            // Lấy giá từ nhóm trùng lặp (giá lần đầu tiên và giá mới nhất)
-            initialPrice: dup.firstPrice || transformed.initialPrice,
-            currentPrice: dup.latestPrice || transformed.currentPrice,
-            publishRound: dup.relistCount || transformed.publishRound,
-            priceDropPercent: dup.priceDropPercent || 0,
-            isAggregated: true,
-            duplicateId: dup._id.toString(),
-            duplicateSourceIds: dup.sourceIds
-          };
-        }
-        return {
-          ...transformed,
-          priceDropPercent: 0
-        };
-      });
+        return enrichAuctionWithDuplicate(item, dup, AuctionNotice);
+      }));
 
       res.json({
         items: enrichedItems,

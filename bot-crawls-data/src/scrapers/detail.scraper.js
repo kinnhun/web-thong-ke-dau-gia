@@ -229,6 +229,7 @@ function buildDuplicateEntriesFromItems(sourceIds, items, type) {
 
   const entries = items.map((item) => ({
     sourceId: item.sourceId,
+    name: item.name || '',
     price: item[priceField] || item.currentPrice || 0,
     publishedAt: item.publishedAt,
     publishRound: item.publishRound || 0,
@@ -336,7 +337,7 @@ async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
   return { updated, skipped: ids.length - targets.length, errors };
 }
 
-function summarizeDuplicateEntries(entries, type) {
+function summarizeDuplicateEntries(entries, type, multiAssetSet) {
   const pricesWithValues = entries.filter((entry) => entry.price && entry.price > 0);
 
   let firstPrice = 0;
@@ -370,6 +371,15 @@ function summarizeDuplicateEntries(entries, type) {
     : null;
 
   const entryWithRoot = entries.find((entry) => entry.rootId);
+  let rootId = entryWithRoot ? entryWithRoot.rootId : (entries[0] ? entries[0].sourceId : null);
+
+  if (type === 'auction' && multiAssetSet && entries.length > 0) {
+    // If the first entry is a batch notice, find the first single-asset notice in this duplicate group
+    const firstSingleAsset = entries.find(e => !multiAssetSet.has(e.sourceId));
+    if (firstSingleAsset) {
+      rootId = firstSingleAsset.sourceId;
+    }
+  }
 
   return {
     entries,
@@ -379,7 +389,7 @@ function summarizeDuplicateEntries(entries, type) {
     isPriceDrop,
     priceDropPercent,
     lastPublishedAt,
-    rootId: entryWithRoot ? entryWithRoot.rootId : null,
+    rootId,
   };
 }
 
@@ -449,8 +459,21 @@ async function buildGraphGroups(items, getRelatedIds) {
 }
 
 
-function mergeDuplicateGroups(...groupSets) {
+function mergeDuplicateGroups(groupSets, multiAssetSet) {
+  let sets = [];
+  let maskSet = new Set();
+  if (Array.isArray(groupSets) && groupSets.length > 0 && Array.isArray(groupSets[0]) && (multiAssetSet instanceof Set)) {
+    sets = groupSets;
+    maskSet = multiAssetSet;
+  } else {
+    sets = Array.prototype.slice.call(arguments);
+    if (sets[sets.length - 1] instanceof Set) {
+      maskSet = sets.pop();
+    }
+  }
+
   const adjacency = new Map();
+  let virtualIdCounter = 1;
 
   const ensureNode = (id) => {
     if (!adjacency.has(id)) {
@@ -458,15 +481,22 @@ function mergeDuplicateGroups(...groupSets) {
     }
   };
 
-  for (const groups of groupSets) {
+  for (const groups of sets) {
     for (const group of groups) {
       if (!Array.isArray(group) || group.length < 2) continue;
 
-      for (let i = 0; i < group.length; i++) {
-        ensureNode(group[i]);
+      const groupMapped = group.map(id => {
+        if (maskSet.has(id)) {
+          return `v_${id}_${virtualIdCounter++}`;
+        }
+        return id;
+      });
+
+      for (let i = 0; i < groupMapped.length; i++) {
+        ensureNode(groupMapped[i]);
         if (i > 0) {
-          adjacency.get(group[i]).add(group[i - 1]);
-          adjacency.get(group[i - 1]).add(group[i]);
+          adjacency.get(groupMapped[i]).add(groupMapped[i - 1]);
+          adjacency.get(groupMapped[i - 1]).add(groupMapped[i]);
         }
       }
     }
@@ -495,7 +525,14 @@ function mergeDuplicateGroups(...groupSets) {
     }
 
     if (group.length >= 2) {
-      mergedGroups.push(group.sort((a, b) => a - b));
+      const originalGroup = group.map(id => {
+        if (typeof id === 'string' && id.startsWith('v_')) {
+          const parts = id.split('_');
+          return parseInt(parts[1]);
+        }
+        return id;
+      });
+      mergedGroups.push([...new Set(originalGroup)].sort((a, b) => a - b));
     }
   }
 
@@ -516,7 +553,7 @@ async function fetchDuplicateSourceMap(type, sourceIds) {
   return new Map(items.map((item) => [item.sourceId, item]));
 }
 
-function buildDuplicateBulkOperations(groups, sourceMap, type) {
+function buildDuplicateBulkOperations(groups, sourceMap, type, multiAssetSet) {
   const operations = [];
 
   for (const sourceIds of groups) {
@@ -526,11 +563,11 @@ function buildDuplicateBulkOperations(groups, sourceMap, type) {
 
     const fallbackName = items.find((item) => item.name)?.name || `Nhóm duplicate ${sourceIds[0]}`;
     const entries = buildDuplicateEntriesFromItems(sourceIds, items, type);
-    const summary = summarizeDuplicateEntries(entries, type);
+    const summary = summarizeDuplicateEntries(entries, type, multiAssetSet);
 
     operations.push({
       updateOne: {
-        filter: { type, sourceIds: { $in: sourceIds } },
+        filter: { type, rootId: summary.rootId },
         update: {
           $set: {
             type,
@@ -1811,7 +1848,7 @@ async function getFuzzyNameGroups(Model, progressCallback, targetSourceIds = nul
       if (Array.isArray(itemA.blockingKeys)) {
         itemA.blockingKeys.forEach(key => {
           const list = blockingMap.get(key);
-          if (list) {
+          if (list && list.length <= 150) {
             list.forEach(candidate => {
               if (candidate._id.toString() !== idAStr) {
                 candidates.add(candidate);
@@ -1846,6 +1883,10 @@ async function getFuzzyNameGroups(Model, progressCallback, targetSourceIds = nul
               }
             }
           });
+          if (potentialDupOps.length >= 10000) {
+            await PotentialDuplicate.bulkWrite(potentialDupOps, { ordered: false });
+            potentialDupOps = [];
+          }
         }
       }
     }
@@ -2303,7 +2344,13 @@ async function runFullDuplicateScan() {
       .map((group) => Array.isArray(group.ids) ? [...new Set(group.ids)].sort((a, b) => a - b) : [])
       .filter((group) => group.length >= 2);
 
-    const mergedGroups = mergeDuplicateGroups(relatedGroups, normalizedNameGroups)
+    const multiAssetItems = await AssetItem.aggregate([
+      { $group: { _id: "$sourceId", count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+    const multiAssetSet = new Set(multiAssetItems.map(item => item._id));
+
+    const mergedGroups = mergeDuplicateGroups([relatedGroups, normalizedNameGroups], multiAssetSet)
       .filter((group) => {
         if (group.length > 150) {
           console.warn(`[DUPLICATE SCAN] Warning: Discarding merged group with size ${group.length} to prevent generic title clustering.`);
@@ -2323,7 +2370,7 @@ async function runFullDuplicateScan() {
     await ensureNotCancelled(`Đã dừng trước khi preload dữ liệu ${label}.`);
     await saveProgress(`Đang preload dữ liệu ${label} (${allSourceIds.length} sourceIds / ${mergedGroups.length} cụm)...`);
     const sourceMap = await fetchDuplicateSourceMap(type, allSourceIds);
-    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, type);
+    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, type, multiAssetSet);
 
     if (operations.length === 0) {
       log.itemsSkipped += rawItems.length;
@@ -2520,8 +2567,14 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     const nameGroups = allNameGroups.filter(g => g.ids.some(id => orgAuctionIds.has(id)));
     console.log(`[ORG DUPLICATE SCAN] 🏷️ Tìm thấy ${nameGroups.length} nhóm theo tên tương đồng có chứa tài sản của đơn vị.`);
 
+    const multiAssetItems = await AssetItem.aggregate([
+      { $group: { _id: "$sourceId", count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+    const multiAssetSet = new Set(multiAssetItems.map(item => item._id));
+
     // 5. Merge và cập nhật
-    const mergedGroups = mergeDuplicateGroups(relatedGroups, nameGroups.map(g => g.ids));
+    const mergedGroups = mergeDuplicateGroups([relatedGroups, nameGroups.map(g => g.ids)], multiAssetSet);
     console.log(`[ORG DUPLICATE SCAN] 📦 Sau khi gộp: ${mergedGroups.length} nhóm trùng lặp.`);
 
     if (mergedGroups.length === 0) {
@@ -2536,7 +2589,7 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     const sourceMap = new Map(allAuctions.map(a => [a.sourceId, a]));
     
     // Đảm bảo các nhóm mới tạo có đầy đủ thông tin organizer từ tham số đầu vào
-    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction');
+    const operations = buildDuplicateBulkOperations(mergedGroups, sourceMap, 'auction', multiAssetSet);
     operations.forEach(op => {
       if (op.updateOne.update.$set) {
         op.updateOne.update.$set.organizer = organizerName;

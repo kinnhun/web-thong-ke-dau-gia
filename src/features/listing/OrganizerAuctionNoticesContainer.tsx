@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Filter,
   Split,
+  RefreshCw,
 } from "lucide-react";
 import { Select as AntdSelect, DatePicker } from "antd";
 import dayjs from "dayjs";
@@ -477,6 +478,16 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
             >
               {isScanning ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <History className="h-3.5 w-3.5 mr-1" />}
               Quét trùng lặp
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleScanDuplicates} 
+              disabled={isScanning}
+              className="flex-1 sm:flex-none text-orange-600 border-orange-200 hover:bg-orange-50"
+            >
+              {isScanning ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+              Quét số lần ĐG
             </Button>
             <Button size="sm" onClick={handleSearch} className="flex-1 sm:flex-none">
               <Search className="h-3.5 w-3.5 mr-1" /> Tìm kiếm
