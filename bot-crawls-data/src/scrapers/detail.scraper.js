@@ -2599,7 +2599,6 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
 
     // 5. Xoá tất cả các nhóm trùng lặp cũ có chứa bất kỳ ID nào trong nhóm mới
     // để tránh tình trạng ID bị trùng lặp ở nhiều nhóm khác nhau (Overlapping groups)
-    const allSourceIds = [...new Set(mergedGroups.flat())];
     await saveProgress('Đang dọn dẹp các nhóm trùng lặp cũ để tránh chồng lấn...');
     const existingOverlaps = await Duplicate.find({
       type: 'auction',
