@@ -85,7 +85,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   const [keyword, setKeyword] = useState("");
   const [type, setType] = useState<AssetType | "all">("all");
   const [province, setProvince] = useState<string[]>([]);
-  const [status, setStatus] = useState<string>("receiving_docs");
+  const [status, setStatus] = useState<string>("all");
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [rounds, setRounds] = useState<string>("all");
   const [auctionDateRange, setAuctionDateRange] = useState<[string, string] | null>(null);
@@ -100,7 +100,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     keyword: "",
     type: "all" as AssetType | "all",
     province: [] as string[],
-    status: "receiving_docs",
+    status: "all",
     maxPrice: "",
     rounds: "all",
     auctionDateFrom: "",
@@ -117,7 +117,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     if (q.keyword) setKeyword(q.keyword as string);
     if (q.type) setType(q.type as AssetType | "all");
     if (q.province) setProvince((q.province as string).split(","));
-    if (q.status) setStatus(q.status as string);
+    setStatus((q.status as string) || "all");
     if (q.maxPrice) setMaxPrice(q.maxPrice as string);
     if (q.rounds) setRounds(q.rounds as string);
     if (q.page) setPage(Number(q.page));
@@ -135,7 +135,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
       keyword: (q.keyword as string) || "",
       type: (q.type as AssetType | "all") || "all",
       province: (q.province as string)?.split(",") || [],
-      status: (q.status as string) || "receiving_docs",
+      status: (q.status as string) || "all",
       maxPrice: (q.maxPrice as string) || "",
       rounds: (q.rounds as string) || "all",
       auctionDateFrom: (q.auctionDateFrom as string) || "",
@@ -197,6 +197,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
   const { data, isLoading, isFetching } = useAuctions(params);
   const items = data?.items || [];
   const total = data?.pagination?.total || 0;
+  const totalNotices = (data?.pagination as any)?.totalNotices || 0;
   const totalPages = data?.pagination?.totalPages || 1;
 
   const [isScanning, setIsScanning] = useState(false);
@@ -311,14 +312,14 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
     setKeyword("");
     setType("all");
     setProvince([]);
-    setStatus("receiving_docs");
+    setStatus("all");
     setMaxPrice("");
     setRounds("all");
     setAuctionDateRange(null);
     setPublishedAtRange(null);
     setPage(1);
     const clean = {
-      keyword: "", type: "all" as const, province: [], status: "receiving_docs", maxPrice: "", rounds: "all",
+      keyword: "", type: "all" as const, province: [], status: "all", maxPrice: "", rounds: "all",
       auctionDateFrom: "", auctionDateTo: "", publishedAtFrom: "", publishedAtTo: ""
     };
     setAppliedFilters(clean);
@@ -333,7 +334,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
           {title}
         </h1>
         <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-          {description} · {total.toLocaleString("vi-VN")} bản ghi
+          {description} · {total.toLocaleString("vi-VN")} tài sản ({totalNotices.toLocaleString("vi-VN")} bản ghi)
           {isFetching && <Loader2 className="inline h-3 w-3 ml-2 animate-spin" />}
         </p>
       </header>
@@ -503,7 +504,7 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Hiển thị <span className="font-medium text-foreground num">{items.length}</span> / <span className="num">{total}</span> tài sản
+          Hiển thị <span className="font-medium text-foreground num">{items.length}</span> / <span className="num">{total}</span> tài sản ({totalNotices.toLocaleString("vi-VN")} bản ghi)
         </div>
         <div className="flex items-center border rounded-md p-0.5 bg-muted/30">
           <Button

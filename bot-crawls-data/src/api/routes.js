@@ -336,31 +336,51 @@ router.get('/auctions', async (req, res, next) => {
         }
       });
 
+      // 6.5 Add statusWeight field to prioritize active statuses
+      pipeline.push({
+        $addFields: {
+          statusWeight: {
+            $switch: {
+              branches: [
+                { case: { $in: ['$latestNotice.status', ['receiving_docs', 'newly_reduced', 'watch']] }, then: 1 },
+                { case: { $eq: ['$latestNotice.status', 'upcoming'] }, then: 2 },
+                { case: { $eq: ['$latestNotice.status', 'unknown'] }, then: 3 },
+                { case: { $eq: ['$latestNotice.status', 'completed'] }, then: 4 }
+              ],
+              default: 5
+            }
+          }
+        }
+      });
+
       // 7. Apply primary sorting based on frontend requests
       const sortKey = req.query.sort || 'publishedAt';
       let sortStage = {};
 
       if (sortKey === 'discount_pct') {
-        sortStage = { priceDropPercent: -1, 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, priceDropPercent: -1, 'latestNotice.publishedAt': -1 };
       } else if (sortKey === 'discount_amt') {
-        sortStage = { reducedAmount: -1, 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, reducedAmount: -1, 'latestNotice.publishedAt': -1 };
       } else if (sortKey === 'rounds_desc') {
-        sortStage = { relistCount: -1, 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, relistCount: -1, 'latestNotice.publishedAt': -1 };
       } else if (sortKey === 'price_asc' || (sortKey === 'currentPrice' && req.query.order === 'asc')) {
-        sortStage = { 'latestNotice.currentPrice': 1, 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, 'latestNotice.currentPrice': 1, 'latestNotice.publishedAt': -1 };
       } else if (sortKey === 'price_desc' || (sortKey === 'currentPrice' && req.query.order === 'desc')) {
-        sortStage = { 'latestNotice.currentPrice': -1, 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, 'latestNotice.currentPrice': -1, 'latestNotice.publishedAt': -1 };
       } else if (sortKey === 'oldest' || (sortKey === 'publishedAt' && req.query.order === 'asc')) {
-        sortStage = { 'latestNotice.publishedAt': 1 };
+        sortStage = { statusWeight: 1, 'latestNotice.publishedAt': 1 };
       } else {
-        sortStage = { 'latestNotice.publishedAt': -1 };
+        sortStage = { statusWeight: 1, 'latestNotice.publishedAt': -1 };
       }
 
-      // If explicit order parameter is passed, override the primary sort field direction
+      // If explicit order parameter is passed, override the primary sort field direction (excluding statusWeight)
       if (req.query.order) {
         const orderVal = req.query.order === 'asc' ? 1 : -1;
-        const firstField = Object.keys(sortStage)[0];
-        sortStage[firstField] = orderVal;
+        const fields = Object.keys(sortStage);
+        const targetField = fields[0] === 'statusWeight' ? fields[1] : fields[0];
+        if (targetField) {
+          sortStage[targetField] = orderVal;
+        }
       }
 
       pipeline.push({ $sort: sortStage });
@@ -385,21 +405,44 @@ router.get('/auctions', async (req, res, next) => {
       }));
 
       // Sort in Node.js to match dynamic JS recalculated fields
+      const getStatusWeight = (status) => {
+        if (['receiving_docs', 'newly_reduced', 'watch'].includes(status)) return 1;
+        if (status === 'upcoming') return 2;
+        if (status === 'unknown') return 3;
+        if (status === 'completed') return 4;
+        return 5;
+      };
+
       if (sortKey === 'discount_pct') {
-        enrichedItems.sort((a, b) => (b.priceDropPercent || 0) - (a.priceDropPercent || 0));
+        enrichedItems.sort((a, b) => {
+          const wA = getStatusWeight(a.status);
+          const wB = getStatusWeight(b.status);
+          if (wA !== wB) return wA - wB;
+          return (b.priceDropPercent || 0) - (a.priceDropPercent || 0);
+        });
       } else if (sortKey === 'discount_amt') {
         enrichedItems.sort((a, b) => {
+          const wA = getStatusWeight(a.status);
+          const wB = getStatusWeight(b.status);
+          if (wA !== wB) return wA - wB;
           const amtA = (a.initialPrice || 0) - (a.currentPrice || 0);
           const amtB = (b.initialPrice || 0) - (b.currentPrice || 0);
           return amtB - amtA;
         });
       } else if (sortKey === 'rounds_desc') {
-        enrichedItems.sort((a, b) => (b.publishRound || 0) - (a.publishRound || 0));
+        enrichedItems.sort((a, b) => {
+          const wA = getStatusWeight(a.status);
+          const wB = getStatusWeight(b.status);
+          if (wA !== wB) return wA - wB;
+          return (b.publishRound || 0) - (a.publishRound || 0);
+        });
       }
+
+      const totalNotices = await AuctionNotice.countDocuments(filter);
 
       res.json({
         items: enrichedItems,
-        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit), totalNotices },
       });
     } else {
       let sortField = req.query.sort || 'publishedAt';
