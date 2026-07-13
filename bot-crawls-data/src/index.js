@@ -46,11 +46,7 @@ async function runAutoCrawl() {
 
   try {
     // Cào thông báo đấu giá (list + detail + sample, all-in-one)
-    // ★ Chạy song song 2 loại crawl thay vì tuần tự
-    await Promise.all([
-      crawlAuctionNotices({ isAuto: true }),
-      crawlOrgSelections({ isAuto: true })
-    ]);
+    await crawlAuctionNotices({ isAuto: true });
 
     // Cập nhật thống kê vào bảng tạm
     await refreshStats();

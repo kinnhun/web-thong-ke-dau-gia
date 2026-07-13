@@ -25,7 +25,7 @@ function parseArgs() {
 
 async function main() {
   const args = parseArgs();
-  const type = args.type || 'all';
+  const type = args.type || 'auction'; // Mặc định chỉ cào Thông báo đấu giá công khai
   const maxPages = args.maxPages ? parseInt(args.maxPages) : 0;
   const startPage = args.startPage ? parseInt(args.startPage) : 1;
   const pageSize = args.pageSize ? parseInt(args.pageSize) : 20;
@@ -50,7 +50,7 @@ async function main() {
       await crawlAuctionNotices({ maxPages, startPage, pageSize, listOnly });
     }
 
-    if (type === 'all' || type === 'org') {
+    if (type === 'org') {
       console.log('\n' + '═'.repeat(50));
       console.log('🏢 Lựa chọn tổ chức đấu giá (list + detail + sample)');
       console.log('═'.repeat(50));
@@ -62,7 +62,6 @@ async function main() {
       console.log('🔍 Re-crawl detail cho items chưa có');
       console.log('═'.repeat(50));
       await crawlDetails({ maxItems });
-      await crawlOrgDetails({ maxItems });
     }
   } catch (err) {
     console.error('\n💥 Lỗi nghiêm trọng:', err.message);

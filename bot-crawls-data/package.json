@@ -12,7 +12,9 @@
     "crawl:org": "node --max-old-space-size=8192 src/crawler.js --type=org",
     "crawl:detail": "node --max-old-space-size=8192 src/crawler.js --type=detail",
     "crawl:missing_places": "node --max-old-space-size=8192 crawl_missing_places.js",
-    "crawl:cli": "node --max-old-space-size=8192 cli-crawler.js"
+    "crawl:cli": "node --max-old-space-size=8192 cli-crawler.js",
+    "audit": "node --max-old-space-size=4096 audit_missing.js",
+    "audit:org": "node --max-old-space-size=4096 audit_missing.js --org"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

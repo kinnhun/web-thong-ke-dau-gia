@@ -830,6 +830,16 @@ async function fetchAuctionItemDetail(sourceId) {
     fetchPublishHistory(sourceId),
   ]);
 
+  // Kiểm tra tính hợp lệ của API quan trọng nhất (/portal/propertyInfo)
+  if (propResult.status === 'rejected') {
+    throw new Error(`Critical API /portal/propertyInfo failed: ${propResult.reason?.message || 'Rejected'}`);
+  }
+  
+  const propVal = propResult.value;
+  if (!propVal || !propVal.items || propVal.items.length === 0) {
+    throw new Error(`Critical API /portal/propertyInfo returned no items`);
+  }
+
   // 1. propertyInfo → tên tài sản, giá, địa chỉ, danh sách tài sản
   if (propResult.status === 'fulfilled' && propResult.value) {
     const json = propResult.value;
@@ -918,6 +928,16 @@ async function fetchOrgItemDetail(sourceId) {
     fetchAPI('/portal/propertyInfo', { auctionInfoId: sourceId }),
     fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId }),
   ]);
+
+  // Kiểm tra tính hợp lệ của API quan trọng nhất (/portal/propertyInfo)
+  if (propResult.status === 'rejected') {
+    throw new Error(`Critical API /portal/propertyInfo failed: ${propResult.reason?.message || 'Rejected'}`);
+  }
+  
+  const propVal = propResult.value;
+  if (!propVal || !propVal.items || propVal.items.length === 0) {
+    throw new Error(`Critical API /portal/propertyInfo returned no items`);
+  }
 
   // 1. propertyInfo → tên tài sản, giá, địa chỉ
   if (propResult.status === 'fulfilled' && propResult.value) {
