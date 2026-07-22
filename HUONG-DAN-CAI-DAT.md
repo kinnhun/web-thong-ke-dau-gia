@@ -332,3 +332,220 @@ rm -rf node_modules package-lock.json
 npm cache clean --force
 npm install
 ```
+
+---
+
+## 🖥️ Cấu hình VPS khuyến nghị
+
+### Phân tích tài nguyên dự án
+
+Dự án chạy đồng thời nhiều thành phần nặng:
+
+| Thành phần | RAM sử dụng | CPU | Ghi chú |
+|---|---|---|---|
+| **Next.js Frontend** | ~300-500 MB | Thấp | Server-side rendering |
+| **Backend (Node.js)** | Lên tới **8 GB** | Trung bình | `--max-old-space-size=8192` |
+| **MongoDB** | ~500 MB - 2 GB | Thấp-TB | Phụ thuộc data size |
+| **Puppeteer (Chrome)** | ~500 MB - 1 GB/tab | Cao khi crawl | Headless Chrome |
+| **Cloudflare Tunnel** | ~50 MB | Rất thấp | Chạy nền |
+| **Hệ điều hành** | ~500 MB | — | Ubuntu minimal |
+
+---
+
+### Cấu hình đề xuất
+
+#### 🟡 Tối thiểu (chạy được, có thể chậm)
+
+| Thông số | Giá trị |
+|---|---|
+| **CPU** | 2 vCPU |
+| **RAM** | 4 GB |
+| **Ổ cứng** | 40 GB SSD |
+| **OS** | Ubuntu 22.04 LTS |
+| **Băng thông** | 1 TB/tháng |
+
+> ⚠️ Với 4GB RAM, cần giảm `--max-old-space-size` xuống `2048` trong `bot-crawls-data/package.json` và hạn chế crawl đồng thời.
+
+#### 🟢 Khuyến nghị (chạy ổn định)
+
+| Thông số | Giá trị |
+|---|---|
+| **CPU** | 2-4 vCPU |
+| **RAM** | **8 GB** |
+| **Ổ cứng** | 80 GB SSD |
+| **OS** | Ubuntu 22.04 LTS |
+| **Băng thông** | 2 TB/tháng |
+
+> ✅ Đủ chạy tất cả: frontend + backend + crawl + MongoDB cùng lúc.
+
+#### 🔵 Tối ưu (chạy mượt, data lớn)
+
+| Thông số | Giá trị |
+|---|---|
+| **CPU** | 4 vCPU |
+| **RAM** | **16 GB** |
+| **Ổ cứng** | 160 GB NVMe SSD |
+| **OS** | Ubuntu 22.04 LTS |
+| **Băng thông** | Unlimited |
+
+> 🚀 Phù hợp khi data MongoDB lớn, crawl nhiều, nhiều người truy cập.
+
+---
+
+### Giá tham khảo VPS
+
+| Nhà cung cấp | Gói 8GB RAM | Giá/tháng | Ghi chú |
+|---|---|---|---|
+| **Vultr** | 8 GB / 4 vCPU / 160 GB | ~$48/tháng | Có datacenter Singapore |
+| **DigitalOcean** | 8 GB / 4 vCPU / 160 GB | ~$48/tháng | Có datacenter Singapore |
+| **Linode (Akamai)** | 8 GB / 4 vCPU / 160 GB | ~$48/tháng | Ổn định |
+| **Hetzner** | 8 GB / 4 vCPU / 160 GB | ~€13/tháng | Rẻ nhất, DC châu Âu |
+| **Contabo** | 8 GB / 4 vCPU / 200 GB | ~$8/tháng | Rẻ, hiệu năng trung bình |
+| **VPS Việt Nam** | 8 GB / 4 vCPU | ~200-400k/tháng | TINOHOST, AZDIGI, Viettel IDC |
+
+> 💡 **Mẹo**: Chọn datacenter gần Việt Nam (Singapore/Tokyo) để có latency thấp.
+
+---
+
+### Cài đặt trên VPS Ubuntu
+
+#### Bước 1: Cập nhật hệ thống
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+#### Bước 2: Cài đặt Node.js v20
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+#### Bước 3: Cài đặt MongoDB
+```bash
+# Import MongoDB GPG key
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+
+# Thêm repository
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+# Cài đặt
+sudo apt update
+sudo apt install -y mongodb-org
+
+# Khởi động MongoDB
+sudo systemctl start mongod
+sudo systemctl enable mongod
+
+# Kiểm tra
+sudo systemctl status mongod
+```
+
+#### Bước 4: Cài đặt các dependencies cho Puppeteer
+```bash
+sudo apt install -y \
+  ca-certificates fonts-liberation libappindicator3-1 libasound2 \
+  libatk-bridge2.0-0 libatk1.0-0 libcups2 libdbus-1-3 libdrm2 \
+  libgbm1 libgtk-3-0 libnspr4 libnss3 libx11-xcb1 libxcomposite1 \
+  libxdamage1 libxrandr2 xdg-utils wget libxss1 libgconf-2-4 \
+  libxshmfence1 libglu1-mesa
+```
+
+#### Bước 5: Cài đặt Git và clone dự án
+```bash
+sudo apt install -y git
+git clone <URL_REPO> /home/ubuntu/web-thong-ke-dau-gia
+cd /home/ubuntu/web-thong-ke-dau-gia
+```
+
+#### Bước 6: Cài đặt packages và cấu hình
+```bash
+npm install
+
+# Tạo file .env
+cat > bot-crawls-data/.env << 'EOF'
+MONGO_URI=mongodb://127.0.0.1:27017/thong_ke_dau_gia
+API_PORT=4321
+CRAWL_CONCURRENCY=5
+CRAWL_DELAY_MS=300
+CRAWL_PAGE_SIZE=100
+CRON_SCHEDULE=*/15 * * * *
+EOF
+```
+
+#### Bước 7: Build và chạy
+```bash
+# Build frontend
+npm run build
+
+# Chạy production
+npm run start
+```
+
+---
+
+### Chạy nền với PM2 (khuyến nghị cho VPS)
+
+PM2 giúp ứng dụng tự khởi động lại khi crash hoặc khi VPS reboot.
+
+```bash
+# Cài PM2
+sudo npm install -g pm2
+
+# Chạy frontend
+pm2 start "npm run start:frontend" --name "frontend"
+
+# Chạy backend
+pm2 start "npm run start:backend" --name "backend"
+
+# Chạy tunnel
+pm2 start "npm run start:tunnel" --name "tunnel"
+
+# Tự khởi động khi VPS reboot
+pm2 startup
+pm2 save
+
+# Xem trạng thái
+pm2 status
+
+# Xem logs
+pm2 logs
+
+# Restart tất cả
+pm2 restart all
+```
+
+---
+
+### Tối ưu VPS (nếu RAM ít)
+
+Nếu VPS chỉ có **4GB RAM**, cần điều chỉnh:
+
+1. **Giảm Node.js heap**: Sửa `bot-crawls-data/package.json`:
+   ```
+   --max-old-space-size=8192  →  --max-old-space-size=2048
+   ```
+
+2. **Thêm swap** (bộ nhớ ảo):
+   ```bash
+   sudo fallocate -l 4G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   ```
+
+3. **Giảm crawl concurrency**: Trong `.env`:
+   ```
+   CRAWL_CONCURRENCY=2
+   ```
+
+4. **Giới hạn MongoDB RAM**: Tạo file `/etc/mongod.conf`:
+   ```yaml
+   storage:
+     wiredTiger:
+       engineConfig:
+         cacheSizeGB: 0.5
+   ```
+   Sau đó: `sudo systemctl restart mongod`

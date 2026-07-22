@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Báo Cáo Kiểm Soát Cào 589.476 ID Đấu Giá - DGTS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card-bg: rgba(255, 255, 255, 0.85);
+      --card-border: rgba(226, 232, 240, 0.8);
+      --primary: #0f172a;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --text: #1e293b;
+      --text-muted: #64748b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      background-color: #dbeafe;
+      color: #1e40af;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+
+    /* Grid Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .stat-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Progress Bar */
+    .progress-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .progress-bar-bg {
+      background: #e2e8f0;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      background: linear-gradient(90deg, #2563eb, #16a34a);
+      height: 100%;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    /* Controls Bar */
+    .controls {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+      min-width: 280px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+
+    button {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button.btn-accent {
+      background: var(--accent);
+    }
+    button.btn-accent:hover {
+      background: var(--accent-hover);
+    }
+
+    button.btn-danger {
+      background: var(--danger);
+    }
+
+    select {
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+
+    /* Table */
+    .table-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f8fafc;
+      padding: 14px 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+
+    tr:hover {
+      background: rgba(241, 245, 249, 0.6);
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tag-success { background: #dcfce7; color: #15803d; }
+    .tag-failed { background: #fee2e2; color: #b91c1c; }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .page-btns {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .page-btn {
+      padding: 6px 12px;
+      background: #f1f5f9;
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .page-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* Modal / List Failed */
+    .failed-box {
+      background: #fff5f5;
+      border: 1px solid #fecaca;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 24px;
+      display: none;
+    }
+
+    .failed-box.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>🔍 Báo Cáo Kiểm Soát Cào ID Đấu Giá <span class="badge">Độc Lập</span></h1>
+        <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">
+          Nguồn: <strong>dgts.moj.gov.vn</strong> | Mục tiêu: <strong>589.476 Bản Ghi</strong>
+        </p>
+      </div>
+      <div>
+        <button id="btnRefresh" class="btn-accent">🔄 Cập nhật dữ liệu</button>
+        <button id="btnRetryFailed" class="btn-danger">⚡ Cào lại các trang lỗi</button>
+      </div>
+    </header>
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">🎯 Mục tiêu hệ thống</div>
+        <div class="stat-value" id="statTarget">589.476</div>
+        <div class="stat-desc" id="statPagesTarget">5.895 trang</div>
+      </div>
+      <div class="stat-card" style="border-left: 4px solid var(--success);">
+        <div class="stat-label">💾 Số ID ĐÃ GHI NHẬN (MongoDB)</div>
+        <div class="stat-value" id="statInDB" style="color: var(--success)">0</div>
+        <div class="stat-desc" id="statPagesDone">0 trang hoàn tất</div>
+      </div>
+      <div class="stat-card" style="border-left: 4px solid var(--accent);">
+        <div class="stat-label">📡 Lượt Call API (Realtime)</div>
+        <div class="stat-value" id="statTotalCalls">0</div>
+        <div class="stat-desc" id="statCallDetails">OK: 0 | Lỗi: 0</div>
+      </div>
+      <div class="stat-card" style="border-left: 4px solid var(--danger);">
+        <div class="stat-label">⚠️ Trang bị lỗi / thiếu</div>
+        <div class="stat-value" id="statFailedPages" style="color: var(--danger)">0</div>
+        <div class="stat-desc" id="statStatus">Trạng thái: Idle</div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-card">
+      <div class="progress-header">
+        <span>Tiến độ hoàn thành (Realtime)</span>
+        <span id="statPercent">0.00%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Nhập ID số để kiểm tra xem ID đã được cào chưa...">
+        <button id="btnSearch">Tìm ID</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th># STT</th>
+            <th>MÃ ID TÀI SẢN (Source ID)</th>
+            <th>Trang Cào (Page)</th>
+            <th>Thời gian lưu</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Đang tải danh sách ID...</td></tr>
+        </tbody>
+      </table>
+
+      <!-- Pagination -->
+      <div class="pagination">
+        <div id="paginationInfo" style="font-size: 13px; color: var(--text-muted);">Hiển thị 0 - 0 / 0 bản ghi</div>
+        <div class="page-btns">
+          <button class="page-btn" id="btnFirst">Trang đầu</button>
+          <button class="page-btn" id="btnPrev">Trước</button>
+          <span style="font-size: 13px; font-weight: 600; margin: 0 8px;">Trang <span id="lblPage">1</span> / <span id="lblTotalPages">1</span></span>
+          <button class="page-btn" id="btnNext">Sau</button>
+          <button class="page-btn" id="btnLast">Trang cuối</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Live Console -->
+    <div style="background: #0f172a; border-radius: 16px; padding: 20px; color: #38bdf8; font-family: monospace; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
+        <span style="font-weight: 600; font-size: 14px; color: #f8fafc;">📡 Nhật Ký Chi Tiết Tất Cả Lần Call API (Live Stream Log)</span>
+        <button id="btnRefreshLogs" style="padding: 4px 10px; font-size: 12px; background: #334155; color: #fff;">Làm mới Log</button>
+      </div>
+      <div id="liveLogConsole" style="height: 180px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: #94a3b8; white-space: pre-wrap;">Đang tải log API...</div>
+    </div>
+
+    <!-- Failed pages detail box -->
+    <div class="failed-box" id="failedBox">
+      <h3 style="color: var(--danger); margin-bottom: 8px;">⚠️ Danh sách các trang bị lỗi chưa cào được</h3>
+      <div id="failedListText" style="font-family: monospace; font-size: 13px; max-height: 150px; overflow-y: auto;">Không có trang nào bị lỗi.</div>
+    </div>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    let totalPages = 1;
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        
+        document.getElementById('statTarget').innerText = (data.serverTotalTarget || 589476).toLocaleString('vi-VN');
+        document.getElementById('statPagesTarget').innerText = `${(data.expectedTotalPages || 5895).toLocaleString('vi-VN')} trang`;
+        document.getElementById('statInDB').innerText = (data.totalInDB || 0).toLocaleString('vi-VN');
+        document.getElementById('statPagesDone').innerText = `${(data.completedPagesCount || 0).toLocaleString('vi-VN')} trang hoàn tất`;
+        
+        document.getElementById('statTotalCalls').innerText = (data.totalApiCalls || 0).toLocaleString('vi-VN');
+        document.getElementById('statCallDetails').innerText = `OK: ${(data.successfulApiCalls || 0).toLocaleString('vi-VN')} | Lỗi: ${(data.failedApiCalls || 0).toLocaleString('vi-VN')}`;
+
+        document.getElementById('statFailedPages').innerText = (data.failedPagesCount || 0).toLocaleString('vi-VN');
+        document.getElementById('statStatus').innerText = `Trạng thái: ${(data.status || 'idle').toUpperCase()}`;
+        
+        document.getElementById('statPercent').innerText = `${data.progressPercent}%`;
+        document.getElementById('progressFill').style.width = `${data.progressPercent}%`;
+
+        const failedBox = document.getElementById('failedBox');
+        if (data.pagesFailed && data.pagesFailed.length > 0) {
+          failedBox.classList.add('show');
+          document.getElementById('failedListText').innerHTML = data.pagesFailed
+            .map(f => `<div>• Trang <strong>P${f.pageNumber}</strong>: ${f.error} (${new Date(f.failedAt).toLocaleTimeString()})</div>`)
+            .join('');
+        } else {
+          failedBox.classList.remove('show');
+        }
+      } catch (err) {
+        console.error('Lỗi tải stats:', err);
+      }
+    }
+
+    async function loadTable(page = 1) {
+      currentPage = page;
+      const search = document.getElementById('searchInput').value;
+
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Đang tải dữ liệu trang ${page}...</td></tr>`;
+
+      try {
+        const res = await fetch(`/api/ids?page=${page}&limit=100&search=${encodeURIComponent(search)}`);
+        const data = await res.json();
+
+        totalPages = data.totalPages || 1;
+        document.getElementById('lblPage').innerText = page;
+        document.getElementById('lblTotalPages').innerText = totalPages;
+        
+        const startItem = (page - 1) * data.limit + 1;
+        const endItem = Math.min(page * data.limit, data.totalItems);
+        document.getElementById('paginationInfo').innerText = `Hiển thị ${data.totalItems > 0 ? startItem : 0} - ${endItem} / ${data.totalItems.toLocaleString('vi-VN')} ID đã ghi nhận`;
+
+        if (!data.items || data.items.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Chưa có ID nào được ghi nhận</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.items.map((item, idx) => `
+          <tr>
+            <td>#${startItem + idx}</td>
+            <td><strong style="color: var(--accent); font-size: 15px;">${item.sourceId}</strong></td>
+            <td>Trang P${item.pageNumber}</td>
+            <td style="color: var(--text-muted); font-size: 13px;">${item.crawledAt ? new Date(item.crawledAt).toLocaleString('vi-VN') : '---'}</td>
+          </tr>
+        `).join('');
+
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Lỗi tải bảng dữ liệu: ${err.message}</td></tr>`;
+      }
+    }
+
+    async function loadApiLogs() {
+      try {
+        const res = await fetch('/api/logs?limit=50');
+        const data = await res.json();
+        const consoleEl = document.getElementById('liveLogConsole');
+        if (data.logs && data.logs.length > 0) {
+          consoleEl.innerText = data.logs.join('\n');
+        } else {
+          consoleEl.innerText = 'Chưa có log API call nào.';
+        }
+      } catch (err) {
+        console.error('Lỗi tải API log:', err);
+      }
+    }
+
+    // Events
+    document.getElementById('btnRefresh').addEventListener('click', () => { loadStats(); loadTable(currentPage); loadApiLogs(); });
+    document.getElementById('btnRefreshLogs').addEventListener('click', loadApiLogs);
+    document.getElementById('btnSearch').addEventListener('click', () => loadTable(1));
+
+    document.getElementById('btnFirst').addEventListener('click', () => loadTable(1));
+    document.getElementById('btnPrev').addEventListener('click', () => { if (currentPage > 1) loadTable(currentPage - 1); });
+    document.getElementById('btnNext').addEventListener('click', () => { if (currentPage < totalPages) loadTable(currentPage + 1); });
+    document.getElementById('btnLast').addEventListener('click', () => loadTable(totalPages));
+
+    document.getElementById('btnRetryFailed').addEventListener('click', async () => {
+      if (confirm('Bạn có muốn kích hoạt cào lại toàn bộ các trang bị lỗi không?')) {
+        try {
+          const res = await fetch('/api/trigger-retry', { method: 'POST' });
+          const data = await res.json();
+          alert(data.message);
+          loadStats();
+          loadApiLogs();
+        } catch (e) {
+          alert('Lỗi kích hoạt: ' + e.message);
+        }
+      }
+    });
+
+    // Init
+    loadStats();
+    loadTable(1);
+    loadApiLogs();
+    setInterval(() => {
+      loadStats();
+      loadApiLogs();
+    }, 2000); // Tự động làm mới dữ liệu realtime mỗi 2 giây
+  </script>
+</body>
+</html>

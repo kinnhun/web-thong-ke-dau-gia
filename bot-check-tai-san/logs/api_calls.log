@@ -1,0 +1,5 @@
+[19:21:28 22/7/2026] [SUCCESS] Page: 1 | Attempt: 1 | HTTP 200 | Items: 5 | Duration: 14349ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=1&numberPerPage=5&typeOrder=2
+[19:21:31 22/7/2026] [SUCCESS] Page: 2 | Attempt: 1 | HTTP 200 | Items: 5 | Duration: 2841ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=2&numberPerPage=5&typeOrder=2
+[19:24:01 22/7/2026] [SUCCESS] Page: 1 | Attempt: 1 | HTTP 200 | Items: 1 | Duration: 11225ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=1&numberPerPage=1&typeOrder=2
+[19:24:58 22/7/2026] [SUCCESS] Page: 1 | Attempt: 1 | HTTP 200 | Items: 10 | Duration: 15598ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=1&numberPerPage=10&typeOrder=2
+[19:25:00 22/7/2026] [SUCCESS] Page: 2 | Attempt: 1 | HTTP 200 | Items: 10 | Duration: 2907ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=2&numberPerPage=10&typeOrder=2
