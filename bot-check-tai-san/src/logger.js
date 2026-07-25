@@ -45,4 +45,17 @@ function logApiCall(info) {
   }
 }
 
-module.exports = { logApiCall, apiLogFile, errorLogFile };
+/**
+ * Ghi log cho các hoạt động hệ thống (crawl, compare, sync)
+ * @param {string} msg 
+ */
+function logSystem(msg) {
+  const logLine = `[${timeNow()}] [SYSTEM] ${msg}\n`;
+  try {
+    fs.appendFileSync(apiLogFile, logLine, 'utf-8');
+  } catch (e) {}
+  console.log(`ℹ️ [SYSTEM] ${msg}`);
+}
+
+module.exports = { logApiCall, logSystem, apiLogFile, errorLogFile };
+

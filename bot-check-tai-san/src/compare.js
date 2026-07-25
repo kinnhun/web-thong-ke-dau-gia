@@ -4,6 +4,8 @@ const { connectDB, closeDB } = require('./db');
 const RawAuctionId = require('./models/RawAuctionId');
 const CrawlState = require('./models/CrawlState');
 const { generateCompareHTMLReport } = require('./compare-reporter');
+const { logSystem } = require('./logger');
+
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -177,8 +179,9 @@ async function calculateTargetPages(missingIDs) {
   return [...targetPagesSet].sort((a, b) => a - b);
 }
 
-async function runComparison() {
-  const options = parseArgs();
+async function runComparison(overrideOptions = {}) {
+  const options = { ...parseArgs(), ...overrideOptions };
+
 
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║   🤖 BOT COMPARE & AUDIT ID ĐẤU GIÁ (ULTRA-DETAILED)    ║');
@@ -194,8 +197,10 @@ async function runComparison() {
   }
 
   await connectDB();
+  logSystem(`🔍 Khởi chạy đối soát ID dữ liệu (Nguồn: ${externalData.sourceName})...`);
 
   console.log('🔍 Đang nạp dữ liệu ID từ MongoDB Local...');
+
   const localDocs = await RawAuctionId.find({}, { sourceId: 1, _id: 0 }).lean();
   const localIDs = localDocs.map(d => d.sourceId).filter(Boolean);
   const localSet = new Set(localIDs);
@@ -346,13 +351,18 @@ async function runComparison() {
   console.log(`🌐 Đã xuất Báo cáo HTML trực quan ra: ${reportPath}`);
   console.log('═'.repeat(60) + '\n');
 
+  logSystem(`🔍 Đã hoàn tất đối soát! Khớp: ${matchedIDs.length.toLocaleString('vi-VN')} | Thiếu: ${missingInLocalIDs.length.toLocaleString('vi-VN')} | Thừa: ${extraInLocalIDs.length.toLocaleString('vi-VN')} | Trang Target: ${targetPages.length}`);
+
   if (options.crawlMissing) {
+    logSystem(`🚀 Kích hoạt bot cào mục tiêu cho ${targetPages.length} trang chứa ID thiếu...`);
     console.log(`🚀 KÍCH HOẠT BOT CÀO MỤC TIÊU CHO CÁC ID THIẾU...`);
     const { runCrawl } = require('./crawler');
     await runCrawl({ missingOnly: true, targetPages });
   }
 
-  await closeDB();
+  if (require.main === module) {
+    await closeDB({ force: true });
+  }
 }
 
 if (require.main === module) {
@@ -361,5 +371,6 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
 
 module.exports = { runComparison, loadExternalIDs, findGaps, calculateTargetPages, analyzeGapBreakdown };

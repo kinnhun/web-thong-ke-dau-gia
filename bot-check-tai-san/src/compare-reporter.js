@@ -240,12 +240,16 @@ function generateCompareHTMLReport(data) {
         <span id="fileNameDisplay" style="color:var(--text-muted); font-size:0.85rem;">Chưa chọn file mới</span>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <a href="/api/download-missing-json" class="btn btn-outline" download>📥 Tải File JSON ID Thiếu Full</a>
+        <button id="btnRunCompare" class="btn btn-accent">🔍 Chạy Đối Soát ID</button>
         <button id="btnCrawlMissing" class="btn btn-purple">🚀 Cào Các ID Thiếu</button>
         <button id="btnRunSync" class="btn btn-success">⚡ Sync ID Thiếu Vào MongoDB</button>
-        <button id="btnRefresh" class="btn btn-accent">🔄 Tải Lại Báo Cáo</button>
+        <a href="/api/download-missing-json" class="btn btn-outline" download>📥 Tải File JSON ID Thiếu Full</a>
+        <button id="btnRefresh" class="btn btn-outline">🔄 Tải Lại Trang</button>
       </div>
     </div>
+
+    <!-- Toast Notification Banner -->
+    <div id="statusToast" style="display:none; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; font-size: 0.95rem; backdrop-filter: blur(8px);"></div>
 
     <!-- Stats Grid -->
     <div class="stats-grid">
@@ -332,10 +336,62 @@ function generateCompareHTMLReport(data) {
         extraInLocalIDs.map(id => `<span class="id-pill pill-extra extra-item" data-id="${id}">ID #${id}</span>`).join('')
       }
     </div>
+
+    <!-- Log Live Console -->
+    <div id="logConsoleContainer" style="background: #0f172a; border-radius: 16px; padding: 20px; color: #38bdf8; font-family: monospace; margin-top: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); border: 1px solid var(--card-border);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
+        <span style="font-weight: 600; font-size: 14px; color: #f8fafc;">📡 Nhật Ký Tiến Độ Chi Tiết Realtime (Live Stream Log)</span>
+        <button id="btnRefreshLogs" style="padding: 4px 10px; font-size: 12px; background: #334155; color: #fff; border-radius: 4px; cursor: pointer; border: none;">Làm mới Log</button>
+      </div>
+      <div id="liveLogConsole" style="height: 220px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: #94a3b8; white-space: pre-wrap;">Đang tải log API & hệ thống...</div>
+    </div>
   </div>
 
   <script>
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('statusToast');
+      toast.style.display = 'block';
+      if (type === 'success') {
+        toast.style.background = 'rgba(16, 185, 129, 0.2)';
+        toast.style.color = '#10b981';
+        toast.style.border = '1px solid #10b981';
+      } else if (type === 'error') {
+        toast.style.background = 'rgba(239, 68, 68, 0.2)';
+        toast.style.color = '#ef4444';
+        toast.style.border = '1px solid #ef4444';
+      } else {
+        toast.style.background = 'rgba(56, 189, 248, 0.2)';
+        toast.style.color = '#38bdf8';
+        toast.style.border = '1px solid #38bdf8';
+      }
+      toast.innerText = message;
+    }
+
+    function scrollToLogs() {
+      const container = document.getElementById('logConsoleContainer');
+      if (container) {
+        container.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    async function loadApiLogs() {
+      try {
+        const res = await fetch('/api/logs?limit=100');
+        const data = await res.json();
+        const consoleEl = document.getElementById('liveLogConsole');
+        if (data.logs && data.logs.length > 0) {
+          consoleEl.innerText = data.logs.join('\n');
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        } else {
+          consoleEl.innerText = 'Chưa có log API call nào.';
+        }
+      } catch (err) {
+        console.error('Lỗi tải API log:', err);
+      }
+    }
+
     document.getElementById('btnRefresh').addEventListener('click', () => { window.location.reload(); });
+    document.getElementById('btnRefreshLogs').addEventListener('click', loadApiLogs);
 
     // Lọc dải khuyết (Gaps) realtime
     document.getElementById('gapSearch').addEventListener('input', (e) => {
@@ -365,11 +421,27 @@ function generateCompareHTMLReport(data) {
       });
     });
 
+    // Kích hoạt chạy Đối Soát ID trực tiếp
+    document.getElementById('btnRunCompare').addEventListener('click', async () => {
+      showToast('🔍 Đang khởi chạy đối soát ID dữ liệu... Vui lòng xem log bên dưới.', 'info');
+      scrollToLogs();
+      try {
+        const res = await fetch('/api/trigger-compare', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message, data.success ? 'success' : 'error');
+        loadApiLogs();
+      } catch (err) {
+        showToast('❌ Lỗi kích hoạt đối soát: ' + err.message, 'error');
+      }
+    });
+
     // Đọc file JSON từ trình duyệt để đối soát trực tiếp
     document.getElementById('fileInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       document.getElementById('fileNameDisplay').innerText = file.name;
+      showToast('📂 Đang đọc file ' + file.name + ' và gửi đối soát...', 'info');
+      scrollToLogs();
 
       const reader = new FileReader();
       reader.onload = async (event) => {
@@ -382,13 +454,13 @@ function generateCompareHTMLReport(data) {
           });
           const data = await res.json();
           if (data.success) {
-            alert('✅ Đối soát thành công với file ' + file.name + '!\nĐang tải lại giao diện...');
-            window.location.reload();
+            showToast('✅ ' + data.message + ' Đang hiển thị tiến độ trong log bên dưới.', 'success');
+            loadApiLogs();
           } else {
-            alert('❌ Lỗi đối soát: ' + data.message);
+            showToast('❌ Lỗi đối soát: ' + data.message, 'error');
           }
         } catch (err) {
-          alert('❌ File không hợp lệ: ' + err.message);
+          showToast('❌ File không hợp lệ: ' + err.message, 'error');
         }
       };
       reader.readAsText(file);
@@ -396,32 +468,37 @@ function generateCompareHTMLReport(data) {
 
     // Kích hoạt Sync ID thiếu
     document.getElementById('btnRunSync').addEventListener('click', async () => {
-      if (confirm('Bạn có muốn tự động Sync toàn bộ ID bị thiếu vào MongoDB local không?')) {
-        try {
-          const res = await fetch('/api/compare-sync', { method: 'POST' });
-          const data = await res.json();
-          alert(data.message);
-          window.location.reload();
-        } catch (err) {
-          alert('Lỗi Sync: ' + err.message);
-        }
+      showToast('⚡ Đang Sync ID thiếu vào MongoDB...', 'info');
+      scrollToLogs();
+      try {
+        const res = await fetch('/api/compare-sync', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message, data.success ? 'success' : 'error');
+        loadApiLogs();
+      } catch (err) {
+        showToast('❌ Lỗi Sync: ' + err.message, 'error');
       }
     });
 
     // Kích hoạt Cào Các ID Thiếu (Run Targeted Missing Crawler)
     document.getElementById('btnCrawlMissing').addEventListener('click', async () => {
-      if (confirm('🚀 Bạn có muốn tự động Sync và KÍCH HOẠT BOT CÀO MỤC TIÊU cho các ID bị thiếu trong background không?')) {
-        try {
-          const res = await fetch('/api/trigger-crawl-missing', { method: 'POST' });
-          const data = await res.json();
-          alert(data.message);
-          window.location.reload();
-        } catch (err) {
-          alert('Lỗi kích hoạt cào: ' + err.message);
-        }
+      showToast('🚀 Đang khởi chạy BOT CÀO MỤC TIÊU cho các ID bị thiếu...', 'info');
+      scrollToLogs();
+      try {
+        const res = await fetch('/api/trigger-crawl-missing', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message, data.success ? 'success' : 'error');
+        loadApiLogs();
+      } catch (err) {
+        showToast('❌ Lỗi kích hoạt cào: ' + err.message, 'error');
       }
     });
+
+    // Auto-polling logs mỗi 2 giây
+    loadApiLogs();
+    setInterval(loadApiLogs, 2000);
   </script>
+
 </body>
 </html>`;
 

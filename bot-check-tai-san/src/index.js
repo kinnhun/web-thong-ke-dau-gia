@@ -7,6 +7,8 @@ const { connectDB } = require('./db');
 const { getAuditStats, getPaginatedIDs } = require('./reporter');
 const { runCrawl } = require('./crawler');
 const { runComparison } = require('./compare');
+const { logSystem } = require('./logger');
+
 
 async function main() {
   await connectDB();
@@ -78,18 +80,33 @@ async function main() {
 
   // API kích hoạt cào mới hoặc retry
   app.post('/api/trigger-crawl', (req, res) => {
-    runCrawl().catch(console.error);
-    res.json({ success: true, message: 'Đã kích hoạt bot cào dữ liệu trong background!' });
+    logSystem('🚀 Nhận lệnh kích hoạt Bot cào dữ liệu mới từ giao diện web...');
+    runCrawl().catch(err => logSystem(`❌ Lỗi cào dữ liệu: ${err.message}`));
+    res.json({ success: true, message: '🚀 Đã kích hoạt bot cào dữ liệu trong background!' });
   });
 
   app.post('/api/trigger-retry', (req, res) => {
-    runCrawl({ retryOnly: true }).catch(console.error);
-    res.json({ success: true, message: 'Đã kích hoạt cào lại các trang lỗi!' });
+    logSystem('⚡ Nhận lệnh kích hoạt cào lại các trang bị lỗi từ giao diện web...');
+    runCrawl({ retryOnly: true }).catch(err => logSystem(`❌ Lỗi cào lại: ${err.message}`));
+    res.json({ success: true, message: '⚡ Đã kích hoạt cào lại các trang lỗi!' });
+  });
+
+  // API Kích hoạt đối soát ID trực tiếp
+  app.post('/api/trigger-compare', async (req, res) => {
+    try {
+      logSystem('🔍 Nhận lệnh kích hoạt Đối Soát ID từ giao diện web...');
+      runComparison().catch(err => logSystem(`❌ Lỗi chạy đối soát: ${err.message}`));
+      res.json({ success: true, message: '🔍 Đã kích hoạt bot đối soát ID dữ liệu trong background!' });
+    } catch (err) {
+      logSystem(`❌ Lỗi API đối soát: ${err.message}`);
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   // API kích hoạt Sync ID thiếu từ file export
   app.post('/api/compare-sync', async (req, res) => {
     try {
+      logSystem('⚡ Nhận lệnh kích hoạt Sync ID thiếu vào MongoDB...');
       const exportPath = path.join(__dirname, '../missing_ids_export.json');
       if (!fs.existsSync(exportPath)) {
         return res.status(400).json({ success: false, message: 'Chưa có dữ liệu ID thiếu. Hãy chạy đối soát trước!' });
@@ -99,9 +116,11 @@ async function main() {
       const missingIDs = parsed.missingIDs || [];
 
       if (missingIDs.length === 0) {
+        logSystem('ℹ️ Không có ID thiếu nào cần Sync.');
         return res.json({ success: true, message: 'Không có ID thiếu nào cần Sync!' });
       }
 
+      logSystem(`🔄 Đang tiến hành Sync ${missingIDs.length.toLocaleString('vi-VN')} ID thiếu vào MongoDB Local...`);
       const RawAuctionId = require('./models/RawAuctionId');
       const bulkOps = missingIDs.map(sourceId => ({
         updateOne: {
@@ -122,8 +141,10 @@ async function main() {
         await RawAuctionId.bulkWrite(chunk, { ordered: false });
       }
 
+      logSystem(`✅ Đã Sync thành công ${missingIDs.length.toLocaleString('vi-VN')} ID thiếu vào MongoDB!`);
       res.json({ success: true, message: `Đã Sync thành công ${missingIDs.length.toLocaleString('vi-VN')} ID vào MongoDB!` });
     } catch (err) {
+      logSystem(`❌ Lỗi Sync ID thiếu: ${err.message}`);
       res.status(500).json({ success: false, message: err.message });
     }
   });
@@ -131,6 +152,7 @@ async function main() {
   // API Kích hoạt cào mục tiêu các ID bị thiếu
   app.post('/api/trigger-crawl-missing', async (req, res) => {
     try {
+      logSystem('🚀 Nhận lệnh KÍCH HOẠT BOT CÀO MỤC TIÊU CÁC ID THIẾU từ giao diện web...');
       const exportPath = path.join(__dirname, '../missing_ids_export.json');
       let missingCount = 0;
       let targetPages = [];
@@ -143,6 +165,7 @@ async function main() {
         targetPages = parsed.targetPages || [];
 
         if (missingIDs.length > 0) {
+          logSystem(`🔄 Auto-sync ${missingIDs.length} ID thiếu vào DB trước khi cào...`);
           const RawAuctionId = require('./models/RawAuctionId');
           const bulkOps = missingIDs.map(sourceId => ({
             updateOne: {
@@ -165,8 +188,9 @@ async function main() {
         }
       }
 
+      logSystem(`🚀 Khởi chạy bot cào mục tiêu cho ${targetPages.length} trang Target chứa ID thiếu...`);
       // Khởi chạy bot cào mục tiêu (missingOnly) trong background
-      runCrawl({ missingOnly: true, targetPages }).catch(console.error);
+      runCrawl({ missingOnly: true, targetPages }).catch(err => logSystem(`❌ Lỗi cào mục tiêu: ${err.message}`));
 
       res.json({
         success: true,
@@ -175,6 +199,7 @@ async function main() {
         targetPagesCount: targetPages.length,
       });
     } catch (err) {
+      logSystem(`❌ Lỗi API cào mục tiêu: ${err.message}`);
       res.status(500).json({ success: false, message: err.message });
     }
   });
@@ -197,16 +222,18 @@ async function main() {
 
       const tempPath = path.join(__dirname, '../external_ids_uploaded.json');
       fs.writeFileSync(tempPath, JSON.stringify(idsData, null, 2), 'utf-8');
+      logSystem(`📂 Đã nạp file JSON từ web với ${idsData.length.toLocaleString('vi-VN')} bản ghi. Đang tiến hành đối soát...`);
 
       // Chạy lại đối soát với file vừa nạp
-      process.argv = ['node', 'compare.js', `--file=${tempPath}`];
-      await runComparison();
+      runComparison({ file: tempPath }).catch(err => logSystem(`❌ Lỗi đối soát file upload: ${err.message}`));
 
-      res.json({ success: true, message: `Đã đối soát thành công ${idsData.length.toLocaleString('vi-VN')} bản ghi!` });
+      res.json({ success: true, message: `Đã nạp thành công ${idsData.length.toLocaleString('vi-VN')} bản ghi và KÍCH HOẠT ĐỐI SOÁT trong background!` });
     } catch (err) {
+      logSystem(`❌ Lỗi upload đối soát: ${err.message}`);
       res.status(500).json({ success: false, message: err.message });
     }
   });
+
 
   const PORT = config.apiPort || 4400;
   app.listen(PORT, () => {

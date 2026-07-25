@@ -5894,3 +5894,5 @@
 [20:46:13 22/7/2026] [SUCCESS] Page: 5894 | Attempt: 1 | HTTP 200 | Items: 100 | Duration: 2465ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=5894&numberPerPage=100&typeOrder=2
 [20:46:13 22/7/2026] [SUCCESS] Page: 5892 | Attempt: 1 | HTTP 200 | Items: 100 | Duration: 2472ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=5892&numberPerPage=100&typeOrder=2
 [20:46:13 22/7/2026] [SUCCESS] Page: 5895 | Attempt: 1 | HTTP 200 | Items: 100 | Duration: 2522ms | URL: https://dgts.moj.gov.vn/portal/search/auction-notice?p=5895&numberPerPage=100&typeOrder=2
+[14:06:07 25/7/2026] [SYSTEM] 🔍 Khởi chạy đối soát ID dữ liệu (Nguồn: missing_ids_export.json)...
+[14:06:07 25/7/2026] [SYSTEM] 🔍 Đã hoàn tất đối soát! Khớp: 0 | Thiếu: 100 | Thừa: 8.500 | Trang Target: 1

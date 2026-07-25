@@ -3,6 +3,8 @@ const { initBrowser, fetchNoticePage, closeBrowser } = require('./browser');
 const RawAuctionId = require('./models/RawAuctionId');
 const CrawlState = require('./models/CrawlState');
 const config = require('./config');
+const { logSystem } = require('./logger');
+
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -201,6 +203,7 @@ async function runCrawl(options = {}) {
     const elapsedSec = Math.round((Date.now() - startTime) / 1000);
     totalInserted = await RawAuctionId.countDocuments();
 
+    logSystem(`📄 Tiến độ cào: ${processedPages}/${totalPages} trang (${progressPct}%) | DB: ${totalInserted.toLocaleString('vi-VN')} IDs | Lỗi: ${state.pagesFailed.length} trang | Thời gian: ${elapsedSec}s`);
     console.log(`[${timeNow()}] 📄 Đã xong: ${processedPages}/${totalPages} trang (${progressPct}%) | DB: ${totalInserted.toLocaleString('vi-VN')} IDs | Lỗi: ${state.pagesFailed.length} trang | Thời gian: ${elapsedSec}s`);
 
     await sleep(config.crawl.delayMs);
@@ -216,6 +219,7 @@ async function runCrawl(options = {}) {
   }
   await state.save();
 
+  logSystem(`✅ KẾT THÚC CÀO! Tổng DB: ${totalInserted.toLocaleString('vi-VN')} IDs | Thành công: ${state.pagesCompleted.length}/${totalPages} trang | Trang lỗi: ${state.pagesFailed.length}`);
   console.log('\n' + '═'.repeat(60));
   console.log(`✅ KẾT THÚC CÀO!`);
   console.log(`   - Tổng ID đã lưu MongoDB: ${totalInserted.toLocaleString('vi-VN')}`);
@@ -228,16 +232,20 @@ async function runCrawl(options = {}) {
   await generateHTMLReport();
 
   await closeBrowser();
-  await closeDB();
+
+  if (require.main === module) {
+    await closeDB({ force: true });
+  }
 }
 
 if (require.main === module) {
   runCrawl().catch(async (err) => {
     console.error('❌ Crawl error fatal:', err);
     await closeBrowser();
-    await closeDB();
+    await closeDB({ force: true });
     process.exit(1);
   });
 }
+
 
 module.exports = { runCrawl };
