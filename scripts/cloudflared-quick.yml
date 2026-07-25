@@ -1,0 +1,6 @@
+# Config riêng cho web-thong-ke-dau-gia quick tunnel
+# File này bỏ qua config.yml global (có ingress ManhuaLab + catch-all 404)
+# Không khai báo tunnel ID nên cloudflared sẽ dùng --url flag để tạo quick tunnel
+protocol: http2
+ingress:
+  - service: http://localhost:1234
