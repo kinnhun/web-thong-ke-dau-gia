@@ -15,8 +15,11 @@
     "build": "next build",
     "start:frontend": "next start -p 1234",
     "start:backend": "cd bot-crawls-data && npm start",
+    "start:check": "cd bot-check-tai-san && npm start",
+    "start:bots": "concurrently \"npm run start:check\" \"npm run start:backend\"",
+    "bots": "npm run start:bots",
     "start:tunnel": "node scripts/tunnel.js",
-    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\" \"npm run start:tunnel\"",
+    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\" \"npm run start:check\" \"npm run start:tunnel\"",
     "lint": "eslint"
   },
   "dependencies": {
