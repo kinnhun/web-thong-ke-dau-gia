@@ -8,7 +8,9 @@
     "crawl": "node --max-old-space-size=8192 src/crawler.js",
     "crawl:retry": "node --max-old-space-size=8192 src/crawler.js --retry-failed",
     "report": "node src/reporter.js",
-    "verify": "node src/verify.js"
+    "verify": "node src/verify.js",
+    "compare": "node src/compare.js",
+    "compare:sync": "node src/compare.js --sync"
   },
   "dependencies": {
     "cors": "^2.8.5",

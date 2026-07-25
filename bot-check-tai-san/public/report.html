@@ -286,10 +286,37 @@
     .failed-box.show {
       display: block;
     }
+
+    .nav-tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+    }
+    .nav-tab {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-muted);
+      text-decoration: none;
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      transition: all 0.2s;
+    }
+    .nav-tab:hover { background: #f1f5f9; color: var(--text); }
+    .nav-tab.active { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 700; }
   </style>
 </head>
 <body>
   <div class="container">
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <a href="/" class="nav-tab active">📊 Tiến Độ Cào 589.476 IDs</a>
+      <a href="/compare" class="nav-tab">🔍 Đối Soát & So Sánh ID (Compare Bot)</a>
+    </div>
+
     <header>
       <div>
         <h1>🔍 Báo Cáo Kiểm Soát Cào ID Đấu Giá <span class="badge">Độc Lập</span></h1>

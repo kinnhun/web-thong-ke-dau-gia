@@ -28,13 +28,14 @@ function parseDate(str) {
 
 async function runCrawl(options = {}) {
   const retryOnly = options.retryOnly || process.argv.includes('--retry-failed');
+  const missingOnly = options.missingOnly || process.argv.includes('--missing-only');
   const pageSize = config.crawl.pageSize;
   const concurrency = config.crawl.concurrency;
 
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║   🤖 BOT CHECK TÀI SẢN - CÀO TOÀN BỘ 589.476 IDs        ║');
   console.log('║   Nguồn: dgts.moj.gov.vn                               ║');
-  console.log(`║   Chế độ: ${retryOnly ? 'CÀO LẠI TRANG LỖI (--retry-failed)' : 'CÀO MỚI / RESUME TIẾP TỤC'}                  ║`);
+  console.log(`║   Chế độ: ${missingOnly ? 'CÀO MỤC TIÊU CÁC TRANG THIẾU (--missing-only)' : retryOnly ? 'CÀO LẠI TRANG LỖI (--retry-failed)' : 'CÀO MỚI / RESUME TIẾP TỤC'} ║`);
   console.log('╚══════════════════════════════════════════════════════════╝\n');
 
   await connectDB();
@@ -78,7 +79,27 @@ async function runCrawl(options = {}) {
 
   // Xác định danh sách các trang cần cào
   let pagesToCrawl = [];
-  if (retryOnly) {
+  if (missingOnly) {
+    if (Array.isArray(options.targetPages) && options.targetPages.length > 0) {
+      pagesToCrawl = options.targetPages;
+    } else {
+      const fs = require('fs');
+      const path = require('path');
+      const exportPath = path.join(__dirname, '../missing_ids_export.json');
+      if (fs.existsSync(exportPath)) {
+        try {
+          const exportData = JSON.parse(fs.readFileSync(exportPath, 'utf-8'));
+          pagesToCrawl = exportData.targetPages || [];
+        } catch (e) {}
+      }
+    }
+    if (pagesToCrawl.length === 0) {
+      for (let p = 1; p <= totalPages; p++) {
+        if (!completedSet.has(p)) pagesToCrawl.push(p);
+      }
+    }
+    console.log(`📌 Chế độ Cào Mục Tiêu: Tập trung cào ${pagesToCrawl.length} trang chứa ID bị thiếu.`);
+  } else if (retryOnly) {
     pagesToCrawl = [...new Set(failedPagesList)].sort((a, b) => a - b);
     console.log(`📌 Chế độ Cào lại: Tìm thấy ${pagesToCrawl.length} trang bị lỗi cần cào lại.`);
   } else {

@@ -1,23 +1,34 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config');
 const { connectDB } = require('./db');
 const { getAuditStats, getPaginatedIDs } = require('./reporter');
 const { runCrawl } = require('./crawler');
+const { runComparison } = require('./compare');
 
 async function main() {
   await connectDB();
 
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-  // Phục vụ giao diện tĩnh public/report.html
+  // Phục vụ giao diện tĩnh public
   app.use(express.static(path.join(__dirname, '../public')));
 
   app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/report.html'));
+  });
+
+  app.get('/compare', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/compare-report.html'));
+  });
+
+  app.get('/compare-report.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/compare-report.html'));
   });
 
   // API thống kê tiến độ
@@ -30,10 +41,18 @@ async function main() {
     }
   });
 
+  // API tải xuống file JSON các ID bị thiếu
+  app.get('/api/download-missing-json', (req, res) => {
+    const exportPath = path.join(__dirname, '../missing_ids_export.json');
+    if (!fs.existsSync(exportPath)) {
+      return res.status(404).json({ error: true, message: 'Chưa có file missing_ids_export.json. Hãy chạy đối soát trước!' });
+    }
+    res.download(exportPath, 'missing_ids_export.json');
+  });
+
   // API đọc log chi tiết từng lần gọi API
   app.get('/api/logs', (req, res) => {
     try {
-      const fs = require('fs');
       const { apiLogFile } = require('./logger');
       if (!fs.existsSync(apiLogFile)) {
         return res.json({ logs: ['Chưa có log API call nào.'] });
@@ -68,11 +87,133 @@ async function main() {
     res.json({ success: true, message: 'Đã kích hoạt cào lại các trang lỗi!' });
   });
 
+  // API kích hoạt Sync ID thiếu từ file export
+  app.post('/api/compare-sync', async (req, res) => {
+    try {
+      const exportPath = path.join(__dirname, '../missing_ids_export.json');
+      if (!fs.existsSync(exportPath)) {
+        return res.status(400).json({ success: false, message: 'Chưa có dữ liệu ID thiếu. Hãy chạy đối soát trước!' });
+      }
+      const raw = fs.readFileSync(exportPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      const missingIDs = parsed.missingIDs || [];
+
+      if (missingIDs.length === 0) {
+        return res.json({ success: true, message: 'Không có ID thiếu nào cần Sync!' });
+      }
+
+      const RawAuctionId = require('./models/RawAuctionId');
+      const bulkOps = missingIDs.map(sourceId => ({
+        updateOne: {
+          filter: { sourceId },
+          update: {
+            $set: {
+              sourceId,
+              pageNumber: 0,
+              crawledAt: new Date(),
+            },
+          },
+          upsert: true,
+        },
+      }));
+
+      for (let i = 0; i < bulkOps.length; i += 5000) {
+        const chunk = bulkOps.slice(i, i + 5000);
+        await RawAuctionId.bulkWrite(chunk, { ordered: false });
+      }
+
+      res.json({ success: true, message: `Đã Sync thành công ${missingIDs.length.toLocaleString('vi-VN')} ID vào MongoDB!` });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // API Kích hoạt cào mục tiêu các ID bị thiếu
+  app.post('/api/trigger-crawl-missing', async (req, res) => {
+    try {
+      const exportPath = path.join(__dirname, '../missing_ids_export.json');
+      let missingCount = 0;
+      let targetPages = [];
+
+      if (fs.existsSync(exportPath)) {
+        const raw = fs.readFileSync(exportPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const missingIDs = parsed.missingIDs || [];
+        missingCount = missingIDs.length;
+        targetPages = parsed.targetPages || [];
+
+        if (missingIDs.length > 0) {
+          const RawAuctionId = require('./models/RawAuctionId');
+          const bulkOps = missingIDs.map(sourceId => ({
+            updateOne: {
+              filter: { sourceId },
+              update: {
+                $set: {
+                  sourceId,
+                  pageNumber: 0,
+                  crawledAt: new Date(),
+                },
+              },
+              upsert: true,
+            },
+          }));
+
+          for (let i = 0; i < bulkOps.length; i += 5000) {
+            const chunk = bulkOps.slice(i, i + 5000);
+            await RawAuctionId.bulkWrite(chunk, { ordered: false });
+          }
+        }
+      }
+
+      // Khởi chạy bot cào mục tiêu (missingOnly) trong background
+      runCrawl({ missingOnly: true, targetPages }).catch(console.error);
+
+      res.json({
+        success: true,
+        message: `🚀 Đã Sync ${missingCount.toLocaleString('vi-VN')} ID thiếu và KÍCH HOẠT BOT CÀO MỤC TIÊU trong background!`,
+        missingCount,
+        targetPagesCount: targetPages.length,
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // API Nạp file dữ liệu JSON từ giao diện web để đối soát trực tiếp
+  app.post('/api/compare-upload', async (req, res) => {
+    try {
+      let idsData = [];
+      if (req.body && Array.isArray(req.body.items)) {
+        idsData = req.body.items;
+      } else if (req.body && Array.isArray(req.body.ids)) {
+        idsData = req.body.ids;
+      } else if (Array.isArray(req.body)) {
+        idsData = req.body;
+      }
+
+      if (idsData.length === 0) {
+        return res.status(400).json({ success: false, message: 'Dữ liệu nạp vào không hợp lệ hoặc rỗng!' });
+      }
+
+      const tempPath = path.join(__dirname, '../external_ids_uploaded.json');
+      fs.writeFileSync(tempPath, JSON.stringify(idsData, null, 2), 'utf-8');
+
+      // Chạy lại đối soát với file vừa nạp
+      process.argv = ['node', 'compare.js', `--file=${tempPath}`];
+      await runComparison();
+
+      res.json({ success: true, message: `Đã đối soát thành công ${idsData.length.toLocaleString('vi-VN')} bản ghi!` });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   const PORT = config.apiPort || 4400;
   app.listen(PORT, () => {
     console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log(`║   🌐 WEB BÁO CÁO KIỂM SOÁT 589.476 IDs                   ║`);
-    console.log(`║   Đường dẫn: http://localhost:${PORT}                       ║`);
+    console.log(`║   🌐 WEB BÁO CÁO KIỂM SOÁT & ĐỐI SOÁT 589.476 IDs        ║`);
+    console.log(`║   • Trang chính:  http://localhost:${PORT}                  ║`);
+    console.log(`║   • Trang Compare: http://localhost:${PORT}/compare          ║`);
     console.log('╚══════════════════════════════════════════════════════════╝\n');
   });
 }
