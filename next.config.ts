@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:4321/api/:path*',
+        destination: 'http://127.0.0.1:4321/api/:path*',
       },
     ];
   },
