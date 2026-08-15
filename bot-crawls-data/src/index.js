@@ -75,12 +75,10 @@ async function main() {
   console.log('║   Early-stop: Dừng khi gặp 20 bản cũ liên tiếp         ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
 
-  await connectDB();
-
-  // Start API server
+  // Start API server ngay lập tức để mở cổng 4321, tránh lỗi proxy socket hang up
   const { createServer } = require('./api/server');
   const server = createServer();
-  const PORT = config.api.port || 4000;
+  const PORT = config.api.port || 4321;
   server.listen(PORT, () => {
     console.log(`\n🌐 API server: http://localhost:${PORT}`);
     console.log(`   - GET /api/auctions           Danh sách đấu giá`);
@@ -91,6 +89,8 @@ async function main() {
     console.log(`   - GET /api/auctions/stats       Thống kê`);
     console.log(`   - GET /api/crawl-logs           Lịch sử crawl`);
   });
+
+  await connectDB();
 
   // Dọn dẹp CrawlLog bị treo (running nhưng quá cũ)
   try {

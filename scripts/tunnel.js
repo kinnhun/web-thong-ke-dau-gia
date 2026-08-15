@@ -14,9 +14,7 @@ try { fs.unlinkSync(TUNNEL_FILE); } catch {}
 
 console.log(`[TUNNEL] Starting cloudflared tunnel → http://localhost:${PORT}`);
 
-const CONFIG_FILE = path.join(__dirname, 'cloudflared-quick.yml');
-
-const child = spawn('npx', ['-y', 'cloudflared', 'tunnel', '--config', `"${CONFIG_FILE}"`, '--protocol', 'http2', '--url', `http://127.0.0.1:${PORT}`], {
+const child = spawn('npx', ['-y', 'cloudflared', 'tunnel', '--protocol', 'http2', '--edge-ip-version', '4', '--url', `http://127.0.0.1:${PORT}`], {
   shell: true,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
