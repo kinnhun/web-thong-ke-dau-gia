@@ -547,54 +547,62 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
               </tr>
             </thead>
             <tbody className="divide-y">
-              {items.map((item: any) => (
-                <tr key={item.sourceId} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 min-w-[350px]">
-                    <Link href={`/auction/${item.sourceId}`} className="font-medium text-primary hover:underline line-clamp-2">
-                      {item.name}
-                    </Link>
-                    <div className="text-[10px] text-muted-foreground mt-1">ID: {item.sourceId} • {formatDate(item.publishedAt)}</div>
-                  </td>
-                  <td className="px-3 py-3 whitespace-nowrap">{item.province}</td>
-                  <td className="px-3 py-3 text-right whitespace-nowrap num">{formatVND(item.initialPrice)}</td>
-                  <td className="px-3 py-3 text-right whitespace-nowrap num font-semibold text-foreground">{formatVND(item.currentPrice)}</td>
-                  <td className="px-3 py-3 text-center whitespace-nowrap">
-                    <DiscountBadge percent={
-                      item.priceDropPercent || (item.initialPrice > item.currentPrice && item.initialPrice > 0
-                        ? Math.round((1 - item.currentPrice / item.initialPrice) * 10000) / 100
-                        : 0)
-                    } />
-                  </td>
-                  <td className="px-3 py-3 text-center">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.publishRound > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                      Lần {item.publishRound}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 whitespace-nowrap text-[10px]">{formatDate(item.auctionDate)}</td>
-                  <td className="px-3 py-3"><StatusBadge status={item.status} /></td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Link href={`/auction/${item.sourceId}`} className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
-                        <FileText className="h-3.5 w-3.5" />
+              {items.map((item: any) => {
+                const displayFirstPrice = Number(item.groupFirstPrice || item.initialPrice) || 0;
+                const displayCurrentPrice = Number(item.currentPrice || item.groupLatestPrice || item.initialPrice) || 0;
+                const roundNum = Number(item.groupRelistCount || item.publishRound) || 1;
+                const dropPct = item.priceDropPercent || (displayFirstPrice > displayCurrentPrice && displayFirstPrice > 0
+                  ? Math.round((1 - displayCurrentPrice / displayFirstPrice) * 10000) / 100
+                  : 0);
+
+                return (
+                  <tr key={item.sourceId} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 min-w-[350px]">
+                      <Link href={`/auction/${item.sourceId}`} className="font-medium text-primary hover:underline line-clamp-2">
+                        {item.name}
                       </Link>
-                      <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      <div className="text-[10px] text-muted-foreground mt-1">ID: {item.sourceId} • {formatDate(item.publishedAt)}</div>
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">{item.province}</td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap num">{displayFirstPrice > 0 ? formatVND(displayFirstPrice) : "—"}</td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap num font-semibold text-foreground">{displayCurrentPrice > 0 ? formatVND(displayCurrentPrice) : "—"}</td>
+                    <td className="px-3 py-3 text-center whitespace-nowrap">
+                      <DiscountBadge percent={dropPct} />
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${roundNum > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                        Lần {roundNum}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-[10px]">{formatDate(item.auctionDate)}</td>
+                    <td className="px-3 py-3"><StatusBadge status={item.status} /></td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link href={`/auction/${item.sourceId}`} className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
+                          <FileText className="h-3.5 w-3.5" />
+                        </Link>
+                        <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-primary transition-colors">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map((item: any) => {
-            const pct = item.priceDropPercent || (item.initialPrice > item.currentPrice && item.initialPrice > 0
-              ? Math.round((1 - item.currentPrice / item.initialPrice) * 10000) / 100
+            const displayFirstPrice = Number(item.groupFirstPrice || item.initialPrice) || 0;
+            const displayCurrentPrice = Number(item.currentPrice || item.groupLatestPrice || item.initialPrice) || 0;
+            const roundNum = Number(item.groupRelistCount || item.publishRound) || 1;
+            const pct = item.priceDropPercent || (displayFirstPrice > displayCurrentPrice && displayFirstPrice > 0
+              ? Math.round((1 - displayCurrentPrice / displayFirstPrice) * 10000) / 100
               : 0);
             return (
-              <div key={item.id} className="rounded-xl border bg-card p-4 hover:border-primary/20 transition-all shadow-sm">
+              <div key={item.id || item.sourceId} className="rounded-xl border bg-card p-4 hover:border-primary/20 transition-all shadow-sm">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <Link href={`/auction/${item.sourceId}`} className="font-medium text-sm line-clamp-2 hover:text-primary min-h-[40px]">
                     {item.name}
@@ -603,9 +611,21 @@ export function OrganizerAuctionNoticesContainer({ fixedOrganizer, title, descri
                     <DiscountBadge percent={pct} size="sm" className="shrink-0" />
                   )}
                 </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
+                  <span>{item.province}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${roundNum > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                    Lần {roundNum}
+                  </span>
+                </div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                  <div className="text-xs text-muted-foreground">{item.province}</div>
-                  <div className="text-xs font-bold num">{formatVND(item.currentPrice)}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {displayFirstPrice > displayCurrentPrice ? (
+                      <span className="line-through">{formatVND(displayFirstPrice)}</span>
+                    ) : (
+                      <span>Giá khởi điểm</span>
+                    )}
+                  </div>
+                  <div className="text-xs font-bold num text-foreground">{formatVND(displayCurrentPrice)}</div>
                 </div>
               </div>
             );

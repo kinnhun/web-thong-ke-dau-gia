@@ -324,9 +324,12 @@
           Nguồn: <strong>dgts.moj.gov.vn</strong> | Mục tiêu: <strong>589.476 Bản Ghi</strong>
         </p>
       </div>
-      <div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button id="btnRunCompare" class="btn-accent" style="background: #0284c7;">🔍 Chạy Đối Soát ID</button>
+        <button id="btnCrawlMissing" class="btn-accent" style="background: #9333ea;">🚀 Cào Các ID Thiếu</button>
+        <button id="btnRunSync" class="btn-accent" style="background: #16a34a;">⚡ Sync ID Thiếu</button>
         <button id="btnRefresh" class="btn-accent">🔄 Cập nhật dữ liệu</button>
-        <button id="btnRetryFailed" class="btn-danger">⚡ Cào lại các trang lỗi</button>
+        <button id="btnRetryFailed" class="btn-danger">⚡ Cào lại trang lỗi</button>
       </div>
     </header>
 
@@ -517,6 +520,45 @@
     document.getElementById('btnPrev').addEventListener('click', () => { if (currentPage > 1) loadTable(currentPage - 1); });
     document.getElementById('btnNext').addEventListener('click', () => { if (currentPage < totalPages) loadTable(currentPage + 1); });
     document.getElementById('btnLast').addEventListener('click', () => loadTable(totalPages));
+
+    document.getElementById('btnRunCompare').addEventListener('click', async () => {
+      try {
+        const consoleEl = document.getElementById('liveLogConsole');
+        if (consoleEl) consoleEl.scrollIntoView({ behavior: 'smooth' });
+        const res = await fetch('/api/trigger-compare', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || 'Đã hoàn tất đối soát ID!');
+        window.location.href = '/compare';
+      } catch (e) {
+        alert('❌ Lỗi đối soát: ' + e.message);
+      }
+    });
+
+    document.getElementById('btnCrawlMissing').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/trigger-crawl-missing', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message);
+        const consoleEl = document.getElementById('liveLogConsole');
+        if (consoleEl) consoleEl.scrollIntoView({ behavior: 'smooth' });
+        loadStats();
+        loadApiLogs();
+      } catch (e) {
+        alert('❌ Lỗi kích hoạt cào mục tiêu: ' + e.message);
+      }
+    });
+
+    document.getElementById('btnRunSync').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/compare-sync', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message);
+        loadStats();
+        loadApiLogs();
+      } catch (e) {
+        alert('❌ Lỗi Sync: ' + e.message);
+      }
+    });
 
     document.getElementById('btnRetryFailed').addEventListener('click', async () => {
       try {

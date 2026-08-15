@@ -37,18 +37,18 @@ function parseArgs() {
 function loadExternalIDs(filePath, rangeMax) {
   if (rangeMax && rangeMax > 0) {
     console.log(`🔢 Tạo tập hợp ID giả định từ 1 đến ${rangeMax.toLocaleString('vi-VN')} để kiểm tra gap...`);
-    const ids = [];
-    for (let i = 1; i <= rangeMax; i++) {
-      ids.push(i);
+    const ids = new Array(rangeMax);
+    for (let i = 0; i < rangeMax; i++) {
+      ids[i] = i + 1;
     }
-    return { ids, rawTotal: ids.length, duplicateCount: 0, sourceName: `Sequential Range [1..${rangeMax}]` };
+    return { ids, rawTotal: ids.length, duplicateCount: 0, sourceName: `Sequential Range [1..${rangeMax.toLocaleString('vi-VN')}]` };
   }
 
   let targetFile = filePath;
   if (!targetFile) {
     const potentialPaths = [
       path.join(__dirname, '../external_ids.json'),
-      path.join(__dirname, '../missing_ids_export.json'),
+      path.join(__dirname, '../external_ids_uploaded.json'),
       path.join(__dirname, '../../bot-crawls-data/crawled_auctions_1782812838447.json'),
     ];
     for (const p of potentialPaths) {
@@ -60,9 +60,8 @@ function loadExternalIDs(filePath, rangeMax) {
   }
 
   if (!targetFile || !fs.existsSync(targetFile)) {
-    throw new Error(
-      `Không tìm thấy file dữ liệu đầu vào!\nVui lòng truyền đường dẫn file: node src/compare.js --file="duong_dan_file.json"\nHoặc kiểm tra dải ID: node src/compare.js --range=589476`
-    );
+    console.log(`⚠️ Không tìm thấy file JSON nguồn ngoài. Tự động sử dụng dải ID chuẩn (1 đến 589.476) để đối soát gap...`);
+    return loadExternalIDs(null, 589476);
   }
 
   console.log(`📂 Đang nạp dữ liệu từ: ${targetFile}`);
@@ -94,12 +93,12 @@ function loadExternalIDs(filePath, rangeMax) {
   const uniqueSet = new Set(parsedIds);
   const duplicateCount = parsedIds.length - uniqueSet.size;
 
-  return { ids: [...uniqueSet], rawTotal, duplicateCount, sourceName: path.basename(targetFile) };
+  return { ids: Array.from(uniqueSet), rawTotal, duplicateCount, sourceName: path.basename(targetFile) };
 }
 
 function findGaps(missingIDs) {
-  if (missingIDs.length === 0) return [];
-  const sorted = [...missingIDs].sort((a, b) => a - b);
+  if (!missingIDs || missingIDs.length === 0) return [];
+  const sorted = missingIDs.slice().sort((a, b) => a - b);
   const gaps = [];
   let rangeStart = sorted[0];
   let prev = sorted[0];
@@ -141,16 +140,19 @@ function analyzeGapBreakdown(gaps) {
 
 /**
  * Logic tính toán các Trang (Target Pages) tương ứng với danh sách ID thiếu
+ * Tối ưu thuật toán Binary Search O(N log P) tránh treo CPU / call stack overflow
  */
 async function calculateTargetPages(missingIDs) {
-  if (missingIDs.length === 0) return [];
+  if (!missingIDs || missingIDs.length === 0) return [];
 
   const pageDocs = await RawAuctionId.find({ pageNumber: { $gt: 0 } }, { sourceId: 1, pageNumber: 1, _id: 0 }).lean();
+  if (pageDocs.length === 0) return [];
   
   const pageMap = new Map();
   pageDocs.forEach(doc => {
+    if (!doc.pageNumber || !doc.sourceId) return;
     if (!pageMap.has(doc.pageNumber)) {
-      pageMap.set(doc.pageNumber, { min: doc.sourceId, max: doc.sourceId });
+      pageMap.set(doc.pageNumber, { page: doc.pageNumber, min: doc.sourceId, max: doc.sourceId });
     } else {
       const p = pageMap.get(doc.pageNumber);
       if (doc.sourceId < p.min) p.min = doc.sourceId;
@@ -158,25 +160,39 @@ async function calculateTargetPages(missingIDs) {
     }
   });
 
+  const pageRanges = Array.from(pageMap.values()).sort((a, b) => a.min - b.min);
   const targetPagesSet = new Set();
-  missingIDs.forEach(id => {
+
+  for (let i = 0; i < missingIDs.length; i++) {
+    const id = missingIDs[i];
+    let low = 0;
+    let high = pageRanges.length - 1;
     let found = false;
-    for (const [page, range] of pageMap.entries()) {
+
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const range = pageRanges[mid];
       if (id >= range.min && id <= range.max) {
-        targetPagesSet.add(page);
+        targetPagesSet.add(range.page);
         found = true;
         break;
+      } else if (id < range.min) {
+        high = mid - 1;
+      } else {
+        low = mid + 1;
       }
     }
-    if (!found && pageDocs.length > 0) {
-      const closestDoc = pageDocs.find(d => Math.abs(d.sourceId - id) <= 100);
-      if (closestDoc) {
-        targetPagesSet.add(closestDoc.pageNumber);
-      }
-    }
-  });
 
-  return [...targetPagesSet].sort((a, b) => a - b);
+    if (!found) {
+      if (low < pageRanges.length && Math.abs(pageRanges[low].min - id) <= 100) {
+        targetPagesSet.add(pageRanges[low].page);
+      } else if (high >= 0 && Math.abs(id - pageRanges[high].max) <= 100) {
+        targetPagesSet.add(pageRanges[high].page);
+      }
+    }
+  }
+
+  return Array.from(targetPagesSet).sort((a, b) => a - b);
 }
 
 async function runComparison(overrideOptions = {}) {
@@ -193,7 +209,10 @@ async function runComparison(overrideOptions = {}) {
     externalData = loadExternalIDs(options.file, options.rangeMax);
   } catch (err) {
     console.error(`❌ ${err.message}`);
-    process.exit(1);
+    if (require.main === module) {
+      process.exit(1);
+    }
+    throw err;
   }
 
   await connectDB();
@@ -208,11 +227,21 @@ async function runComparison(overrideOptions = {}) {
   const externalIDs = externalData.ids;
   const externalSet = new Set(externalIDs);
 
-  // Phân tích chỉ số biên Min/Max
-  const minLocal = localIDs.length > 0 ? Math.min(...localIDs) : 0;
-  const maxLocal = localIDs.length > 0 ? Math.max(...localIDs) : 0;
-  const minExt = externalIDs.length > 0 ? Math.min(...externalIDs) : 0;
-  const maxExt = externalIDs.length > 0 ? Math.max(...externalIDs) : 0;
+  // Phân tích chỉ số biên Min/Max (Dùng helper loop tránh RangeError call stack overflow khi array lớn)
+  function getMinMax(arr) {
+    if (!arr || arr.length === 0) return { min: 0, max: 0 };
+    let min = arr[0];
+    let max = arr[0];
+    for (let i = 1; i < arr.length; i++) {
+      const v = arr[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    return { min, max };
+  }
+
+  const { min: minLocal, max: maxLocal } = getMinMax(localIDs);
+  const { min: minExt, max: maxExt } = getMinMax(externalIDs);
 
   console.log(`📊 ĐÃ NẠP & KIỂM ĐỊNH DỮ LIỆU ĐẦU VÀO:`);
   console.log(`   - Local DB: ${localIDs.length.toLocaleString('vi-VN')} IDs [Dải ID: #${minLocal} ➔ #${maxLocal}]`);

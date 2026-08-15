@@ -173,10 +173,11 @@ async function enrichAuctionWithDuplicate(item, dup, ModelToUse) {
     if (dupRes) {
       return {
         ...transformed,
-        initialPrice: dupRes.firstPrice,
-        currentPrice: dupRes.latestPrice,
-        publishRound: dupRes.relistCount,
+        groupFirstPrice: dupRes.firstPrice,
+        groupLatestPrice: dupRes.latestPrice,
+        groupRelistCount: dupRes.relistCount,
         priceDropPercent: dupRes.priceDropPercent,
+        isPriceDrop: dupRes.isPriceDrop,
         isAggregated: true,
         duplicateId: dupRes.id,
         duplicateSourceIds: dup.sourceIds

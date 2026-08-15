@@ -270,10 +270,16 @@ export function ListingContainer({
             </thead>
             <tbody className="divide-y">
               {items.map((item: any) => {
-                const initialPrice = Number(item.initialPrice) || 0;
-                const currentPrice = Number(item.currentPrice) || 0;
-                const drop = initialPrice - currentPrice;
-                const dropPercent = initialPrice > 0 ? (drop / initialPrice) * 100 : 0;
+                const initialPrice = Number(item.groupFirstPrice || item.initialPrice) || 0;
+                const currentPrice = Number(item.currentPrice || item.groupLatestPrice || item.initialPrice) || 0;
+                let drop = initialPrice > currentPrice ? initialPrice - currentPrice : 0;
+                let dropPercent = initialPrice > 0 && drop > 0 ? (drop / initialPrice) * 100 : 0;
+                
+                if (item.priceDropPercent) {
+                  dropPercent = item.priceDropPercent;
+                }
+                
+                const roundNum = item.groupRelistCount || item.publishRound || 1;
                 
                 return (
                   <tr key={item.sourceId} className="hover:bg-muted/30 transition-colors">
@@ -295,11 +301,9 @@ export function ListingContainer({
                       ) : "—"}
                     </td>
                     <td className="px-3 py-3 text-center whitespace-nowrap">
-                      {item.publishRound && (
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${Number(item.publishRound) > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                          Lần {item.publishRound}
-                        </span>
-                      )}
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${Number(roundNum) > 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                        Lần {roundNum}
+                      </span>
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap text-[10px]">
                       <div className="flex flex-col">

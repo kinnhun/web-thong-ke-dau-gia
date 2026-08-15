@@ -91,12 +91,27 @@ async function main() {
     res.json({ success: true, message: '⚡ Đã kích hoạt cào lại các trang lỗi!' });
   });
 
+  // API lấy kết quả đối soát mới nhất
+  app.get('/api/compare-stats', (req, res) => {
+    try {
+      const exportPath = path.join(__dirname, '../missing_ids_export.json');
+      if (!fs.existsSync(exportPath)) {
+        return res.json({ hasReport: false, message: 'Chưa có báo cáo đối soát. Hãy chạy đối soát trước!' });
+      }
+      const raw = fs.readFileSync(exportPath, 'utf-8');
+      const data = JSON.parse(raw);
+      res.json({ hasReport: true, ...data });
+    } catch (err) {
+      res.status(500).json({ error: true, message: err.message });
+    }
+  });
+
   // API Kích hoạt đối soát ID trực tiếp
   app.post('/api/trigger-compare', async (req, res) => {
     try {
       logSystem('🔍 Nhận lệnh kích hoạt Đối Soát ID từ giao diện web...');
-      runComparison().catch(err => logSystem(`❌ Lỗi chạy đối soát: ${err.message}`));
-      res.json({ success: true, message: '🔍 Đã kích hoạt bot đối soát ID dữ liệu trong background!' });
+      await runComparison();
+      res.json({ success: true, message: '🔍 Đã hoàn tất đối soát ID dữ liệu thành công!' });
     } catch (err) {
       logSystem(`❌ Lỗi API đối soát: ${err.message}`);
       res.status(500).json({ success: false, message: err.message });
@@ -225,9 +240,9 @@ async function main() {
       logSystem(`📂 Đã nạp file JSON từ web với ${idsData.length.toLocaleString('vi-VN')} bản ghi. Đang tiến hành đối soát...`);
 
       // Chạy lại đối soát với file vừa nạp
-      runComparison({ file: tempPath }).catch(err => logSystem(`❌ Lỗi đối soát file upload: ${err.message}`));
+      await runComparison({ file: tempPath });
 
-      res.json({ success: true, message: `Đã nạp thành công ${idsData.length.toLocaleString('vi-VN')} bản ghi và KÍCH HOẠT ĐỐI SOÁT trong background!` });
+      res.json({ success: true, message: `Đã nạp thành công ${idsData.length.toLocaleString('vi-VN')} bản ghi và HOÀN TẤT ĐỐI SOÁT!` });
     } catch (err) {
       logSystem(`❌ Lỗi upload đối soát: ${err.message}`);
       res.status(500).json({ success: false, message: err.message });
@@ -236,12 +251,20 @@ async function main() {
 
 
   const PORT = config.apiPort || 4400;
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log('\n╔══════════════════════════════════════════════════════════╗');
     console.log(`║   🌐 WEB BÁO CÁO KIỂM SOÁT & ĐỐI SOÁT 589.476 IDs        ║`);
     console.log(`║   • Trang chính:  http://localhost:${PORT}                  ║`);
     console.log(`║   • Trang Compare: http://localhost:${PORT}/compare          ║`);
     console.log('╚══════════════════════════════════════════════════════════╝\n');
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Cổng ${PORT} đã được sử dụng bởi dịch vụ Web đang chạy ngầm. Bạn vẫn truy cập tại: http://localhost:${PORT}`);
+    } else {
+      console.error('❌ Lỗi khởi chạy Web Server:', err.message);
+    }
   });
 }
 

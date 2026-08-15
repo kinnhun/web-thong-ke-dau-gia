@@ -79,9 +79,19 @@ async function runCrawl(options = {}) {
   const completedSet = new Set(state.pagesCompleted || []);
   let failedPagesList = (state.pagesFailed || []).map(p => p.pageNumber);
 
+  // Kiểm tra nếu người dùng truyền tham số --pages=2087,2090,4087
+  const pagesArg = process.argv.find(arg => arg.startsWith('--pages='));
+  let specifiedPages = options.targetPages || options.pages;
+  if (!specifiedPages && pagesArg) {
+    specifiedPages = pagesArg.split('=')[1].split(',').map(p => parseInt(p.trim(), 10)).filter(p => !isNaN(p) && p > 0);
+  }
+
   // Xác định danh sách các trang cần cào
   let pagesToCrawl = [];
-  if (missingOnly) {
+  if (Array.isArray(specifiedPages) && specifiedPages.length > 0) {
+    pagesToCrawl = specifiedPages;
+    console.log(`📌 Chế độ Cào Trang Chỉ Định: Tập trung cào lại ${pagesToCrawl.length} trang [${pagesToCrawl.join(', ')}].`);
+  } else if (missingOnly) {
     if (Array.isArray(options.targetPages) && options.targetPages.length > 0) {
       pagesToCrawl = options.targetPages;
     } else {
@@ -175,6 +185,10 @@ async function runCrawl(options = {}) {
         state.pagesCompleted = [...completedSet];
         state.pagesFailed = state.pagesFailed.filter(f => f.pageNumber !== pageNumber);
         state.lastProcessedPage = pageNumber;
+
+        if (state.pagesFailed.length === 0) {
+          state.failedApiCalls = 0;
+        }
 
       } else {
         state.totalApiCalls = (state.totalApiCalls || 0) + 1;

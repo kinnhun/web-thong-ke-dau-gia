@@ -1,17 +1,14 @@
-/**
- * Scraper: Thông báo công khai việc đấu giá
- * List + Detail + Duplicate (all-in-one)
- */
 const config = require('../config');
 const { fetchAPI } = require('../browser');
 const AuctionNotice = require('../models/AuctionNotice');
+const AssetItem = require('../models/AssetItem');
 const CrawlLog = require('../models/CrawlLog');
-const { fetchAuctionItemDetail, handleDuplicate, searchDuplicatesByFuzzyName } = require('./detail.scraper');
+const { fetchAuctionItemDetail, handleDuplicate, searchDuplicatesByFuzzyName, extractAssetItemsFromNotice, mergeIdenticalAssetGroups, rebuildAllDuplicateEntries } = require('./detail.scraper');
 const { slugify, mapAssetType, parseDate, extractProvince, deriveStatus, delay } = require('../utils/helpers');
 
 const API = config.endpoints.auctionNoticeList;
 const BASE = config.baseUrl;
-const SKIP_THRESHOLD = config.crawl.skipThreshold;
+const SKIP_THRESHOLD = config.crawl.skipThreshold || 20;
 
 function resolveAuctionProvince(item, name, shortDescription) {
   const directProvince = item.provinceName
@@ -35,6 +32,23 @@ function resolveAuctionProvince(item, name, shortDescription) {
   ].filter(Boolean).join(' '));
 }
 
+async function saveExtractedAssetItems(doc, sourceType = 'auction') {
+  try {
+    const items = extractAssetItemsFromNotice(doc, sourceType);
+    if (!items || items.length === 0) return;
+    const bulkOps = items.map(item => ({
+      updateOne: {
+        filter: { sourceType, sourceId: item.sourceId, itemIndex: item.itemIndex },
+        update: { $set: item },
+        upsert: true
+      }
+    }));
+    await AssetItem.bulkWrite(bulkOps, { ordered: false });
+  } catch (e) {
+    // ignore non-fatal bulk write errors
+  }
+}
+
 async function crawlAuctionNotices(options = {}) {
   const pageSize = options.pageSize || config.crawl.pageSize;
   const startPage = options.startPage || 1;
@@ -54,7 +68,7 @@ async function crawlAuctionNotices(options = {}) {
   let consecutiveOld = 0;
   let earlyStop = false;
 
-  console.log(`\n🚀 Cào Thông Báo Đấu Giá từ trang ${startPage}...`);
+  console.log(`\n🚀 Cào Thông Báo Đấu Giá từ trang ${startPage}... (Skip threshold: ${SKIP_THRESHOLD} bản cũ liên tiếp)`);
 
   try {
     const firstRes = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize, typeOrder: 2 });
@@ -65,9 +79,12 @@ async function crawlAuctionNotices(options = {}) {
     log.totalPages = totalPages;
     console.log(`📊 Server: ${firstRes.rowCount} items, ${totalPages} pages`);
 
-    const r = await processItems(firstRes.items, stats, { isAuto, consecutiveOld, listOnly });
+    const r = await processItems(firstRes.items, stats, { isAuto, prevOld: consecutiveOld, listOnly });
     consecutiveOld = r.consecutiveOld;
-    if (!listOnly && isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
+    if (!listOnly && isAuto && (r.reachedThreshold || consecutiveOld >= SKIP_THRESHOLD)) {
+      earlyStop = true;
+      console.log(`🛑 [Auto-crawl] Gặp ${SKIP_THRESHOLD} tài sản trùng id (đã có trong DB) liên tiếp -> Dừng sớm ở trang ${currentPage}.`);
+    }
     log.pagesProcessed = 1;
     log.lastPage = currentPage;
     log.itemsInserted = stats.inserted;
@@ -84,7 +101,10 @@ async function crawlAuctionNotices(options = {}) {
         if (res && res.items) {
           const r2 = await processItems(res.items, stats, { isAuto, prevOld: consecutiveOld, listOnly });
           consecutiveOld = r2.consecutiveOld;
-          if (!listOnly && isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
+          if (!listOnly && isAuto && (r2.reachedThreshold || consecutiveOld >= SKIP_THRESHOLD)) {
+            earlyStop = true;
+            console.log(`🛑 [Auto-crawl] Gặp ${SKIP_THRESHOLD} tài sản trùng id (đã có trong DB) liên tiếp -> Dừng sớm ở trang ${currentPage}.`);
+          }
         }
       } catch (err) {
         stats.errors++;
@@ -101,6 +121,17 @@ async function crawlAuctionNotices(options = {}) {
         console.log(`  📄 P${currentPage}/${totalPages} | +${stats.inserted} | detail=${stats.detailOk} | dup=${stats.duplicates}`);
       }
       currentPage++;
+    }
+
+    // Chạy sync duplicate cho các bản ghi mới vừa cào
+    if (stats.inserted > 0) {
+      try {
+        console.log(`\n🔄 [Post-Crawl] Đang đồng bộ AssetItem & ghép duplicate cho ${stats.inserted} bài mới...`);
+        await mergeIdenticalAssetGroups('auction');
+        await rebuildAllDuplicateEntries(null, null, { type: 'auction' });
+      } catch (e) {
+        console.error('⚠️ Post-crawl duplicate sync warning:', e.message);
+      }
     }
 
     log.status = earlyStop ? 'early_stopped' : 'completed';
@@ -127,32 +158,37 @@ async function processItems(items, stats, options = {}) {
   const isAuto = options.isAuto === true || options.isAuto === 'true';
   let consecutiveOld = options.prevOld || 0;
   const listOnly = options.listOnly === true || options.listOnly === 'true';
-  // ⚡ Batch check: 1 query thay vì N queries
-  const sourceIds = items.map(i => i.id).filter(Boolean);
-  const existingDocs = await AuctionNotice.find({ sourceId: { $in: sourceIds } }).select('sourceId').lean();
-  const existingSet = new Set(existingDocs.map(d => d.sourceId));
 
-  // Phân loại: cũ vs mới
+  // ⚡ Batch check: Convert sang Number để ép kiểu nhất quán
+  const sourceIds = items.map(i => Number(i.id)).filter(Boolean);
+  const existingDocs = await AuctionNotice.find({ sourceId: { $in: sourceIds } }).select('sourceId').lean();
+  const existingSet = new Set(existingDocs.map(d => Number(d.sourceId)));
+
   const newItems = [];
+  let reachedThreshold = false;
+
   for (const item of items) {
-    const sourceId = item.id;
+    const sourceId = Number(item.id);
     if (!sourceId) { stats.skipped++; continue; }
 
     if (existingSet.has(sourceId)) {
       stats.skipped++;
       if (isAuto) {
         consecutiveOld++;
-        if (consecutiveOld >= SKIP_THRESHOLD) return { consecutiveOld };
+        if (consecutiveOld >= SKIP_THRESHOLD) {
+          reachedThreshold = true;
+          break; // Dừng gom thêm item cũ trên trang này, nhưng PHẢI xử lý hết newItems đã thu thập
+        }
       }
     } else {
-      if (isAuto) consecutiveOld = 0;
+      if (isAuto) consecutiveOld = 0; // Gặp bài mới -> Reset số bài cũ liên tiếp về 0
       newItems.push(item);
     }
   }
 
   if (listOnly && newItems.length > 0) {
     const docs = newItems.map((item) => {
-      const sourceId = item.id;
+      const sourceId = Number(item.id);
       const data = buildAuctionData(item);
       data.sourceId = sourceId;
       data.lastCrawledAt = new Date();
@@ -179,28 +215,32 @@ async function processItems(items, stats, options = {}) {
       stats.errors += Array.isArray(err.writeErrors) ? err.writeErrors.filter((writeError) => writeError?.code !== 11000).length : 1;
     }
 
-    return { consecutiveOld };
+    return { consecutiveOld, reachedThreshold };
   }
 
-  // ⚡ Xử lý items mới tuần tự từng bài một để tránh anti-bot
+  // ⚡ Xử lý newItems: Cào detail + Lưu DB + Bóc tách AssetItem + Ghép trùng lặp
   const concurrency = 1;
   for (let i = 0; i < newItems.length; i += concurrency) {
     const chunk = newItems.slice(i, i + concurrency);
     const results = await Promise.allSettled(chunk.map(async (item) => {
-      const sourceId = item.id;
+      const sourceId = Number(item.id);
       const data = buildAuctionData(item);
       data.sourceId = sourceId;
       data.lastCrawledAt = new Date();
 
       try {
-        const { updates, files } = await fetchAuctionItemDetail(sourceId);
+        const { updates, files } = await fetchAuctionItemDetail(sourceId, data.name);
         Object.assign(data, updates);
         if (files.length > 0) data.files = files;
         data.detailScraped = true;
         
-        // ★ Auto-crawl: chỉ dùng relatedIds từ API (nhanh), BỎ fuzzy search (chậm)
-        // Fuzzy search sẽ chạy riêng trong duplicate_scan job
-        const relatedIds = data.relatedIds || [];
+        let relatedIds = data.relatedIds || [];
+        try {
+          const localMatchedIds = await searchDuplicatesByFuzzyName(sourceId, data.name, 'auction', true, data.province);
+          if (localMatchedIds && localMatchedIds.length > 0) {
+            relatedIds = [...new Set([...relatedIds, ...localMatchedIds])];
+          }
+        } catch (e) {}
         
         await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
         return { data, hasDetail: true, relatedIds, sourceId, name: data.name };
@@ -215,7 +255,7 @@ async function processItems(items, stats, options = {}) {
       if (result.status === 'fulfilled') {
         const { data, hasDetail, relatedIds, sourceId, name } = result.value;
         try {
-          await AuctionNotice.create(data);
+          const createdDoc = await AuctionNotice.create(data);
           stats.inserted++;
           stats.recentNotices.unshift({
             sourceId,
@@ -225,6 +265,9 @@ async function processItems(items, stats, options = {}) {
           });
           stats.recentNotices = stats.recentNotices.slice(0, 8);
           if (hasDetail) stats.detailOk++;
+
+          // Bóc tách AssetItem cho bản ghi mới tạo
+          await saveExtractedAssetItems(createdDoc, 'auction');
 
           if (relatedIds && relatedIds.length > 0) {
             await handleDuplicate(sourceId, name, relatedIds, 'auction');
@@ -243,7 +286,8 @@ async function processItems(items, stats, options = {}) {
       }
     }
   }
-  return { consecutiveOld };
+
+  return { consecutiveOld, reachedThreshold };
 }
 
 function buildAuctionData(item) {
@@ -253,19 +297,30 @@ function buildAuctionData(item) {
   const type = mapAssetType(propertyTypeName, name);
   const province = resolveAuctionProvince(item, name, shortDescription);
   const slug = slugify(shortDescription || name);
-  const publishedAt = parseDate(item.publishTime1) || parseDate(item.publishTime2);
-  const auctionDate = parseDate(item.aucTime);
-  const registrationStart = parseDate(item.aucRegTimeStart);
-  const registrationEnd = parseDate(item.aucRegTimeEnd);
+
+  // Thử tất cả các trường ngày xuất bản từ API
+  const publishedAt = parseDate(item.publishedAt)
+    || parseDate(item.publishTime1)
+    || parseDate(item.publishTime2)
+    || parseDate(item.publishTime)
+    || parseDate(item.createdDate)
+    || parseDate(item.lastUpdated)
+    || parseDate(item.aucRegTimeStart)
+    || parseDate(item.aucTime);
+
+  const auctionDate = parseDate(item.aucTime) || parseDate(item.auctionDate);
+  const registrationStart = parseDate(item.aucRegTimeStart) || parseDate(item.registrationStart);
+  const registrationEnd = parseDate(item.aucRegTimeEnd) || parseDate(item.registrationEnd);
 
   return {
     name, shortDescription, titleName: item.titleName || '', slug, type, province,
     propertyTypeId: item.propertyTypeId, propertyTypeName,
     publishedAt, auctionDate, registrationStart, registrationEnd,
-    organizer: item.org_name || '', owner: item.fullname || '',
+    organizer: item.org_name || item.organizer || '', owner: item.fullname || item.owner || '',
     sourceUrl: `${BASE}${config.endpoints.auctionDetailBase}/${slug}-${item.id}.html`,
     status: deriveStatus(registrationEnd, auctionDate),
   };
 }
 
 module.exports = { crawlAuctionNotices };
+

@@ -842,32 +842,78 @@ function parsePrice(priceStr) {
 /**
  * Parse date từ format "dd/MM/yyyy HH:mm" hoặc timestamp
  */
+/**
+ * Parse date từ format "dd/MM/yyyy HH:mm", "HH:mm dd/MM/yyyy", "yyyy-MM-dd" hoặc timestamp/ISO
+ */
 function parseDate(dateVal) {
   if (!dateVal) return null;
 
-  // Nếu là timestamp (số)
+  // 0. Đã là kiểu Date
+  if (dateVal instanceof Date) {
+    return isNaN(dateVal.getTime()) ? null : dateVal;
+  }
+
+  // 1. Timestamp (số)
   if (typeof dateVal === 'number') {
-    return new Date(dateVal);
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? null : d;
   }
 
-  // Nếu là ISO string
-  if (typeof dateVal === 'string' && dateVal.includes('T')) {
-    return new Date(dateVal);
-  }
-
-  // Nếu là "HH:mm dd/MM/yyyy"
   if (typeof dateVal === 'string') {
-    const match = dateVal.match(/(\d{1,2}):(\d{2})\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (match) {
-      const [, h, m, d, mo, y] = match;
-      return new Date(parseInt(y), parseInt(mo) - 1, parseInt(d), parseInt(h), parseInt(m));
+    const str = dateVal.trim();
+    if (!str) return null;
+
+    // 2. ISO String hoặc dạng chuẩn JS
+    if (str.includes('T')) {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) return d;
     }
-    // "dd/MM/yyyy"
-    const match2 = dateVal.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+
+    // 3. "dd/MM/yyyy HH:mm:ss" hoặc "dd/MM/yyyy HH:mm" hoặc "dd/MM/yyyy"
+    const match1 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match1) {
+      const [, d, mo, y, h, m, s] = match1;
+      return new Date(
+        parseInt(y, 10),
+        parseInt(mo, 10) - 1,
+        parseInt(d, 10),
+        parseInt(h || '0', 10),
+        parseInt(m || '0', 10),
+        parseInt(s || '0', 10)
+      );
+    }
+
+    // 4. "HH:mm dd/MM/yyyy" hoặc "HH:mm:ss dd/MM/yyyy"
+    const match2 = str.match(/^(?:(\d{1,2}):(\d{2})(?::(\d{2}))?\s+)?(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (match2) {
-      const [, d, mo, y] = match2;
-      return new Date(parseInt(y), parseInt(mo) - 1, parseInt(d));
+      const [, h, m, s, d, mo, y] = match2;
+      return new Date(
+        parseInt(y, 10),
+        parseInt(mo, 10) - 1,
+        parseInt(d, 10),
+        parseInt(h || '0', 10),
+        parseInt(m || '0', 10),
+        parseInt(s || '0', 10)
+      );
     }
+
+    // 5. "yyyy-MM-dd HH:mm:ss" hoặc "yyyy-MM-dd"
+    const match3 = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match3) {
+      const [, y, mo, d, h, m, s] = match3;
+      return new Date(
+        parseInt(y, 10),
+        parseInt(mo, 10) - 1,
+        parseInt(d, 10),
+        parseInt(h || '0', 10),
+        parseInt(m || '0', 10),
+        parseInt(s || '0', 10)
+      );
+    }
+
+    // 6. Thử parse trực tiếp bằng Date Constructor
+    const directDate = new Date(str);
+    if (!isNaN(directDate.getTime())) return directDate;
   }
 
   return null;
@@ -903,13 +949,62 @@ function normalizeProvince(p) {
   return p;
 }
 
-function extractProvince(text) {
-  if (!text) return '';
-  for (const p of PROVINCES) {
-    if (text.includes(p)) return normalizeProvince(p);
+function extractProvince(text, organizer = '') {
+  if (!text && !organizer) return '';
+  const str = ((text || '') + ' ' + (organizer || '')).normalize('NFC');
+  
+  // 1. Kiểm tra các TP lớn trực thuộc TW trước (TP.HCM, Hà Nội, Đà Nẵng, Hải Phòng, Cần Thơ)
+  if (/(?:TP\.?\s*Hồ Chí Minh|TP\.?\s*HCM|Thành phố Hồ Chí Minh|\bTPHCM\b|\bHCM\b)/i.test(str)) {
+    return 'TP. Hồ Chí Minh';
   }
-  // Normalize TP. HCM variants
-  if (text.includes('Hồ Chí Minh') || text.includes('HCM')) return 'TP. Hồ Chí Minh';
+  if (/(?:Thành phố Hà Nội|TP\.?\s*Hà Nội|\bHà Nội\b)/i.test(str)) {
+    return 'Hà Nội';
+  }
+  if (/(?:Thành phố Đà Nẵng|TP\.?\s*Đà Nẵng|\bĐà Nẵng\b)/i.test(str)) {
+    return 'Đà Nẵng';
+  }
+  if (/(?:Thành phố Hải Phòng|TP\.?\s*Hải Phòng|\bHải Phòng\b)/i.test(str)) {
+    return 'Hải Phòng';
+  }
+  if (/(?:Thành phố Cần Thơ|TP\.?\s*Cần Thơ|\bCần Thơ\b)/i.test(str)) {
+    return 'Cần Thơ';
+  }
+
+  // 2. Kiểm tra các tỉnh thành có từ khoá 'tỉnh [Tên]'
+  const matchTinh = str.match(/\btỉnh\s+([A-ZÀÁẢÃẠĂẰẮẲẴẶẤẦẨẪẬĐÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ][a-zàáảãạăằắẳẵặấầẩẫậnđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ]+(?:\s+[A-ZÀÁẢÃẠĂẰẮẲẴẶẤẦẨẪẬĐÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ][a-zàáảãạăằắẳẵặấầẩẫậnđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ]+){0,2})/i);
+  if (matchTinh) {
+    const raw = matchTinh[1].trim();
+    if (raw.toLowerCase() !== 'phủ') return raw;
+  }
+
+  // 3. Xử lý loại trừ tên đường phổ biến (Điện Biên Phủ)
+  if (/\bĐiện Biên Phủ\b/i.test(str) && !/\btỉnh Điện Biên\b/i.test(str)) {
+    // Không nhận nhầm Điện Biên Phủ thành tỉnh Điện Biên
+  } else if (/\bĐiện Biên\b/i.test(str)) {
+    return 'Điện Biên';
+  }
+
+  const PROVINCES_LIST = [
+    'An Giang', 'Bà Rịa - Vũng Tàu', 'Bắc Giang', 'Bắc Kạn', 'Bạc Liêu',
+    'Bắc Ninh', 'Bến Tre', 'Bình Định', 'Bình Dương', 'Bình Phước',
+    'Bình Thuận', 'Cà Mau', 'Cao Bằng', 'Đắc Lắc', 'Đắk Lắk', 'Đắk Nông',
+    'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Giang',
+    'Hà Nam', 'Hà Tĩnh', 'Hải Dương', 'Hậu Giang', 'Hòa Bình',
+    'Hưng Yên', 'Khánh Hòa', 'Kiên Giang', 'Kon Tum', 'Lai Châu',
+    'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Long An', 'Nam Định',
+    'Nghệ An', 'Ninh Bình', 'Ninh Thuận', 'Phú Thọ', 'Phú Yên',
+    'Quảng Bình', 'Quảng Nam', 'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị',
+    'Sóc Trăng', 'Sơn La', 'Tây Ninh', 'Thái Bình', 'Thái Nguyên',
+    'Thanh Hóa', 'Thừa Thiên Huế', 'Tiền Giang', 'Trà Vinh', 'Tuyên Quang',
+    'Vĩnh Long', 'Vĩnh Phúc', 'Yên Bái'
+  ];
+
+  for (const p of PROVINCES_LIST) {
+    if (new RegExp('\\b' + p + '\\b', 'i').test(str)) {
+      return p === 'Đắc Lắc' ? 'Đắk Lắk' : p;
+    }
+  }
+
   return '';
 }
 

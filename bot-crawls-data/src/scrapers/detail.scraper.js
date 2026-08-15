@@ -817,11 +817,9 @@ function normalizePropertyRows(allItems) {
   });
 }
 
-async function fetchAuctionItemDetail(sourceId) {
+async function fetchAuctionItemDetail(sourceId, existingName = '') {
   const updates = {};
   let files = [];
-  
-  // Bỏ tự động tạo URL gốc để tránh ghi đè làm mất slug của URL đã lưu
 
   // ⚡ Gọi 3 API song song thay vì tuần tự
   const [propResult, viewResult, pubResult] = await Promise.allSettled([
@@ -855,12 +853,15 @@ async function fetchAuctionItemDetail(sourceId) {
       if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
       if (prop.propertyQuality) updates.quality = prop.propertyQuality;
 
-      // ★ FIX: Lấy tên tài sản từ propertyInfo (list API thường không có)
-      const assetName = allItems
-        .map(p => p.propertyName || p.propertyDesc || '')
-        .filter(Boolean)
-        .join('; ');
-      if (assetName) updates.name = assetName;
+      // Only update name if existingName is missing/generic or updates.name is missing
+      const cleanExisting = existingName && !isGenericTitle(existingName);
+      if (!cleanExisting) {
+        const assetName = allItems
+          .map(p => p.propertyName || p.propertyDesc || '')
+          .filter(Boolean)
+          .join('; ');
+        if (assetName) updates.name = assetName;
+      }
 
       const properties = normalizePropertyRows(allItems);
       const safeProperties = Array.isArray(properties) ? properties : [];
@@ -886,11 +887,9 @@ async function fetchAuctionItemDetail(sourceId) {
   if (viewResult.status === 'fulfilled' && viewResult.value) {
     const viewDetail = viewResult.value;
 
-    // ★ FIX: Fallback lấy tên tài sản từ viewDetail nếu propertyInfo không có
-    if (!updates.name && viewDetail.subPropertyName) {
+    if (!updates.name && !existingName && viewDetail.subPropertyName) {
       updates.name = viewDetail.subPropertyName;
     }
-    // Lấy shortDescription nếu có
     if (viewDetail.subPropertyName) {
       updates.shortDescription = viewDetail.subPropertyName;
     }
@@ -1646,6 +1645,7 @@ function extractAssetItemsFromNotice(notice, type) {
         province: notice.province,
         district: ids.district || notice.district,
         ward: ids.commune,
+        publishedAt: notice.publishedAt || null,
         attachmentTextUsed: false
       };
       item.blockingKeys = generateBlockingKeys(item);
@@ -1678,6 +1678,7 @@ function extractAssetItemsFromNotice(notice, type) {
       province: notice.province,
       district: ids.district || notice.district,
       ward: ids.commune,
+      publishedAt: notice.publishedAt || null,
       attachmentTextUsed: false
     };
     item.blockingKeys = generateBlockingKeys(item);
@@ -2872,5 +2873,6 @@ module.exports = {
   runFixMissingData,
   extractAssetItemsFromNotice,
   syncAllAssetItems,
+  mergeIdenticalAssetGroups,
 };
 

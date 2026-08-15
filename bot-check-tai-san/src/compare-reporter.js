@@ -20,6 +20,9 @@ function generateCompareHTMLReport(data) {
   const matchRate = totalExternal > 0 ? ((matchedCount / totalExternal) * 100).toFixed(2) : '0.00';
   const missingRate = totalExternal > 0 ? ((missingInLocalCount / totalExternal) * 100).toFixed(2) : '0.00';
 
+  const displayMissing = missingInLocalIDs.slice(0, 2000);
+  const displayExtra = extraInLocalIDs.slice(0, 2000);
+
   const htmlContent = `<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -314,26 +317,28 @@ function generateCompareHTMLReport(data) {
     <!-- ID THIẾU - FULL 100% UNCROPPED LIST -->
     <div class="section-title">
       <div>
-        ❌ Danh Sách Tất Cả ID Máy Hiện Tại Đang THIẾU (${missingInLocalCount.toLocaleString('vi-VN')} IDs - Đầy đủ 100%)
+        ❌ Danh Sách ID Máy Hiện Tại Đang THIẾU (${missingInLocalCount.toLocaleString('vi-VN')} IDs)
+        ${missingInLocalCount > 2000 ? `<span class="badge badge-info" style="margin-left: 8px;">Hiển thị 2.000 / ${missingInLocalCount.toLocaleString('vi-VN')} ID (Tải file JSON để xem đầy đủ)</span>` : ''}
       </div>
       <input type="text" id="missingSearch" class="search-input" placeholder="Lọc mã ID thiếu...">
     </div>
     <div class="ids-grid" id="missingGrid">
-      ${missingInLocalIDs.length === 0 ? '<div style="color: var(--text-muted);">Không có ID nào bị thiếu!</div>' : 
-        missingInLocalIDs.map(id => `<span class="id-pill pill-missing missing-item" data-id="${id}">ID #${id}</span>`).join('')
+      ${displayMissing.length === 0 ? '<div style="color: var(--text-muted);">Không có ID nào bị thiếu!</div>' : 
+        displayMissing.map(id => `<span class="id-pill pill-missing missing-item" data-id="${id}">ID #${id}</span>`).join('')
       }
     </div>
 
     <!-- ID THỪA - FULL 100% UNCROPPED LIST -->
     <div class="section-title" style="margin-top: 28px;">
       <div>
-        ⚠️ Danh Sách Tất Cả ID Máy Hiện Tại Đang THỪA (${extraInLocalCount.toLocaleString('vi-VN')} IDs - Đầy đủ 100%)
+        ⚠️ Danh Sách ID Máy Hiện Tại Đang THỪA (${extraInLocalCount.toLocaleString('vi-VN')} IDs)
+        ${extraInLocalCount > 2000 ? `<span class="badge badge-info" style="margin-left: 8px;">Hiển thị 2.000 / ${extraInLocalCount.toLocaleString('vi-VN')} ID (Tải file JSON để xem đầy đủ)</span>` : ''}
       </div>
       <input type="text" id="extraSearch" class="search-input" placeholder="Lọc mã ID thừa...">
     </div>
     <div class="ids-grid" id="extraGrid">
-      ${extraInLocalIDs.length === 0 ? '<div style="color: var(--text-muted);">Không có ID dư thừa!</div>' : 
-        extraInLocalIDs.map(id => `<span class="id-pill pill-extra extra-item" data-id="${id}">ID #${id}</span>`).join('')
+      ${displayExtra.length === 0 ? '<div style="color: var(--text-muted);">Không có ID dư thừa!</div>' : 
+        displayExtra.map(id => `<span class="id-pill pill-extra extra-item" data-id="${id}">ID #${id}</span>`).join('')
       }
     </div>
 
@@ -430,6 +435,9 @@ function generateCompareHTMLReport(data) {
         const data = await res.json();
         showToast(data.message, data.success ? 'success' : 'error');
         loadApiLogs();
+        if (data.success) {
+          setTimeout(() => { window.location.reload(); }, 1000);
+        }
       } catch (err) {
         showToast('❌ Lỗi kích hoạt đối soát: ' + err.message, 'error');
       }
@@ -454,8 +462,9 @@ function generateCompareHTMLReport(data) {
           });
           const data = await res.json();
           if (data.success) {
-            showToast('✅ ' + data.message + ' Đang hiển thị tiến độ trong log bên dưới.', 'success');
+            showToast('✅ ' + data.message + ' Đang tải lại kết quả đối soát...', 'success');
             loadApiLogs();
+            setTimeout(() => { window.location.reload(); }, 1000);
           } else {
             showToast('❌ Lỗi đối soát: ' + data.message, 'error');
           }
@@ -475,6 +484,9 @@ function generateCompareHTMLReport(data) {
         const data = await res.json();
         showToast(data.message, data.success ? 'success' : 'error');
         loadApiLogs();
+        if (data.success) {
+          setTimeout(() => { window.location.reload(); }, 1000);
+        }
       } catch (err) {
         showToast('❌ Lỗi Sync: ' + err.message, 'error');
       }

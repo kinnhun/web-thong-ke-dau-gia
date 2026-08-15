@@ -30,7 +30,7 @@ async function crawlOrgSelections(options = {}) {
   let consecutiveOld = 0;
   let earlyStop = false;
 
-  console.log(`\n🚀 Cào Lựa Chọn Tổ Chức ĐG từ trang ${startPage}...`);
+  console.log(`\n🚀 Cào Lựa Chọn Tổ Chức ĐG từ trang ${startPage}... (Skip threshold: ${SKIP_THRESHOLD} bản cũ liên tiếp)`);
 
   try {
     const firstRes = await fetchAPI(API, { p: currentPage, numberPerPage: pageSize, typeOrder: 2 });
@@ -40,9 +40,12 @@ async function crawlOrgSelections(options = {}) {
     if (maxPages > 0) totalPages = Math.min(totalPages, maxPages + startPage - 1);
     console.log(`📊 Server: ${firstRes.rowCount} items, ${totalPages} pages`);
 
-    const r = await processItems(firstRes.items, stats, { isAuto, consecutiveOld });
+    const r = await processItems(firstRes.items, stats, { isAuto, prevOld: consecutiveOld });
     consecutiveOld = r.consecutiveOld;
-    if (isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
+    if (isAuto && (r.reachedThreshold || consecutiveOld >= SKIP_THRESHOLD)) {
+      earlyStop = true;
+      console.log(`🛑 [Auto-crawl Org] Gặp ${SKIP_THRESHOLD} bản ghi cũ liên tiếp -> Dừng sớm ở trang ${currentPage}.`);
+    }
     log.pagesProcessed = 1;
     currentPage++;
 
@@ -53,7 +56,10 @@ async function crawlOrgSelections(options = {}) {
         if (res && res.items) {
           const r2 = await processItems(res.items, stats, { isAuto, prevOld: consecutiveOld });
           consecutiveOld = r2.consecutiveOld;
-          if (isAuto && consecutiveOld >= SKIP_THRESHOLD) earlyStop = true;
+          if (isAuto && (r2.reachedThreshold || consecutiveOld >= SKIP_THRESHOLD)) {
+            earlyStop = true;
+            console.log(`🛑 [Auto-crawl Org] Gặp ${SKIP_THRESHOLD} bản ghi cũ liên tiếp -> Dừng sớm ở trang ${currentPage}.`);
+          }
         }
       } catch (err) {
         stats.errors++;
@@ -86,22 +92,26 @@ async function processItems(items, stats, options = {}) {
   const isAuto = options.isAuto || false;
   let consecutiveOld = options.prevOld || 0;
 
-  // ⚡ Batch check: 1 query thay vì N queries
-  const sourceIds = items.map(i => i.id).filter(Boolean);
+  // ⚡ Batch check: Ép kiểu Number nhất quán
+  const sourceIds = items.map(i => Number(i.id)).filter(Boolean);
   const existingDocs = await OrgSelection.find({ sourceId: { $in: sourceIds } }).select('sourceId').lean();
-  const existingSet = new Set(existingDocs.map(d => d.sourceId));
+  const existingSet = new Set(existingDocs.map(d => Number(d.sourceId)));
 
-  // Phân loại: cũ vs mới
   const newItems = [];
+  let reachedThreshold = false;
+
   for (const item of items) {
-    const sourceId = item.id;
+    const sourceId = Number(item.id);
     if (!sourceId) { stats.skipped++; continue; }
 
     if (existingSet.has(sourceId)) {
       stats.skipped++;
       if (isAuto) {
         consecutiveOld++;
-        if (consecutiveOld >= SKIP_THRESHOLD) return { consecutiveOld };
+        if (consecutiveOld >= SKIP_THRESHOLD) {
+          reachedThreshold = true;
+          break;
+        }
       }
     } else {
       if (isAuto) consecutiveOld = 0;
@@ -114,7 +124,7 @@ async function processItems(items, stats, options = {}) {
   for (let i = 0; i < newItems.length; i += concurrency) {
     const chunk = newItems.slice(i, i + concurrency);
     const results = await Promise.allSettled(chunk.map(async (item) => {
-      const sourceId = item.id;
+      const sourceId = Number(item.id);
       const data = buildOrgData(item);
       data.sourceId = sourceId;
       data.lastCrawledAt = new Date();
@@ -154,7 +164,7 @@ async function processItems(items, stats, options = {}) {
       }
     }
   }
-  return { consecutiveOld };
+  return { consecutiveOld, reachedThreshold };
 }
 
 function buildOrgData(item) {
