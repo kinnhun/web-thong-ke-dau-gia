@@ -16,7 +16,7 @@ const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
 const AssetItem = require('../models/AssetItem');
 const PotentialDuplicate = require('../models/PotentialDuplicate');
-const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, isSignificantNumber, isGenericTitle, extractLocationIdentity, generateBlockingKeys, detectHardConflict, compareArea, compareRelistPrice, scoreAssetPair } = require('../utils/helpers');
+const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, isSignificantNumber, isGenericTitle, isBatchNotice, extractLocationIdentity, generateBlockingKeys, detectHardConflict, compareArea, compareRelistPrice, scoreAssetPair } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
