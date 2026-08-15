@@ -112,11 +112,12 @@ async function main() {
 
   // Mặc định không chạy crawl lúc khởi động để tránh tranh browser với mega crawl/manual job.
   // Nếu cần bật lại: STARTUP_AUTO_CRAWL=true npm run dev:backend
-  if (process.env.STARTUP_AUTO_CRAWL === 'true') {
-    console.log(`\n🚀 Crawl lần đầu sau 5 giây...`);
-    setTimeout(runAutoCrawl, 5000);
+  // Tự động cào lần đầu ngay lập tức khi vừa khởi động hệ thống, sau đó 15 phút 1 lần
+  if (process.env.STARTUP_AUTO_CRAWL !== 'false') {
+    console.log(`\n🚀 Lần đầu khởi động: Tự động cào dữ liệu ngay lập tức...`);
+    setTimeout(runAutoCrawl, 1000);
   } else {
-    console.log(`\n⏸️ Bỏ qua crawl khởi động. Bật STARTUP_AUTO_CRAWL=true nếu cần.`);
+    console.log(`\n⏸️ Bỏ qua crawl khởi động do STARTUP_AUTO_CRAWL=false.`);
   }
 
   // Tính toán stats ban đầu
