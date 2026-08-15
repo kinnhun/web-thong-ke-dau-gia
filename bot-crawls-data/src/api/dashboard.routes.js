@@ -96,24 +96,18 @@ router.get('/top-discounted', async (req, res, next) => {
       {
         $lookup: {
           from: 'auctionnotices',
-          localField: 'sourceIds',
-          foreignField: 'sourceId',
-          as: 'notices',
+          let: { sourceIds: '$sourceIds' },
+          pipeline: [
+            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
+            { $sort: { publishedAt: -1 } },
+            { $limit: 1 }
+          ],
+          as: 'latestNoticeArray',
         },
       },
       {
         $addFields: {
-          latestNotice: {
-            $arrayElemAt: [
-              {
-                $sortArray: {
-                  input: '$notices',
-                  sortBy: { publishedAt: -1 },
-                },
-              },
-              0,
-            ],
-          },
+          latestNotice: { $arrayElemAt: ['$latestNoticeArray', 0] },
         },
       },
       {
@@ -172,24 +166,18 @@ router.get('/newly-reduced', async (req, res, next) => {
       {
         $lookup: {
           from: 'auctionnotices',
-          localField: 'sourceIds',
-          foreignField: 'sourceId',
-          as: 'notices',
+          let: { sourceIds: '$sourceIds' },
+          pipeline: [
+            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
+            { $sort: { publishedAt: -1 } },
+            { $limit: 1 }
+          ],
+          as: 'latestNoticeArray',
         },
       },
       {
         $addFields: {
-          latestNotice: {
-            $arrayElemAt: [
-              {
-                $sortArray: {
-                  input: '$notices',
-                  sortBy: { publishedAt: -1 },
-                },
-              },
-              0,
-            ],
-          },
+          latestNotice: { $arrayElemAt: ['$latestNoticeArray', 0] },
         },
       },
       {
@@ -245,24 +233,18 @@ router.get('/top-relisted', async (req, res, next) => {
       {
         $lookup: {
           from: 'auctionnotices',
-          localField: 'sourceIds',
-          foreignField: 'sourceId',
-          as: 'notices',
+          let: { sourceIds: '$sourceIds' },
+          pipeline: [
+            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
+            { $sort: { publishedAt: -1 } },
+            { $limit: 1 }
+          ],
+          as: 'latestNoticeArray',
         },
       },
       {
         $addFields: {
-          latestNotice: {
-            $arrayElemAt: [
-              {
-                $sortArray: {
-                  input: '$notices',
-                  sortBy: { publishedAt: -1 },
-                },
-              },
-              0,
-            ],
-          },
+          latestNotice: { $arrayElemAt: ['$latestNoticeArray', 0] },
         },
       },
       {

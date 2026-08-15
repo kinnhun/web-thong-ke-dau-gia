@@ -1,7 +1,18 @@
 @echo off
 title Web Thong Ke Dau Gia
 
-cd /d "%~dp0"
+:: Tự động tìm đường dẫn dự án chính xác (bao gồm cả thư mục con web-thong-ke-dau-gia)
+if exist "d:\web thong ke dau gia\web-thong-ke-dau-gia\package.json" (
+    cd /d "d:\web thong ke dau gia\web-thong-ke-dau-gia"
+) else if exist "%~dp0web-thong-ke-dau-gia\package.json" (
+    cd /d "%~dp0web-thong-ke-dau-gia"
+) else if exist "d:\web-thong-ke-dau-gia\package.json" (
+    cd /d "d:\web-thong-ke-dau-gia"
+) else if exist "d:\web thong ke dau gia\package.json" (
+    cd /d "d:\web thong ke dau gia"
+) else (
+    cd /d "%~dp0"
+)
 
 echo ========================================
 echo   Dang khoi dong du an...
