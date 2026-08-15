@@ -17,7 +17,7 @@ if exist "d:\web thong ke dau gia\web-thong-ke-dau-gia\package.json" (
 ) else (
     echo.
     echo ❌ KHONG TIM THAY THU MUC DU AN CHUA PACKAGE.JSON!
-    echo Vui long kiem tra thu muc web-thong-ke-dau-gia
+    echo Vui long kiem tra lai thu muc web-thong-ke-dau-gia
     echo.
     pause
     exit /b
@@ -25,6 +25,20 @@ if exist "d:\web thong ke dau gia\web-thong-ke-dau-gia\package.json" (
 
 echo.
 echo ✅ Da vao thu muc du an: %CD%
+
+:: Kiểm tra nếu chưa build (.next) thì tự động chạy npm run build
+if not exist ".next" (
+    echo.
+    echo ⚠️ Chua thay thu muc build (.next). Dang tu dong build du an...
+    call npm run build
+    if errorlevel 1 (
+        echo.
+        echo ❌ BUILD THAT BAI! Vui long kiem tra lai loi tren.
+        pause
+        exit /b
+    )
+)
+
 echo ========================================
 echo   Dang khoi dong du an (npm run start)...
 echo   Frontend: http://localhost:1234
