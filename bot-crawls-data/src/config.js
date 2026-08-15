@@ -10,13 +10,13 @@ module.exports = {
     pageSize: parseInt(process.env.CRAWL_PAGE_SIZE || '100', 10),
     maxPages: parseInt(process.env.CRAWL_MAX_PAGES || '0', 10), // 0 = unlimited
     // Gặp N bản ghi cũ liên tiếp → dừng, vì đã cào hết data mới
-    skipThreshold: parseInt(process.env.CRAWL_SKIP_THRESHOLD || '20', 10),
+    skipThreshold: parseInt(process.env.CRAWL_SKIP_THRESHOLD || '50', 10),
   },
   api: {
     port: parseInt(process.env.API_PORT || '4321', 10),
   },
   baseUrl: process.env.BASE_URL || 'https://dgts.moj.gov.vn',
-  cron: process.env.CRON_SCHEDULE || '*/15 * * * *', // Mỗi 15 phút
+  cron: process.env.CRON_SCHEDULE || '*/5 * * * *', // Mỗi 5 phút
 
   // API endpoints
   endpoints: {

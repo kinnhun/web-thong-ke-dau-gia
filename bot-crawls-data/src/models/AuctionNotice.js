@@ -95,6 +95,9 @@ const auctionNoticeSchema = new mongoose.Schema({
   rootId: Number,                                  // ID gốc (rootID từ API)
   relatedIds: [Number],                            // Tất cả IDs liên quan (các lần đăng)
 
+  // Multi-asset & Batch flags
+  isBatchNotice: { type: Boolean, default: false, index: true },
+
   // Crawl tracking
   detailScraped: { type: Boolean, default: false },
   zeroPriceRetryCount: { type: Number, default: 0 },

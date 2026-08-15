@@ -246,7 +246,12 @@ router.get('/auctions', async (req, res, next) => {
       }
       if (req.query.auctionDateTo && req.query.auctionDateTo !== "") {
         const d = new Date(req.query.auctionDateTo);
-        if (!isNaN(d.getTime())) filter.auctionDate.$lte = d;
+        if (!isNaN(d.getTime())) {
+          if (typeof req.query.auctionDateTo === 'string' && !req.query.auctionDateTo.includes('23:59')) {
+            d.setHours(23, 59, 59, 999);
+          }
+          filter.auctionDate.$lte = d;
+        }
       }
       if (Object.keys(filter.auctionDate).length === 0) delete filter.auctionDate;
     }
@@ -258,7 +263,12 @@ router.get('/auctions', async (req, res, next) => {
       }
       if (req.query.publishedAtTo && req.query.publishedAtTo !== "") {
         const d = new Date(req.query.publishedAtTo);
-        if (!isNaN(d.getTime())) filter.publishedAt.$lte = d;
+        if (!isNaN(d.getTime())) {
+          if (typeof req.query.publishedAtTo === 'string' && !req.query.publishedAtTo.includes('23:59')) {
+            d.setHours(23, 59, 59, 999);
+          }
+          filter.publishedAt.$lte = d;
+        }
       }
       if (Object.keys(filter.publishedAt).length === 0) delete filter.publishedAt;
     }

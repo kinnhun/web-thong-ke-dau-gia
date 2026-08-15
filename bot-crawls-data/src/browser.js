@@ -4,6 +4,7 @@
  * Chạy browser ở chế độ visible để pass challenge
  */
 const puppeteer = require('puppeteer');
+const path = require('path');
 const config = require('./config');
 
 let browser = null;
@@ -121,6 +122,22 @@ async function createManagedPage() {
   return nextPage;
 }
 
+const fs = require('fs');
+
+function getExecutablePath() {
+  const paths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(process.env.PROGRAMFILES || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+  ];
+  for (const p of paths) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  return undefined; // Puppeteer fallback to bundled Chromium
+}
+
 async function ensureBrowserContext(forceReset = false) {
   // Lock này chỉ dùng để bảo vệ việc khởi tạo/reset browser/page
   const currentLock = contextLock;
@@ -135,9 +152,10 @@ async function ensureBrowserContext(forceReset = false) {
     }
 
     if (!browser) {
-      console.log('🌐 Đang khởi tạo browser (headless mode)...');
+      console.log('🌐 Đang khởi tạo trình duyệt (Headless Mode)...');
+      const exePath = getExecutablePath();
       browser = await puppeteer.launch({
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        ...(exePath ? { executablePath: exePath } : {}),
         headless: 'new',
         args: [
           '--no-sandbox',
@@ -278,6 +296,7 @@ async function waitForRealPage(targetPage, maxWait = 30000) {
     if (!hasFEC) {
       const title = await evaluateWithRecovery((activePage) => activePage.title(), 'Đọc title', 1);
       console.log(`  📋 Trang đã load: "${title}"`);
+      console.log(`  🔑 Đang vượt rào Anti-Bot (Front-End Challenge), vui lòng chờ 5-10 giây...`);
       return true;
     }
 

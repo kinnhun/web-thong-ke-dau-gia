@@ -104,18 +104,16 @@ async function main() {
     }
   } catch (e) { /* ignore */ }
 
-  // Schedule auto-crawl mỗi 15 phút (giảm từ 5 phút để bớt tải)
-  const schedule = process.env.CRON_SCHEDULE || '*/15 * * * *';
+  // Schedule auto-crawl mỗi 5 phút
+  const schedule = process.env.CRON_SCHEDULE || config.cron || '*/5 * * * *';
   cron.schedule(schedule, runAutoCrawl);
   console.log(`\n⏰ Auto-crawl schedule: ${schedule}`);
   console.log(`🔄 Skip threshold: ${config.crawl.skipThreshold} bản cũ liên tiếp → dừng sớm`);
 
-  // Mặc định không chạy crawl lúc khởi động để tránh tranh browser với mega crawl/manual job.
-  // Nếu cần bật lại: STARTUP_AUTO_CRAWL=true npm run dev:backend
-  // Tự động cào lần đầu ngay lập tức khi vừa khởi động hệ thống, sau đó 15 phút 1 lần
+  // Tự động cào lần 1 sau 2 phút kể từ khi khởi động hệ thống, sau đó 5 phút 1 lần
   if (process.env.STARTUP_AUTO_CRAWL !== 'false') {
-    console.log(`\n🚀 Lần đầu khởi động: Tự động cào dữ liệu ngay lập tức...`);
-    setTimeout(runAutoCrawl, 1000);
+    console.log(`\n🚀 Lần đầu khởi động: Tự động cào dữ liệu sau 2 phút...`);
+    setTimeout(runAutoCrawl, 2 * 60 * 1000);
   } else {
     console.log(`\n⏸️ Bỏ qua crawl khởi động do STARTUP_AUTO_CRAWL=false.`);
   }

@@ -738,10 +738,21 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch =
         continue;
       }
 
-      // BƯỚC 1.5: Định danh MẠNH trùng khớp tuyệt đối (VD: Cùng biển số xe, số khung, số sổ đỏ) → CHẤP NHẬN NGAY
+      // BƯỚC 1.5: Định danh MẠNH trùng khớp tuyệt đối (VD: Cùng biển số xe, số khung, số sổ đỏ, thửa+tờ) → CHẤP NHẬN NGAY
       if (hasMatchingStrongIdentifiers(targetIdentifiers, candidateIdentifiers)) {
         relatedIds.push(c.sourceId);
         continue;
+      }
+
+      // AN TOÀN TUYỆT ĐỐI: Nếu tiêu đề là tiêu đề chung chung (isGenericTitle) hoặc bài đăng lô (isBatchNotice),
+      // KHÔNG ĐƯỢC CHẤP NHẬN FUZZY TEXT MATCH THUẦN TÚY nếu không có Định danh mạnh trùng khớp ở BƯỚC 1.5.
+      const targetIsGeneric = isGenericTitle(name);
+      const targetIsBatch = isBatchNotice(name);
+      const candidateIsGeneric = isGenericTitle(c.name);
+      const candidateIsBatch = isBatchNotice(c.name);
+
+      if (targetIsGeneric || targetIsBatch || candidateIsGeneric || candidateIsBatch) {
+        continue; // Bỏ qua fuzzy text match cho tiêu đề rác/bài lô
       }
 
       // BƯỚC 2: Kiểm tra số (Số nhà, số thửa, số tờ bản đồ...)
@@ -793,6 +804,64 @@ async function searchDuplicatesByFuzzyName(sourceId, name, type, skipApiSearch =
     console.error(`[Duplicate Scan Error] ${sourceId}:`, err.message);
   }
   return relatedIds;
+}
+
+/**
+ * Tìm kiếm tài sản trùng theo AssetItem cấp độ hạt nhân (Sub-Asset Level Matching) cho bài mới vừa cào
+ */
+async function searchDuplicatesByAssetItem(sourceId, doc, type = 'auction') {
+  try {
+    const items = await AssetItem.find({ sourceId, sourceType: type }).lean();
+    if (!items || items.length === 0) return [];
+
+    const relatedSet = new Set();
+
+    for (const item of items) {
+      const ids = item.identifiers || {};
+      const query = [];
+
+      if (ids.plotNumber && ids.mapSheet) {
+        query.push({
+          'identifiers.plotNumber': ids.plotNumber,
+          'identifiers.mapSheet': ids.mapSheet
+        });
+      }
+      if (ids.licensePlate) {
+        query.push({ 'identifiers.licensePlate': ids.licensePlate });
+      }
+      if (ids.chassisNumber) {
+        query.push({ 'identifiers.chassisNumber': ids.chassisNumber });
+      }
+      if (ids.certificateNumber) {
+        query.push({ 'identifiers.certificateNumber': ids.certificateNumber });
+      }
+      if (ids.houseNumber && (item.district || item.province)) {
+        query.push({
+          'identifiers.houseNumber': ids.houseNumber,
+          $or: [
+            { district: item.district },
+            { province: item.province }
+          ]
+        });
+      }
+
+      if (query.length === 0) continue;
+
+      const matchedAssetItems = await AssetItem.find({
+        sourceType: type,
+        sourceId: { $ne: sourceId },
+        $or: query
+      }).select('sourceId').lean();
+
+      for (const m of matchedAssetItems) {
+        relatedSet.add(m.sourceId);
+      }
+    }
+
+    return [...relatedSet];
+  } catch (e) {
+    return [];
+  }
 }
 
 function normalizePropertyRows(allItems) {
@@ -2856,6 +2925,7 @@ module.exports = {
   fetchPublishHistory,
   handleDuplicate,
   searchDuplicatesByFuzzyName,
+  searchDuplicatesByAssetItem,
   getFuzzyNameGroupsFiltered,
   buildDuplicateEntries,
   summarizeDuplicateEntries,

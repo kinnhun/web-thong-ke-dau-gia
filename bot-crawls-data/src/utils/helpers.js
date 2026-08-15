@@ -863,6 +863,13 @@ function parseDate(dateVal) {
     const str = dateVal.trim();
     if (!str) return null;
 
+    // 1.5. Nếu là chuỗi số (numeric timestamp string "1786523249791")
+    if (/^\d{10,13}$/.test(str)) {
+      const num = parseInt(str, 10);
+      const d = new Date(num);
+      if (!isNaN(d.getTime())) return d;
+    }
+
     // 2. ISO String hoặc dạng chuẩn JS
     if (str.includes('T')) {
       const d = new Date(str);
