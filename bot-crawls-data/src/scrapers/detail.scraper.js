@@ -906,6 +906,9 @@ async function fetchAuctionItemDetail(sourceId, existingName = '') {
   if (!hasPropData && !hasViewData) {
     const propErrMsg = propResult.status === 'rejected' ? propResult.reason?.message : 'No items';
     const viewErrMsg = viewResult.status === 'rejected' ? viewResult.reason?.message : 'No view data';
+    if (propErrMsg === 'No items' && viewErrMsg === 'No view data') {
+      throw new Error(`Bài đăng ${sourceId} không còn tồn tại hoặc đã bị xóa trên cổng Bộ Tư Pháp`);
+    }
     throw new Error(`Failed to fetch auction details for ${sourceId}: propertyInfo (${propErrMsg}), viewDetail (${viewErrMsg})`);
   }
 
