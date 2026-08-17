@@ -1693,7 +1693,7 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
         }
 
         function isTransientMessage(message) {
-          return /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket|Target closed|Session closed|Protocol error|Execution context/i.test(message);
+          return /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket|closed|Target closed|Session closed|Protocol error|Execution context|Connection/i.test(message);
         }
 
         function pushFailure(sourceId, message) {
@@ -1705,13 +1705,13 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
 
         async function fetchItemDetailWithRetry(item) {
           let lastError;
-          for (let attempt = 1; attempt <= 2; attempt += 1) {
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
             try {
               return await fetchFn(item.sourceId);
             } catch (error) {
               lastError = error;
               const message = getErrorMessage(error);
-              if (isLikelyBlockedMessage(message) || !isTransientMessage(message) || attempt >= 2) {
+              if (isLikelyBlockedMessage(message) || attempt >= 3) {
                 throw error;
               }
               await sleep(1000 * attempt);

@@ -370,9 +370,14 @@ async function fetchAPI(endpoint, params = {}, maxRetries = 2, extraHeaders = {}
     }, url), `Fetch API ${endpoint}`, 1);
 
     if (result.error) {
-      if (result.isAuthError && attempt <= maxRetries) {
-        console.warn(`⚠️ HTTP ${result.status} (Cookie/Session hết hạn), đang tải lại trang để lấy Cookie mới... (lần ${attempt}/${maxRetries})`);
-        isReady = false; // Ép buộc initBrowser() ở vòng lặp tiếp theo phải chạy lại
+      const isTransientNetwork = /Connection closed|Failed to fetch|aborted|timeout|network|ECONNRESET/i.test(result.message || '');
+      if ((result.isAuthError || isTransientNetwork) && attempt <= maxRetries) {
+        if (result.isAuthError) {
+          console.warn(`⚠️ HTTP ${result.status} (Cookie/Session hết hạn), đang tải lại trang để lấy Cookie mới... (lần ${attempt}/${maxRetries})`);
+          isReady = false; // Ép buộc initBrowser() ở vòng lặp tiếp theo phải chạy lại
+        } else {
+          await sleep(1000 * attempt);
+        }
         continue;
       }
       throw new Error(`${result.message || result.status}`);
