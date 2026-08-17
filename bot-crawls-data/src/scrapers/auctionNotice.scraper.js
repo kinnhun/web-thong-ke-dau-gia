@@ -320,12 +320,16 @@ async function processItems(items, stats, options = {}) {
 
 function buildAuctionData(item) {
   const sourceId = Number(item.id);
-  const name = item.propertyName || item.subPropertyName || item.titleName || '';
-  const shortDescription = item.subPropertyName || '';
+  const name = item.propertyName || item.subPropertyName || item.titleName || item.nameAsset || item.assetName || item.title || item.name || '';
+  const shortDescription = item.subPropertyName || item.titleName || '';
   const propertyTypeName = item.propertyTypeName || '';
   const type = mapAssetType(propertyTypeName, name);
   const province = resolveAuctionProvince(item, name, shortDescription);
   const slug = slugify(shortDescription || name);
+
+  // Thử tất cả các trường giá khởi điểm từ API danh sách
+  const initialPriceRaw = item.startingPrice || item.initialPrice || item.price || item.startPrice || item.propertyPrice;
+  const initialPrice = initialPriceRaw ? Number(initialPriceRaw) : undefined;
 
   // Thử tất cả các trường ngày xuất bản từ API
   const publishedAt = parseDate(item.publishedAt)
@@ -341,12 +345,16 @@ function buildAuctionData(item) {
   const registrationStart = parseDate(item.aucRegTimeStart) || parseDate(item.registrationStart);
   const registrationEnd = parseDate(item.aucRegTimeEnd) || parseDate(item.registrationEnd);
 
+  const organizer = item.org_name || item.organizer || item.orgName || item.organizerName || '';
+  const owner = item.fullname || item.owner || item.ownerName || item.sellerName || '';
+
   return {
     sourceId,
     name, shortDescription, titleName: item.titleName || '', slug, type, province,
+    initialPrice, currentPrice: initialPrice,
     propertyTypeId: item.propertyTypeId, propertyTypeName,
     publishedAt, auctionDate, registrationStart, registrationEnd,
-    organizer: item.org_name || item.organizer || '', owner: item.fullname || item.owner || '',
+    organizer, owner,
     sourceUrl: `${BASE}${config.endpoints.auctionDetailBase}/${slug}-${item.id}.html`,
     status: deriveStatus(registrationEnd, auctionDate),
     isBatchNotice: isBatchNotice(name),

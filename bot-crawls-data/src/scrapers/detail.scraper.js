@@ -16,7 +16,7 @@ const Duplicate = require('../models/Duplicate');
 const CrawlLog = require('../models/CrawlLog');
 const AssetItem = require('../models/AssetItem');
 const PotentialDuplicate = require('../models/PotentialDuplicate');
-const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, isSignificantNumber, isGenericTitle, isBatchNotice, extractLocationIdentity, generateBlockingKeys, detectHardConflict, compareArea, compareRelistPrice, scoreAssetPair } = require('../utils/helpers');
+const { delay, slugify, extractProvince, normalizeProvince, getBigrams, jaccardSimilarity, overlapSimilarity, extractCoreIdentity, getNumberTokens, extractPropertyIdentifiers, hasConflictingIdentifiers, hasMatchingStrongIdentifiers, isSignificantNumber, isGenericTitle, isBatchNotice, parseDate, deriveStatus, extractLocationIdentity, generateBlockingKeys, detectHardConflict, compareArea, compareRelistPrice, scoreAssetPair } = require('../utils/helpers');
 
 const duplicateScanState = {
   isRunning: false,
@@ -284,7 +284,7 @@ function buildDuplicateEntriesFromItems(sourceIds, items, type) {
 }
 
 function isAuctionDetailIncomplete(item) {
-  // Chỉ kiểm tra các trường có thể lấy được từ API Detail
+  // Kiểm tra các trường quan trọng để đảm bảo chi tiết tài sản đầy đủ
   return item.detailScraped !== true
     || !Array.isArray(item.properties)
     || item.properties.length === 0
@@ -292,7 +292,9 @@ function isAuctionDetailIncomplete(item) {
     || !item.address
     || !item.name
     || !item.province
-    || !item.sourceUrl;
+    || !item.organizer
+    || !item.owner
+    || !item.publishedAt;
 }
 
 async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
@@ -300,7 +302,7 @@ async function recrawlMissingAuctionDetails(sourceIds, options = {}) {
   if (ids.length === 0) return { updated: 0, skipped: 0, errors: 0 };
 
   const items = await AuctionNotice.find({ sourceId: { $in: ids } })
-    .select('_id sourceId detailScraped properties initialPrice address name province')
+    .select('_id sourceId detailScraped properties initialPrice address name province organizer owner publishedAt')
     .lean();
   const itemBySourceId = new Map(items.map((item) => [item.sourceId, item]));
   const force = options.force === true;
@@ -897,70 +899,115 @@ async function fetchAuctionItemDetail(sourceId, existingName = '') {
     fetchPublishHistory(sourceId),
   ]);
 
-  // Kiểm tra tính hợp lệ của API quan trọng nhất (/portal/propertyInfo)
-  if (propResult.status === 'rejected') {
-    throw new Error(`Critical API /portal/propertyInfo failed: ${propResult.reason?.message || 'Rejected'}`);
-  }
-  
-  const propVal = propResult.value;
-  if (!propVal || !propVal.items || propVal.items.length === 0) {
-    throw new Error(`Critical API /portal/propertyInfo returned no items`);
+  const hasPropData = propResult.status === 'fulfilled' && propResult.value && Array.isArray(propResult.value.items) && propResult.value.items.length > 0;
+  const hasViewData = viewResult.status === 'fulfilled' && viewResult.value && (viewResult.value.subPropertyName || viewResult.value.propertyName || viewResult.value.titleName || viewResult.value.org_name || viewResult.value.fullname);
+
+  // Chỉ throw lỗi nếu CẢ 2 API quan trọng nhất đều thất bại/bị lỗi
+  if (!hasPropData && !hasViewData) {
+    const propErrMsg = propResult.status === 'rejected' ? propResult.reason?.message : 'No items';
+    const viewErrMsg = viewResult.status === 'rejected' ? viewResult.reason?.message : 'No view data';
+    throw new Error(`Failed to fetch auction details for ${sourceId}: propertyInfo (${propErrMsg}), viewDetail (${viewErrMsg})`);
   }
 
   // 1. propertyInfo → tên tài sản, giá, địa chỉ, danh sách tài sản
-  if (propResult.status === 'fulfilled' && propResult.value) {
-    const json = propResult.value;
-    if (json.items && json.items.length > 0) {
-      const allItems = json.items;
-      const prop = allItems[0];
-      if (prop.propertyPlace) {
-        updates.address = prop.propertyPlace;
-        const province = extractProvince(prop.propertyPlace);
-        if (province) updates.province = province;
-      }
-      if (prop.fileCost) updates.applicationFee = prop.fileCost;
-      if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
-      if (prop.propertyQuality) updates.quality = prop.propertyQuality;
+  if (hasPropData) {
+    const allItems = propResult.value.items;
+    const prop = allItems[0];
+    if (prop.propertyPlace) {
+      updates.address = prop.propertyPlace;
+      const province = extractProvince(prop.propertyPlace);
+      if (province) updates.province = province;
+    }
+    if (prop.fileCost) updates.applicationFee = prop.fileCost;
+    if (prop.propertyAmount) updates.propertyAmount = prop.propertyAmount;
+    if (prop.propertyQuality) updates.quality = prop.propertyQuality;
 
-      // Only update name if existingName is missing/generic or updates.name is missing
-      const cleanExisting = existingName && !isGenericTitle(existingName);
-      if (!cleanExisting) {
-        const assetName = allItems
-          .map(p => p.propertyName || p.propertyDesc || '')
-          .filter(Boolean)
-          .join('; ');
-        if (assetName) updates.name = assetName;
-      }
+    // Only update name if existingName is missing/generic or updates.name is missing
+    const cleanExisting = existingName && !isGenericTitle(existingName);
+    if (!cleanExisting) {
+      const assetName = allItems
+        .map(p => p.propertyName || p.propertyDesc || '')
+        .filter(Boolean)
+        .join('; ');
+      if (assetName) updates.name = assetName;
+    }
 
-      const properties = normalizePropertyRows(allItems);
-      const safeProperties = Array.isArray(properties) ? properties : [];
-      updates.properties = safeProperties;
+    const properties = normalizePropertyRows(allItems);
+    const safeProperties = Array.isArray(properties) ? properties : [];
+    updates.properties = safeProperties;
 
-      const totalPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
-      const totalDeposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
-      const percentDeposits = safeProperties
-        .map((p) => p.depositPercent)
-        .filter(Boolean);
-      updates.initialPrice = totalPrice || undefined;
-      updates.currentPrice = totalPrice || undefined;
-      updates.deposit = totalDeposit || undefined;
+    const totalPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
+    const totalDeposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
+    const percentDeposits = safeProperties
+      .map((p) => p.depositPercent)
+      .filter(Boolean);
+    if (totalPrice > 0) {
+      updates.initialPrice = totalPrice;
+      updates.currentPrice = totalPrice;
+    }
+    if (totalDeposit > 0) updates.deposit = totalDeposit;
+    if (percentDeposits.length > 0) {
       updates.depositPercent = percentDeposits.length === 1
         ? percentDeposits[0]
-        : percentDeposits.length > 1
-          ? percentDeposits.join(' + ')
-          : undefined;
+        : percentDeposits.join(' + ');
     }
   }
 
-  // 2. viewDetailAuctionInfo → tên tài sản (fallback) + files
+  // 2. viewDetailAuctionInfo → tên tài sản, tổ chức, người có tài sản, ngày tháng, files
   if (viewResult.status === 'fulfilled' && viewResult.value) {
     const viewDetail = viewResult.value;
 
-    if (!updates.name && !existingName && viewDetail.subPropertyName) {
-      updates.name = viewDetail.subPropertyName;
+    if (!updates.name && !existingName && (viewDetail.subPropertyName || viewDetail.propertyName || viewDetail.titleName)) {
+      updates.name = viewDetail.subPropertyName || viewDetail.propertyName || viewDetail.titleName;
     }
     if (viewDetail.subPropertyName) {
       updates.shortDescription = viewDetail.subPropertyName;
+    }
+
+    // Đơn vị tổ chức & Người có tài sản
+    const organizer = viewDetail.org_name || viewDetail.organizer || viewDetail.orgName || '';
+    if (organizer) updates.organizer = organizer;
+
+    const owner = viewDetail.fullname || viewDetail.owner || viewDetail.ownerName || viewDetail.sellerName || '';
+    if (owner) updates.owner = owner;
+
+    // Giá khởi điểm fallback từ viewDetail nếu propertyInfo không có
+    if (!updates.initialPrice) {
+      const fallbackPrice = viewDetail.startingPrice || viewDetail.initialPrice || viewDetail.price || viewDetail.propertyPrice;
+      if (fallbackPrice) {
+        updates.initialPrice = Number(fallbackPrice) || undefined;
+        updates.currentPrice = Number(fallbackPrice) || undefined;
+      }
+    }
+
+    // Ngày tháng
+    const publishedAt = parseDate(viewDetail.publishedAt)
+      || parseDate(viewDetail.publishTime1)
+      || parseDate(viewDetail.publishTime2)
+      || parseDate(viewDetail.publishTime)
+      || parseDate(viewDetail.createdDate);
+    if (publishedAt) updates.publishedAt = publishedAt;
+
+    const auctionDate = parseDate(viewDetail.aucTime) || parseDate(viewDetail.auctionDate);
+    if (auctionDate) updates.auctionDate = auctionDate;
+
+    const registrationStart = parseDate(viewDetail.aucRegTimeStart) || parseDate(viewDetail.registrationStart);
+    if (registrationStart) updates.registrationStart = registrationStart;
+
+    const registrationEnd = parseDate(viewDetail.aucRegTimeEnd) || parseDate(viewDetail.registrationEnd);
+    if (registrationEnd) updates.registrationEnd = registrationEnd;
+
+    if (updates.registrationEnd || updates.auctionDate) {
+      updates.status = deriveStatus(updates.registrationEnd, updates.auctionDate);
+    }
+
+    // Tỉnh thành
+    if (!updates.province) {
+      const provinceStr = viewDetail.provinceName || viewDetail.propertyPlace || viewDetail.address || '';
+      if (provinceStr) {
+        const prov = extractProvince(provinceStr);
+        if (prov) updates.province = prov;
+      }
     }
 
     if (Array.isArray(viewDetail.listFile) && viewDetail.listFile.length > 0) {
@@ -997,51 +1044,58 @@ async function fetchOrgItemDetail(sourceId) {
     fetchAPI('/ThongTin/getInfoEditNotice', { id: sourceId }),
   ]);
 
-  // Kiểm tra tính hợp lệ của API quan trọng nhất (/portal/propertyInfo)
-  if (propResult.status === 'rejected') {
-    throw new Error(`Critical API /portal/propertyInfo failed: ${propResult.reason?.message || 'Rejected'}`);
-  }
-  
-  const propVal = propResult.value;
-  if (!propVal || !propVal.items || propVal.items.length === 0) {
-    throw new Error(`Critical API /portal/propertyInfo returned no items`);
+  const hasPropData = propResult.status === 'fulfilled' && propResult.value && Array.isArray(propResult.value.items) && propResult.value.items.length > 0;
+  const hasEditData = editResult.status === 'fulfilled' && editResult.value && (editResult.value.id || editResult.value.listFileNotice || editResult.value.property);
+
+  // Chỉ throw lỗi nếu CẢ 2 API đều không trả dữ liệu
+  if (!hasPropData && !hasEditData) {
+    const propErrMsg = propResult.status === 'rejected' ? propResult.reason?.message : 'No items';
+    const editErrMsg = editResult.status === 'rejected' ? editResult.reason?.message : 'No edit notice data';
+    throw new Error(`Failed to fetch org details for ${sourceId}: propertyInfo (${propErrMsg}), getInfoEditNotice (${editErrMsg})`);
   }
 
   // 1. propertyInfo → tên tài sản, giá, địa chỉ
-  if (propResult.status === 'fulfilled' && propResult.value) {
-    const json = propResult.value;
-    if (json.items && json.items.length > 0) {
-      const allItems = json.items;
-      const prop = allItems[0];
-      if (prop.propertyPlace) updates.address = prop.propertyPlace;
-      if (prop.propertyQuality) updates.propertyTypeName = prop.propertyQuality;
+  if (hasPropData) {
+    const allItems = propResult.value.items;
+    const prop = allItems[0];
+    if (prop.propertyPlace) updates.address = prop.propertyPlace;
+    if (prop.propertyQuality) updates.propertyTypeName = prop.propertyQuality;
 
-      // ★ FIX: Lấy tên tài sản từ propertyInfo
-      const assetName = allItems
-        .map(p => p.propertyName || p.propertyDesc || '')
-        .filter(Boolean)
-        .join('; ');
-      if (assetName) updates.name = assetName;
+    // ★ FIX: Lấy tên tài sản từ propertyInfo
+    const assetName = allItems
+      .map(p => p.propertyName || p.propertyDesc || '')
+      .filter(Boolean)
+      .join('; ');
+    if (assetName) updates.name = assetName;
 
-      const properties = normalizePropertyRows(allItems);
-      const safeProperties = Array.isArray(properties) ? properties : [];
-      updates.properties = safeProperties;
-      const percentDeposits = safeProperties
-        .map((p) => p.depositPercent)
-        .filter(Boolean);
-      updates.startingPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
-      updates.deposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
-      updates.depositPercent = percentDeposits.length === 1
-        ? percentDeposits[0]
-        : percentDeposits.length > 1
-          ? percentDeposits.join(' + ')
-          : undefined;
-    }
+    const properties = normalizePropertyRows(allItems);
+    const safeProperties = Array.isArray(properties) ? properties : [];
+    updates.properties = safeProperties;
+    const percentDeposits = safeProperties
+      .map((p) => p.depositPercent)
+      .filter(Boolean);
+    updates.startingPrice = safeProperties.reduce((s, p) => s + (p.startPrice || 0), 0);
+    updates.deposit = safeProperties.reduce((s, p) => s + (p.deposit || 0), 0);
+    updates.depositPercent = percentDeposits.length === 1
+      ? percentDeposits[0]
+      : percentDeposits.length > 1
+        ? percentDeposits.join(' + ')
+        : undefined;
   }
 
-  // 2. getInfoEditNotice → files
+  // 2. getInfoEditNotice → files & owner/organizer
   if (editResult.status === 'fulfilled' && editResult.value) {
     const editNotice = editResult.value;
+    if (editNotice.fullname || editNotice.ownerName) {
+      updates.owner = editNotice.fullname || editNotice.ownerName;
+    }
+    if (editNotice.org_name || editNotice.orgName) {
+      updates.organizer = editNotice.org_name || editNotice.orgName;
+    }
+    if (!updates.startingPrice && (editNotice.startingPrice || editNotice.initialPrice)) {
+      updates.startingPrice = Number(editNotice.startingPrice || editNotice.initialPrice) || 0;
+    }
+
     if (Array.isArray(editNotice.listFileNotice)) {
       editNotice.listFileNotice.forEach(f => {
         if (f.linkFile) {

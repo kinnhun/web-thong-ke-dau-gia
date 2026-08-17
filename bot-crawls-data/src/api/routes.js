@@ -1369,6 +1369,8 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
               ...isMissingNumber('initialPrice'),
               ...isMissingString('name'),
               ...isMissingString('province'),
+              ...isMissingString('organizer'),
+              ...isMissingString('owner'),
             ]
           },
           { $or: [{ zeroPriceRetryCount: { $exists: false } }, { zeroPriceRetryCount: { $lt: 2 } }] }
@@ -1594,6 +1596,8 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
         ...isMissingString('name'),
         ...isMissingString('province'),
         ...isMissingString('address'),
+        ...isMissingString('organizer'),
+        ...isMissingString('owner'),
         ...isMissingNumber('initialPrice'),
         ...isMissingNumber('currentPrice'),
       ],

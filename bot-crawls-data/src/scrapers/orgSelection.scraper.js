@@ -92,10 +92,10 @@ async function processItems(items, stats, options = {}) {
   const isAuto = options.isAuto || false;
   let consecutiveOld = options.prevOld || 0;
 
-  // ⚡ Batch check: Ép kiểu Number nhất quán
+  // ⚡ Batch check: Lấy sourceId và cờ detailScraped
   const sourceIds = items.map(i => Number(i.id)).filter(Boolean);
-  const existingDocs = await OrgSelection.find({ sourceId: { $in: sourceIds } }).select('sourceId').lean();
-  const existingSet = new Set(existingDocs.map(d => Number(d.sourceId)));
+  const existingDocs = await OrgSelection.find({ sourceId: { $in: sourceIds } }).select('sourceId detailScraped').lean();
+  const existingMap = new Map(existingDocs.map(d => [Number(d.sourceId), d.detailScraped === true]));
 
   const newItems = [];
   let reachedThreshold = false;
@@ -104,7 +104,9 @@ async function processItems(items, stats, options = {}) {
     const sourceId = Number(item.id);
     if (!sourceId) { stats.skipped++; continue; }
 
-    if (existingSet.has(sourceId)) {
+    const isFullyScraped = existingMap.has(sourceId) && existingMap.get(sourceId) === true;
+
+    if (isFullyScraped) {
       stats.skipped++;
       if (isAuto) {
         consecutiveOld++;
@@ -132,7 +134,7 @@ async function processItems(items, stats, options = {}) {
       try {
         const { updates, files } = await fetchOrgItemDetail(sourceId);
         Object.assign(data, updates);
-        if (files.length > 0) data.files = files;
+        if (files && files.length > 0) data.files = files;
         data.detailScraped = true;
         
         await delay(1500 + Math.random() * 1500); // Thêm delay tránh anti-bot
@@ -143,12 +145,16 @@ async function processItems(items, stats, options = {}) {
       }
     }));
 
-    // Lưu DB tuần tự
+    // Lưu DB tuần tự bằng findOneAndUpdate (upsert an toàn)
     for (const result of results) {
       if (result.status === 'fulfilled') {
         const { data, hasDetail } = result.value;
         try {
-          await OrgSelection.create(data);
+          await OrgSelection.findOneAndUpdate(
+            { sourceId: data.sourceId },
+            { $set: data },
+            { upsert: true, new: true }
+          );
           stats.inserted++;
           if (hasDetail) stats.detailOk++;
         } catch (err) {
@@ -168,15 +174,21 @@ async function processItems(items, stats, options = {}) {
 }
 
 function buildOrgData(item) {
-  const name = item.propertyName || item.subPropertyName || item.titleName || '';
-  const shortDescription = item.subPropertyName || '';
+  const name = item.propertyName || item.subPropertyName || item.titleName || item.nameAsset || item.assetName || item.title || item.name || '';
+  const shortDescription = item.subPropertyName || item.titleName || '';
   const slug = slugify(shortDescription || name);
   const province = extractProvince(name + ' ' + shortDescription);
 
+  const startingPriceRaw = item.startingPrice || item.initialPrice || item.price || item.startPrice || item.propertyPrice;
+  const startingPrice = startingPriceRaw ? Number(startingPriceRaw) : undefined;
+  const owner = item.fullname || item.owner || item.ownerName || item.sellerName || '';
+  const organizer = item.org_name || item.organizer || item.orgName || item.organizerName || '';
+
   return {
     name, shortDescription, slug,
-    owner: item.fullname || '',
-    publishedAt: parseDate(item.lastUpdated),
+    owner, organizer,
+    startingPrice,
+    publishedAt: parseDate(item.lastUpdated || item.publishedAt),
     lastUpdated: parseDate(item.lastUpdated),
     receiveTimeStart: parseDate(item.receiveTimeStart),
     receiveTimeEnd: parseDate(item.receiveTimeEnd),

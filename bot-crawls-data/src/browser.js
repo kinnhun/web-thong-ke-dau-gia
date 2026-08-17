@@ -314,7 +314,7 @@ async function waitForRealPage(targetPage, maxWait = 30000) {
 /**
  * Fetch JSON từ API thông qua browser (bypass FEC)
  */
-async function fetchAPI(endpoint, params = {}, maxRetries = 2) {
+async function fetchAPI(endpoint, params = {}, maxRetries = 2, extraHeaders = {}) {
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     await initBrowser();
 
@@ -324,15 +324,29 @@ async function fetchAPI(endpoint, params = {}, maxRetries = 2) {
 
     const url = `${config.baseUrl}${endpoint}${queryString ? `?${queryString}` : ''}`;
 
-    const result = await evaluateWithRecovery(async (activePage) => activePage.evaluate(async (fetchUrl) => {
+    const headers = {
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest',
+      ...extraHeaders,
+    };
+
+    if (!headers.Referer && !headers.referer) {
+      const infoId = params.auctionInfoId || params.id;
+      if (infoId) {
+        if (endpoint.includes('SelectAuctionOrg') || endpoint.includes('EditNotice')) {
+          headers['Referer'] = `${config.baseUrl}/thong-bao-lua-chon-to-chuc-dau-gia/detail-${infoId}.html`;
+        } else {
+          headers['Referer'] = `${config.baseUrl}/thong-bao-cong-khai-viec-dau-gia/detail-${infoId}.html`;
+        }
+      }
+    }
+
+    const result = await evaluateWithRecovery(async (activePage) => activePage.evaluate(async (fetchUrl, reqHeaders) => {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         const res = await fetch(fetchUrl, {
-          headers: {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
+          headers: reqHeaders,
           credentials: 'same-origin',
           signal: controller.signal,
         });
