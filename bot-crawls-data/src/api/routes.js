@@ -1377,10 +1377,15 @@ router.post('/trigger-mega-detail-crawl', async (req, res, next) => {
         ]
       };
 
-    const cursor = Model.find(missingDetailQuery)
-      .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
-      .sort({ lastCrawledAt: 1, publishedAt: -1 })
-      .limit(limit)
+    const pipeline = [
+      { $match: missingDetailQuery },
+      { $sort: { publishedAt: -1 } },
+    ];
+    if (limit > 0) pipeline.push({ $limit: limit });
+    pipeline.push({ $project: { _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 } });
+
+    const cursor = Model.aggregate(pipeline)
+      .allowDiskUse(true)
       .cursor();
 
     const totalCount = limit;
@@ -1659,17 +1664,18 @@ router.post('/trigger-recrawl-missing-properties', async (req, res, next) => {
       let cursor = null;
 
       try {
-        const query = Model.find(missingDetailQuery)
-          .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
-          .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 })
-          .batchSize(Math.max(maxConcurrency * 2, 100))
-          .lean();
-
+        const pipeline = [
+          { $match: missingDetailQuery },
+          { $sort: { publishedAt: -1 } },
+        ];
         if (limit > 0) {
-          query.limit(limit);
+          pipeline.push({ $limit: limit });
         }
+        pipeline.push({ $project: { _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 } });
 
-        cursor = query.cursor();
+        cursor = Model.aggregate(pipeline)
+          .allowDiskUse(true)
+          .cursor({ batchSize: Math.max(maxConcurrency * 2, 100) });
         const failedItems = [];
         const recentNotices = [];
         let ok = 0;
@@ -2037,15 +2043,16 @@ router.post('/trigger-crawl-missing-places', async (req, res, next) => {
       let cursor = null;
 
       try {
-        const query = AuctionNotice.find(missingPlaceQuery)
-          .select({ _id: 1, sourceId: 1, name: 1, province: 1, address: 1, initialPrice: 1, deposit: 1, depositPercent: 1, propertyAmount: 1, quality: 1, publishedAt: 1 })
-          .sort({ publishedAt: -1 })
-          .batchSize(Math.max(maxConcurrency * 2, 50))
-          .lean();
+        const pipeline = [
+          { $match: missingPlaceQuery },
+          { $sort: { publishedAt: -1 } },
+        ];
+        if (limit > 0) pipeline.push({ $limit: limit });
+        pipeline.push({ $project: { _id: 1, sourceId: 1, name: 1, province: 1, address: 1, initialPrice: 1, deposit: 1, depositPercent: 1, propertyAmount: 1, quality: 1, publishedAt: 1 } });
 
-        if (limit > 0) query.limit(limit);
-
-        cursor = query.cursor();
+        cursor = AuctionNotice.aggregate(pipeline)
+          .allowDiskUse(true)
+          .cursor({ batchSize: Math.max(maxConcurrency * 2, 50) });
         const failedItems = [];
         const recentNotices = [];
         let ok = 0;
@@ -2340,17 +2347,18 @@ router.post('/trigger-recrawl-missing-price', async (req, res, next) => {
       let cursor = null;
 
       try {
-        const query = Model.find(missingPriceQuery)
-          .select({ _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 })
-          .sort({ publishedAt: -1, createdAt: -1, sourceId: -1 })
-          .batchSize(Math.max(maxConcurrency * 2, 100))
-          .lean();
-
+        const pipeline = [
+          { $match: missingPriceQuery },
+          { $sort: { publishedAt: -1 } },
+        ];
         if (limit > 0) {
-          query.limit(limit);
+          pipeline.push({ $limit: limit });
         }
+        pipeline.push({ $project: { _id: 1, sourceId: 1, name: 1, province: 1, publishedAt: 1 } });
 
-        cursor = query.cursor();
+        cursor = Model.aggregate(pipeline)
+          .allowDiskUse(true)
+          .cursor({ batchSize: Math.max(maxConcurrency * 2, 100) });
         const failedItems = [];
         const recentNotices = [];
         let ok = 0;

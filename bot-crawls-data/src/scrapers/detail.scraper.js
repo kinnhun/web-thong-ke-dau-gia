@@ -2491,7 +2491,7 @@ async function runFullDuplicateScan() {
     const multiAssetItems = await AssetItem.aggregate([
       { $group: { _id: "$sourceId", count: { $sum: 1 } } },
       { $match: { count: { $gt: 1 } } }
-    ]);
+    ]).allowDiskUse(true);
     const multiAssetSet = new Set(multiAssetItems.map(item => item._id));
 
     const mergedGroups = mergeDuplicateGroups([relatedGroups, normalizedNameGroups], multiAssetSet)
@@ -2785,7 +2785,7 @@ async function runOrganizerDuplicateScan(organizerName, existingLog = null) {
     const multiAssetItems = await AssetItem.aggregate([
       { $group: { _id: "$sourceId", count: { $sum: 1 } } },
       { $match: { count: { $gt: 1 } } }
-    ]);
+    ]).allowDiskUse(true);
     const multiAssetSet = new Set(multiAssetItems.map(item => item._id));
 
     // 5. Merge và cập nhật

@@ -94,14 +94,17 @@ router.get('/top-discounted', async (req, res, next) => {
       { $sort: { priceDropPercent: -1 } },
       { $limit: limit },
       {
+        $addFields: {
+          latestSourceId: {
+            $arrayElemAt: [{ $ifNull: ['$sourceIds', []] }, -1],
+          },
+        },
+      },
+      {
         $lookup: {
           from: 'auctionnotices',
-          let: { sourceIds: '$sourceIds' },
-          pipeline: [
-            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
-            { $sort: { publishedAt: -1 } },
-            { $limit: 1 }
-          ],
+          localField: 'latestSourceId',
+          foreignField: 'sourceId',
           as: 'latestNoticeArray',
         },
       },
@@ -159,6 +162,7 @@ router.get('/newly-reduced', async (req, res, next) => {
       {
         $addFields: {
           latestPublishedAt: { $arrayElemAt: [{ $slice: ['$entries.publishedAt', -1] }, 0] },
+          latestSourceId: { $arrayElemAt: [{ $ifNull: ['$sourceIds', []] }, -1] },
         },
       },
       { $sort: { latestPublishedAt: -1 } },
@@ -166,12 +170,8 @@ router.get('/newly-reduced', async (req, res, next) => {
       {
         $lookup: {
           from: 'auctionnotices',
-          let: { sourceIds: '$sourceIds' },
-          pipeline: [
-            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
-            { $sort: { publishedAt: -1 } },
-            { $limit: 1 }
-          ],
+          localField: 'latestSourceId',
+          foreignField: 'sourceId',
           as: 'latestNoticeArray',
         },
       },
@@ -226,6 +226,7 @@ router.get('/top-relisted', async (req, res, next) => {
       {
         $addFields: {
           latestPublishedAt: { $arrayElemAt: [{ $slice: ['$entries.publishedAt', -1] }, 0] },
+          latestSourceId: { $arrayElemAt: [{ $ifNull: ['$sourceIds', []] }, -1] },
         },
       },
       { $sort: { relistCount: -1, latestPublishedAt: -1 } },
@@ -233,12 +234,8 @@ router.get('/top-relisted', async (req, res, next) => {
       {
         $lookup: {
           from: 'auctionnotices',
-          let: { sourceIds: '$sourceIds' },
-          pipeline: [
-            { $match: { $expr: { $in: ['$sourceId', '$$sourceIds'] } } },
-            { $sort: { publishedAt: -1 } },
-            { $limit: 1 }
-          ],
+          localField: 'latestSourceId',
+          foreignField: 'sourceId',
           as: 'latestNoticeArray',
         },
       },

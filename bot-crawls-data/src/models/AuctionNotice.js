@@ -125,5 +125,6 @@ auctionNoticeSchema.index({ type: 1, publishedAt: -1 });
 // ★ Indexes cho mega crawl queries (detailScraped filter)
 auctionNoticeSchema.index({ detailScraped: 1, publishedAt: -1 });
 auctionNoticeSchema.index({ lastCrawledAt: 1, publishedAt: -1 });
+auctionNoticeSchema.index({ publishedAt: -1, createdAt: -1, sourceId: -1 });
 
 module.exports = mongoose.model('AuctionNotice', auctionNoticeSchema);
