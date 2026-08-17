@@ -71,7 +71,7 @@ router.get('/by-province', withCache('byProvince', async (req) => {
         max: { $round: ['$maxDiscount', 1] },
       },
     },
-  ]);
+  ]).allowDiskUse(true);
 }));
 
 /**
@@ -83,7 +83,7 @@ router.get('/by-type', withCache('byType', async () => {
     { $group: { _id: '$type', count: { $sum: 1 } } },
     { $sort: { count: -1 } },
     { $project: { _id: 0, type: '$_id', count: 1 } },
-  ]);
+  ]).allowDiskUse(true);
 }));
 
 /**
@@ -113,7 +113,7 @@ router.get('/monthly-trend', withCache('monthlyTrend', async (req) => {
         avg: { $round: ['$avg', 1] },
       },
     },
-  ]);
+  ]).allowDiskUse(true);
 }));
 
 /**
@@ -157,7 +157,7 @@ router.get('/top-discount', async (req, res, next) => {
       },
     ];
 
-    const data = await Duplicate.aggregate(pipeline);
+    const data = await Duplicate.aggregate(pipeline).allowDiskUse(true);
     
     reportCache[cacheKey] = {
       data,

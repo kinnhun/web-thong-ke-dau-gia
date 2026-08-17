@@ -51,8 +51,10 @@ const duplicateSchema = new mongoose.Schema({
 duplicateSchema.index({ type: 1, isPriceDrop: -1, updatedAt: -1 });
 duplicateSchema.index({ 'sourceIds': 1 });
 duplicateSchema.index({ type: 1, isPriceDrop: 1, priceDropPercent: -1 });
+duplicateSchema.index({ type: 1, isPriceDrop: 1, latestPrice: 1 });
 duplicateSchema.index({ type: 1, relistCount: -1, lastPublishedAt: -1 });
 duplicateSchema.index({ type: 1, lastPublishedAt: -1 });
+duplicateSchema.index({ type: 1, province: 1 });
 duplicateSchema.index({ rootId: 1 });
 duplicateSchema.index({ type: 1, rootId: 1 });
 duplicateSchema.index({ name: 'text' });

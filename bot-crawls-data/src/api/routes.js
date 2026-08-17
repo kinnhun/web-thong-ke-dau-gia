@@ -469,7 +469,7 @@ router.get('/auctions', async (req, res, next) => {
       const sort = { [sortField]: sortOrder };
 
       const [items, total] = await Promise.all([
-        AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).skip(skip).limit(limit).lean(),
+        AuctionNotice.find(filter, AUCTION_LIST_FIELDS).sort(sort).allowDiskUse().skip(skip).limit(limit).lean(),
         AuctionNotice.countDocuments(filter),
       ]);
 
@@ -601,7 +601,7 @@ router.get('/org-selections', async (req, res, next) => {
     if (req.query.search) filter.$text = { $search: req.query.search };
     if (req.query.province) filter.province = { $regex: req.query.province, $options: 'i' };
     const [items, total] = await Promise.all([
-      OrgSelection.find(filter).sort({ publishedAt: -1 }).skip(skip).limit(limit).lean(),
+      OrgSelection.find(filter).sort({ publishedAt: -1 }).allowDiskUse().skip(skip).limit(limit).lean(),
       OrgSelection.countDocuments(filter),
     ]);
     res.json({ items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
@@ -655,7 +655,7 @@ router.get('/duplicates', async (req, res, next) => {
     }
 
     const [rawItems, total] = await Promise.all([
-      Duplicate.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+      Duplicate.find(filter).sort(sort).allowDiskUse().skip(skip).limit(limit).lean(),
       Duplicate.countDocuments(filter),
     ]);
 

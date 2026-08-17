@@ -67,7 +67,7 @@ router.get('/trend', async (req, res, next) => {
           avgDiscount: { $round: ['$avgDiscount', 1] },
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     res.json({ trend });
   } catch (err) {
@@ -130,7 +130,7 @@ router.get('/top-discounted', async (req, res, next) => {
           properties: '$latestNotice.properties',
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     res.json({ items: top });
   } catch (err) {
@@ -199,7 +199,7 @@ router.get('/newly-reduced', async (req, res, next) => {
           properties: '$latestNotice.properties',
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     res.json({ items });
   } catch (err) {
@@ -266,7 +266,7 @@ router.get('/top-relisted', async (req, res, next) => {
           properties: '$latestNotice.properties',
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     res.json({ items });
   } catch (err) {

@@ -115,12 +115,15 @@ auctionNoticeSchema.index({ name: 'text', shortDescription: 'text', address: 'te
 auctionNoticeSchema.index({ type: 1, province: 1 });
 auctionNoticeSchema.index({ publishedAt: -1 });
 auctionNoticeSchema.index({ auctionDate: -1 });
+auctionNoticeSchema.index({ initialPrice: 1 });
+auctionNoticeSchema.index({ initialPrice: -1 });
+auctionNoticeSchema.index({ currentPrice: 1 });
+auctionNoticeSchema.index({ currentPrice: -1 });
+auctionNoticeSchema.index({ province: 1, publishedAt: -1 });
+auctionNoticeSchema.index({ type: 1, publishedAt: -1 });
 
 // ★ Indexes cho mega crawl queries (detailScraped filter)
 auctionNoticeSchema.index({ detailScraped: 1, publishedAt: -1 });
 auctionNoticeSchema.index({ lastCrawledAt: 1, publishedAt: -1 });
-
-// ★ Index cho price range filter
-auctionNoticeSchema.index({ currentPrice: 1 });
 
 module.exports = mongoose.model('AuctionNotice', auctionNoticeSchema);

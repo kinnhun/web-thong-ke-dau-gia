@@ -42,6 +42,16 @@ async function connectDB(attempt = 1) {
 
     isConnected = true;
     console.log(`✅ MongoDB connected: ${config.mongo.uri} (pool: ${minPoolSize}-${maxPoolSize})`);
+
+    // Tự động khởi tạo indexes trên MongoDB server để không bị lỗi sort RAM 100MB
+    Promise.allSettled([
+      require('./models/AuctionNotice').createIndexes(),
+      require('./models/Duplicate').createIndexes(),
+      require('./models/OrgSelection').createIndexes(),
+      require('./models/AssetItem').createIndexes(),
+      require('./models/PotentialDuplicate').createIndexes(),
+    ]).then(() => console.log('⚡ MongoDB indexes created/verified successfully.'))
+      .catch((err) => console.warn('⚠️ Index creation warning:', err.message));
   } catch (err) {
     console.error(`❌ MongoDB connection error (attempt ${attempt}): ${err.message}`);
     // Không exit ngay - tunnel SSH cần thời gian khởi động/switch port khi dùng WARP/1.1.1.1
